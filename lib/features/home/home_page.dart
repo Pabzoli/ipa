@@ -9,9 +9,10 @@ import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
 import '../auth/auth_service.dart';
-import '../questions/questions_page.dart';
+import '../quiz/questions_page.dart';
 import '../player/pi_page.dart';
 import '../../features/multiplayer/bet_screen.dart';
+import '../../features/multiplayer/join_challenge_page.dart'; // Imported for Join Challenge
 import '../leaderboard/leaderboard_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
 
@@ -113,7 +114,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
-      drawer: _AppDrawer(username: username),
+      drawer: _AppDrawer(
+        username: username,
+        // Grabs the first selected anime title from the grid state or falls back to 'general'
+        selectedAnimeTitle: _selected.isNotEmpty ? _selected.first : 'general',
+      ),
       body: FadeTransition(
         opacity: _entranceFade,
         child: CustomScrollView(slivers: [
@@ -393,7 +398,12 @@ class _AnimeCardState extends State<_AnimeCard>
 // ─── Drawer ───────────────────────────────────────────────────────────────────
 class _AppDrawer extends StatelessWidget {
   final String username;
-  const _AppDrawer({required this.username});
+  final String selectedAnimeTitle;
+
+  const _AppDrawer({
+    required this.username,
+    required this.selectedAnimeTitle,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -458,8 +468,24 @@ class _AppDrawer extends StatelessWidget {
             label: 'Multiplayer',
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const BetScreen()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BetScreen(animeTitle: selectedAnimeTitle),
+                ),
+              );
+            },
+          ),
+          _Tile(
+            icon:  Icons.vpn_key_outlined,
+            label: 'Join Challenge',
+            color: const Color(0xFF3ECFCF),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const JoinChallengePage()),
+              );
             },
           ),
           _Tile(
@@ -631,13 +657,6 @@ class _PrizePoolBannerState extends State<_PrizePoolBanner> {
 }
 
 // ─── Rivalry Banner (NEW) ─────────────────────────────────────────────────────
-/// Shows the top 2 universities by total weeklyPoints.
-/// Tapping navigates to [WeeklyLeaderboardPage] on the Campus tab.
-///
-/// The university totals are fetched once in [initState] and cached for
-/// 5 minutes inside [FirestoreService.getTopUniversities], so repeated
-/// home-page rebuilds (score updates, lock-timer ticks) never trigger
-/// extra Firestore reads.
 class _RivalryBanner extends StatefulWidget {
   final VoidCallback onTap;
   const _RivalryBanner({required this.onTap});
@@ -665,13 +684,12 @@ class _RivalryBannerState extends State<_RivalryBanner> {
         _loaded = true;
       });
     } catch (_) {
-      if (mounted) setState(() => _loaded = true); // fail silently
+      if (mounted) setState(() => _loaded = true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Still loading — show a slim skeleton
     if (!_loaded) {
       return _RivalryBannerShell(
         onTap: widget.onTap,
@@ -681,12 +699,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
 
     final top = _top ?? [];
 
-    // Hide entirely when fewer than 2 universities have data
     if (top.length < 2) {
-      // Show a muted "coming soon" state rather than vanishing — this makes
-      // it obvious during testing that the banner slot exists but has no
-      // rivalry data yet (needs 2+ users from different universities with
-      // weeklyPoints > 0 in Firestore).
       return _RivalryBannerShell(
         onTap: widget.onTap,
         child: Row(
@@ -694,7 +707,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
             Container(
               width:  36,
               height: 36,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.surface,
                 shape: BoxShape.circle,
               ),
@@ -729,7 +742,6 @@ class _RivalryBannerState extends State<_RivalryBanner> {
       onTap: widget.onTap,
       child: Row(
         children: [
-          // Icon
           Container(
             width:  36,
             height: 36,
@@ -741,8 +753,6 @@ class _RivalryBannerState extends State<_RivalryBanner> {
                 color: Color(0xFF6C63FF), size: 18),
           ),
           const SizedBox(width: 12),
-
-          // Text
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -797,8 +807,6 @@ class _RivalryBannerState extends State<_RivalryBanner> {
               ],
             ),
           ),
-
-          // Chevron
           const SizedBox(width: 8),
           const Icon(Icons.chevron_right_rounded,
               color: AppColors.textMuted, size: 18),
@@ -807,7 +815,6 @@ class _RivalryBannerState extends State<_RivalryBanner> {
     );
   }
 
-  /// Compact number formatting: 124500 → "124.5K"
   String _fmt(int n) {
     if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
     if (n >= 1000)    return '${(n / 1000).toStringAsFixed(1)}K';
@@ -815,7 +822,6 @@ class _RivalryBannerState extends State<_RivalryBanner> {
   }
 }
 
-/// Shared container / decoration for the rivalry banner.
 class _RivalryBannerShell extends StatelessWidget {
   final VoidCallback onTap;
   final Widget       child;
@@ -846,7 +852,6 @@ class _RivalryBannerShell extends StatelessWidget {
   }
 }
 
-/// Placeholder shown while the top-universities data is loading.
 class _RivalrySkeleton extends StatelessWidget {
   const _RivalrySkeleton();
 
@@ -857,7 +862,7 @@ class _RivalrySkeleton extends StatelessWidget {
         Container(
           width:  36,
           height: 36,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: AppColors.surface,
             shape: BoxShape.circle,
           ),

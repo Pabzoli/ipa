@@ -1,22 +1,14 @@
-// lib/features/multiplayer/join_challenge_page.dart
-//
-// Opponent flow:
-//   1. Enter 6-char code.
-//   2. Challenge preview card appears (creator, anime, bet, expiry).
-//   3. "Accept & Start" atomically deducts both bets and starts the quiz.
-
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
-import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
-import '../quiz/questions.dart';
-import 'models/challenge_model.dart';
-import 'challenge_quiz_page.dart';
+import '../../core/providers/user_data_provider.dart';
+import '../quiz/questions_page.dart';
+import 'challenge_model.dart';
+import 'challenge_result_page.dart';
 
 class JoinChallengePage extends StatefulWidget {
   const JoinChallengePage({super.key});
@@ -26,36 +18,30 @@ class JoinChallengePage extends StatefulWidget {
 }
 
 class _JoinChallengePageState extends State<JoinChallengePage> {
-  final _codeCtrl    = TextEditingController();
-  final _codeFocus   = FocusNode();
+  final _codeCtrl = TextEditingController();
 
-  ChallengeModel?     _found;
-  List<AnimeQuestion>? _questions;
-
-  bool    _searching = false;
-  bool    _accepting = false;
-  String? _searchError;
+  ChallengeModel? _found;       // populated after successful lookup
+  bool _looking  = false;       // lookup in progress
+  bool _joining  = false;       // join+navigate in progress
+  String? _errorMsg;
 
   @override
   void dispose() {
     _codeCtrl.dispose();
-    _codeFocus.dispose();
     super.dispose();
   }
 
-  // ── Search ───────────────────────────────────────────────────────────────────
-  Future<void> _searchChallenge() async {
+  Future<void> _lookUp() async {
     final code = _codeCtrl.text.trim().toUpperCase();
     if (code.length != 6) {
-      setState(() => _searchError = 'Enter the full 6-character code.');
+      setState(() => _errorMsg = 'Code must be exactly 6 characters');
       return;
     }
 
     setState(() {
-      _searching   = true;
-      _searchError = null;
-      _found       = null;
-      _questions   = null;
+      _looking  = true;
+      _found    = null;
+      _errorMsg = null;
     });
 
     try {
@@ -66,63 +52,78 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
 
       if (challenge == null) {
         setState(() {
-          _searching   = false;
-          _searchError = 'No active challenge found for code "$code".\nCheck the code and try again.';
+          _looking  = false;
+          _errorMsg = 'No challenge found with code "$code"';
+        });
+        return;
+      }
+
+      // Client-side pre-checks for clear UX errors
+      final uid = FirestoreService.instance.currentUid;
+      if (challenge.creatorUid == uid) {
+        setState(() {
+          _looking  = false;
+          _errorMsg = "That's your own challenge — share the code with a friend!";
+        });
+        return;
+      }
+      if (challenge.isExpired) {
+        setState(() {
+          _looking  = false;
+          _errorMsg = 'This challenge has expired.';
+        });
+        return;
+      }
+      if (challenge.status != ChallengeStatus.waiting) {
+        setState(() {
+          _looking  = false;
+          _errorMsg = challenge.isCompleted
+              ? 'This challenge is already completed.'
+              : 'An opponent has already joined this challenge.';
         });
         return;
       }
 
       setState(() {
-        _found     = challenge;
-        _searching = false;
+        _looking = false;
+        _found   = challenge;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _searching   = false;
-        _searchError = e.toString().replaceFirst('Exception: ', '');
+        _looking  = false;
+        _errorMsg = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
-  // ── Accept ───────────────────────────────────────────────────────────────────
-  Future<void> _acceptChallenge() async {
-    if (_found == null || _accepting) return;
-    setState(() => _accepting = true);
+  Future<void> _acceptAndPlay() async {
+    if (_found == null || _joining) return;
+
+    final balance = context.read<UserDataProvider>().score;
+    if (balance < _found!.betAmount) {
+      setState(() => _errorMsg =
+          'You need ${_found!.betAmount} pts to accept. You have $balance.');
+      return;
+    }
+
+    setState(() { _joining = true; _errorMsg = null; });
 
     try {
-      // 1. Atomically join (deducts both bets).
       await FirestoreService.instance.joinChallenge(_found!.challengeId);
 
-      // 2. Pre-load questions.
-      final qs = await FirestoreService.instance
-          .fetchQuestionsByIds(_found!.questionIds);
-
       if (!mounted) return;
-
-      if (qs.isEmpty) {
-        setState(() {
-          _accepting  = false;
-          _searchError = 'Could not load questions. Please try again.';
-        });
-        return;
-      }
-
-      // 3. Re-fetch the challenge to get the updated opponentUsername etc.
-      // (joinChallenge already wrote these; the local model is stale.)
-      // We pass the original model — ChallengeQuizPage only needs questionIds,
-      // betAmount, animeTitle, creatorUsername, and challengeId, all of which
-      // are already correct.
 
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
           pageBuilder: (_, a, __) => FadeTransition(
             opacity: a,
-            child: ChallengeQuizPage(
-              challenge: _found!,
-              questions: qs,
-              isCreator: false,
+            child: QuestionsPage(
+              mode:        QuizMode.asyncChallenge,
+              questionIds: _found!.questionIds,
+              challengeId: _found!.challengeId,
+              isCreator:   false,
             ),
           ),
           transitionDuration: const Duration(milliseconds: 400),
@@ -131,16 +132,15 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _accepting   = false;
-        _searchError = e.toString().replaceFirst('Exception: ', '');
+        _joining  = false;
+        _errorMsg = e.toString().replaceFirst('Exception: ', '');
       });
     }
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final myScore = context.watch<UserDataProvider>().score;
+    final balance = context.watch<UserDataProvider>().score;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
@@ -148,20 +148,21 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
         decoration: AppDecorations.heroBg,
         child: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ── Header ─────────────────────────────────────────────────────
+              // ── App bar ──────────────────────────────────────────────
               Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 16, 0),
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
                 child: Row(
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_back_ios_new,
                           color: AppColors.textPrimary),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: (_looking || _joining)
+                          ? null
+                          : () => Navigator.pop(context),
                     ),
                     const Text(
-                      'Join a Challenge',
+                      'Join Challenge',
                       style: TextStyle(
                         color:      AppColors.textPrimary,
                         fontSize:   22,
@@ -174,79 +175,119 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
 
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+                  padding: const EdgeInsets.all(24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // ── Code input ──────────────────────────────────────
-                      const Text(
-                        'Enter Challenge Code',
-                        style: TextStyle(
-                          color:      AppColors.textPrimary,
-                          fontSize:   18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Ask your friend for their 6-character code.',
-                        style: TextStyle(
-                            color: AppColors.textMuted, fontSize: 13),
-                      ),
                       const SizedBox(height: 16),
 
-                      // Code text field — auto-caps, max 6 chars.
+                      // ── Code input ──────────────────────────────────
                       TextField(
                         controller:   _codeCtrl,
-                        focusNode:    _codeFocus,
-                        maxLength:    6,
-                        textCapitalization: TextCapitalization.characters,
+                        enabled:      !_looking && !_joining,
+                        textCapitalization:
+                            TextCapitalization.characters,
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(
-                              RegExp(r'[A-Za-z0-9]')),
-                          _UpperCaseFormatter(),
+                            RegExp(r'[A-Za-z0-9]'),
+                          ),
+                          LengthLimitingTextInputFormatter(6),
                         ],
                         style: const TextStyle(
-                          color:        AppColors.textPrimary,
-                          fontSize:     28,
-                          fontWeight:   FontWeight.w900,
+                          color:         AppColors.textPrimary,
+                          fontSize:      28,
+                          fontWeight:    FontWeight.w900,
                           letterSpacing: 6,
                         ),
                         textAlign: TextAlign.center,
-                        decoration: InputDecoration(
-                          hintText:       '· · · · · ·',
-                          counterText:    '',
-                          errorText: _searchError,
-                          errorMaxLines: 3,
+                        decoration: const InputDecoration(
+                          hintText:  'Enter 6-char code',
+                          labelText: 'Challenge Code',
                         ),
-                        onChanged: (_) {
-                          if (_searchError != null) {
-                            setState(() => _searchError = null);
-                          }
-                        },
-                        onSubmitted: (_) => _searchChallenge(),
+                        onChanged: (_) => setState(() {
+                          _found    = null;
+                          _errorMsg = null;
+                        }),
+                        onSubmitted: (_) => _lookUp(),
                       ),
 
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
 
-                      _searching
-                          ? const Center(
-                              child: CircularProgressIndicator(
-                                  color: AppColors.primary))
-                          : GradientButton(
-                              label: 'Find Challenge',
-                              icon:  Icons.search_rounded,
-                              onTap: _searchChallenge,
-                            ),
+                      GradientButton(
+                        label: 'Look Up',
+                        icon:  Icons.search_rounded,
+                        onTap: (_looking || _joining) ? null : _lookUp,
+                      ),
 
-                      // ── Challenge preview ─────────────────────────────────
+                      // ── Error ───────────────────────────────────────
+                      if (_errorMsg != null) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color:        AppColors.wrong.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border:       Border.all(
+                                color: AppColors.wrong.withOpacity(0.4)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline_rounded,
+                                  color: AppColors.wrong, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  _errorMsg!,
+                                  style: const TextStyle(
+                                    color:    AppColors.wrong,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      // ── Challenge details card ───────────────────────
                       if (_found != null) ...[
+                        const SizedBox(height: 24),
+                        _ChallengeDetailsCard(
+                          challenge: _found!,
+                          userBalance: balance,
+                        ),
+                        const SizedBox(height: 20),
+                        GradientButton(
+                          label: _joining
+                              ? 'Accepting…'
+                              : 'Accept & Play',
+                          icon:  Icons.flash_on_rounded,
+                          onTap: _joining ? null : _acceptAndPlay,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${_found!.betAmount} pts will be deducted from your balance',
+                          style: const TextStyle(
+                              color: AppColors.textMuted, fontSize: 12),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+
+                      // ── Loading state ───────────────────────────────
+                      if (_looking) ...[
                         const SizedBox(height: 32),
-                        _ChallengePreviewCard(
-                          challenge:      _found!,
-                          myBalance:      myScore,
-                          accepting:      _accepting,
-                          onAccept:       _acceptChallenge,
+                        const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                  color: AppColors.primary),
+                              SizedBox(height: 12),
+                              Text('Looking up challenge…',
+                                  style: TextStyle(
+                                      color: AppColors.textMuted)),
+                            ],
+                          ),
                         ),
                       ],
                     ],
@@ -261,203 +302,120 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   }
 }
 
-// ─── Challenge Preview Card ───────────────────────────────────────────────────
-class _ChallengePreviewCard extends StatelessWidget {
+// ── Challenge details card ─────────────────────────────────────────────────────
+class _ChallengeDetailsCard extends StatelessWidget {
   final ChallengeModel challenge;
-  final int            myBalance;
-  final bool           accepting;
-  final VoidCallback   onAccept;
-
-  const _ChallengePreviewCard({
+  final int            userBalance;
+  const _ChallengeDetailsCard({
     required this.challenge,
-    required this.myBalance,
-    required this.accepting,
-    required this.onAccept,
+    required this.userBalance,
   });
 
   @override
   Widget build(BuildContext context) {
-    final canAfford = myBalance >= challenge.betAmount;
+    final canAfford = userBalance >= challenge.betAmount;
 
-    return AnimatedOpacity(
-      opacity:  1.0,
-      duration: const Duration(milliseconds: 400),
-      child: Container(
-        decoration: BoxDecoration(
-          color:        AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border:       Border.all(
-              color: AppColors.primary.withOpacity(0.35), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color:       AppColors.primary.withOpacity(0.08),
-              blurRadius:  24,
-              offset:      const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return GlassCard(
+      borderColor: AppColors.secondary.withOpacity(0.4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              // Header
-              Row(
-                children: [
-                  Container(
-                    width:  48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color:  AppColors.primary.withOpacity(0.12),
-                      shape:  BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.sports_kabaddi_rounded,
-                        color: AppColors.primary, size: 26),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Challenge Found!',
-                            style: TextStyle(
-                              color:      AppColors.textPrimary,
-                              fontSize:   18,
-                              fontWeight: FontWeight.w800,
-                            )),
-                        Text(
-                          challenge.expiryLabel,
-                          style: const TextStyle(
-                              color: AppColors.textMuted, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-              const Divider(color: AppColors.divider),
-              const SizedBox(height: 16),
-
-              // Details
-              _DetailRow(
-                icon:  Icons.person_rounded,
-                label: 'Challenger',
-                value: challenge.creatorUsername,
-              ),
-              const SizedBox(height: 12),
-              _DetailRow(
-                icon:  Icons.movie_filter_rounded,
-                label: 'Anime',
-                value: challenge.animeTitle,
-              ),
-              const SizedBox(height: 12),
-              _DetailRow(
-                icon:  Icons.bolt_rounded,
-                label: 'Bet',
-                value: '${challenge.betAmount} pts each',
-                valueColor: AppColors.secondary,
-              ),
-              const SizedBox(height: 12),
-              _DetailRow(
-                icon:  Icons.quiz_rounded,
-                label: 'Questions',
-                value: '${challenge.questionIds.length} questions',
-              ),
-
-              const SizedBox(height: 20),
-              const Divider(color: AppColors.divider),
-              const SizedBox(height: 16),
-
-              // Balance check
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                width:  44,
+                height: 44,
                 decoration: BoxDecoration(
-                  color:        (canAfford ? AppColors.correct : AppColors.wrong)
-                      .withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: (canAfford ? AppColors.correct : AppColors.wrong)
-                        .withOpacity(0.4),
-                  ),
+                  color:        AppColors.correct.withOpacity(0.15),
+                  shape:        BoxShape.circle,
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      canAfford
-                          ? Icons.check_circle_outline_rounded
-                          : Icons.warning_amber_rounded,
-                      color: canAfford ? AppColors.correct : AppColors.wrong,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        canAfford
-                            ? 'Your balance: $myBalance pts — you\'re good to go!'
-                            : 'Need ${challenge.betAmount} pts · You have $myBalance pts',
-                        style: TextStyle(
-                          color: canAfford
-                              ? AppColors.correct
-                              : AppColors.wrong,
-                          fontSize:   13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                child: const Icon(Icons.person_rounded,
+                    color: AppColors.correct, size: 24),
               ),
-
-              const SizedBox(height: 20),
-
-              accepting
-                  ? const Center(
-                      child: Column(
-                        children: [
-                          CircularProgressIndicator(
-                              color: AppColors.primary),
-                          SizedBox(height: 8),
-                          Text('Joining challenge…',
-                              style: TextStyle(
-                                  color:    AppColors.textMuted,
-                                  fontSize: 13)),
-                        ],
-                      ),
-                    )
-                  : GradientButton(
-                      label: canAfford ? 'Accept & Start Quiz' : 'Insufficient Balance',
-                      icon:  Icons.play_arrow_rounded,
-                      onTap: canAfford ? onAccept : null,
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    challenge.creatorUsername,
+                    style: const TextStyle(
+                      color:      AppColors.textPrimary,
+                      fontSize:   17,
+                      fontWeight: FontWeight.w800,
                     ),
-
-              if (!canAfford) ...[
-                const SizedBox(height: 8),
-                const Center(
-                  child: Text(
-                    'Win more matches to earn points.',
+                  ),
+                  const Text(
+                    'challenges you!',
                     style: TextStyle(
                         color: AppColors.textMuted, fontSize: 12),
                   ),
-                ),
-              ],
+                ],
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 16),
+          const Divider(color: AppColors.divider),
+          const SizedBox(height: 12),
+          _DetailRow(
+            label: 'Anime',
+            value: challenge.animeTitle,
+          ),
+          const SizedBox(height: 8),
+          _DetailRow(
+            label: 'Bet',
+            value: '${challenge.betAmount} pts',
+            valueColor: canAfford ? AppColors.correct : AppColors.wrong,
+          ),
+          const SizedBox(height: 8),
+          _DetailRow(
+            label: 'Questions',
+            value: '${challenge.questionIds.length} questions',
+          ),
+          const SizedBox(height: 8),
+          _DetailRow(
+            label: 'Expires in',
+            value: _formatRemaining(challenge.timeRemaining),
+          ),
+          if (!canAfford) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color:        AppColors.wrong.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: AppColors.wrong, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    'You need ${challenge.betAmount} pts. You have $userBalance.',
+                    style: const TextStyle(
+                        color: AppColors.wrong, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
+  }
+
+  String _formatRemaining(Duration d) {
+    if (d == Duration.zero) return 'Expired';
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    return h > 0 ? '${h}h ${m}m' : '${m}m';
   }
 }
 
 class _DetailRow extends StatelessWidget {
-  final IconData icon;
-  final String   label;
-  final String   value;
-  final Color?   valueColor;
+  final String label;
+  final String value;
+  final Color? valueColor;
   const _DetailRow({
-    required this.icon,
     required this.label,
     required this.value,
     this.valueColor,
@@ -465,13 +423,11 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, color: AppColors.textMuted, size: 16),
-          const SizedBox(width: 8),
-          Text('$label:',
+          Text(label,
               style: const TextStyle(
-                  color: AppColors.textMuted, fontSize: 14)),
-          const Spacer(),
+                  color: AppColors.textMuted, fontSize: 13)),
           Text(
             value,
             style: TextStyle(
@@ -482,12 +438,4 @@ class _DetailRow extends StatelessWidget {
           ),
         ],
       );
-}
-
-// ─── Input Formatter ─────────────────────────────────────────────────────────
-class _UpperCaseFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-          TextEditingValue oldValue, TextEditingValue newValue) =>
-      newValue.copyWith(text: newValue.text.toUpperCase());
 }

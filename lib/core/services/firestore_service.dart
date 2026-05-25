@@ -1,14 +1,12 @@
-// lib/core/services/firestore_service.dart
-
 import 'dart:math';
-import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../features/quiz/questions.dart';
-import '../../features/multiplayer/models/challenge_model.dart';
+import '../../features/multiplayer/challenge_model.dart';
 
 // ─── University Constants ─────────────────────────────────────────────────────
+/// Canonical list used in signup dropdown and campus leaderboard queries.
 const List<String> kNigerianUniversities = [
   'UNILAG',
   'UI (University of Ibadan)',
@@ -22,6 +20,7 @@ const List<String> kNigerianUniversities = [
   'Other',
 ];
 
+/// A lightweight model returned by [FirestoreService.getTopUniversities].
 class UniversityTotal {
   final String university;
   final int    total;
@@ -29,6 +28,7 @@ class UniversityTotal {
 }
 
 // ─── Prize Winner Model ───────────────────────────────────────────────────────
+/// A single winner entry from a [prize_pool] document's `winners` array.
 class PrizeWinner {
   final String uid;
   final String username;
@@ -45,15 +45,19 @@ class PrizeWinner {
   });
 
   factory PrizeWinner.fromMap(Map<String, dynamic> map) => PrizeWinner(
-        uid:         (map['uid']        as String?)  ?? '',
-        username:    (map['username']   as String?)  ?? 'Anonymous',
-        rank:        ((map['rank']      as num?)?.toInt()) ?? 0,
-        prizeAmount: ((map['prize']     as num?)?.toDouble()) ?? 0.0,
-        university:  (map['university'] as String?)  ?? '',
+        uid:         (map['uid']          as String?) ?? '',
+        username:    (map['username']     as String?) ?? 'Anonymous',
+        rank:        ((map['rank']        as num?)?.toInt()) ?? 0,
+        prizeAmount: ((map['prize'] as num?)?.toDouble()) ?? 0.0,
+        university:  (map['university']   as String?) ?? '',
       );
 }
 
 // ─── Last Week Result Model ───────────────────────────────────────────────────
+/// The payload returned by [FirestoreService.getLastWeekWinners].
+///
+/// [weekId] is the Monday date string of the completed week, e.g. "2025-05-19".
+/// [winners] is sorted ascending by rank (1st → last).
 class LastWeekResult {
   final String            weekId;
   final double            totalNaira;
@@ -75,15 +79,16 @@ class FirestoreService {
   final _auth = FirebaseAuth.instance;
 
   String? get _uid => _auth.currentUser?.uid;
+  String? get currentUid => _uid;
 
   DocumentReference<Map<String, dynamic>> get _userDoc =>
       _db.collection('users').doc(_uid);
 
   // ─── Score ──────────────────────────────────────────────────────────────────
   Stream<int> scoreStream() {
-    if (_uid == null) return Stream.value(500);
+    if (_uid == null) return Stream.value(0); // FIX: Fallback to 0 instead of 500
     return _userDoc.snapshots().map(
-          (s) => (s.data()?['totalScore'] as int?) ?? 500,
+          (s) => (s.data()?['totalScore'] as int?) ?? 0,
         );
   }
 
@@ -154,60 +159,6 @@ class FirestoreService {
     return filtered;
   }
 
-  /// Returns all available anime titles from the questions collection.
-  Future<List<String>> fetchAvailableAnime() async {
-    final snap = await _db
-        .collection('questions')
-        .get(const GetOptions(source: Source.server));
-    final titles = snap.docs
-        .map((d) => d.data()['animeTitle'] as String?)
-        .whereType<String>()
-        .toSet()
-        .toList()
-      ..sort();
-    return titles;
-  }
-
-  /// Fetches questions for a specific anime title with their Firestore doc IDs.
-  Future<List<MapEntry<String, AnimeQuestion>>> _fetchQuestionsForChallenge(
-      String animeTitle) async {
-    final snap = await _db
-        .collection('questions')
-        .get(const GetOptions(source: Source.server));
-    final normalised = animeTitle.toLowerCase();
-    return snap.docs
-        .where((d) =>
-            (d.data()['animeTitle'] as String?)?.toLowerCase() == normalised)
-        .map((d) => MapEntry(d.id, AnimeQuestion.fromMap(d.data())))
-        .toList();
-  }
-
-  /// Fetches up to 10 questions by their Firestore document IDs, preserving order.
-  /// Uses `whereIn` — safe up to 30 items (Firestore SDK limit).
-  Future<List<AnimeQuestion>> fetchQuestionsByIds(List<String> ids) async {
-    if (ids.isEmpty) return [];
-    final snap = await _db
-        .collection('questions')
-        .where(FieldPath.documentId, whereIn: ids)
-        .get(const GetOptions(source: Source.server));
-    final map = {
-      for (final d in snap.docs) d.id: AnimeQuestion.fromMap(d.data())
-    };
-    // Restore the original seeded order from the challenge document.
-    final result = ids.map((id) => map[id]).whereType<AnimeQuestion>().toList();
-
-    // FIX: Throw a descriptive error if questions couldn't be resolved.
-    // Previously this would silently return [] causing the start button
-    // to show with onTap: null and appear "frozen."
-    if (result.isEmpty && ids.isNotEmpty) {
-      throw Exception(
-        'Could not load the quiz questions. '
-        'Please check your connection and try again.',
-      );
-    }
-    return result;
-  }
-
   // ─── Stats ──────────────────────────────────────────────────────────────────
   Future<void> updateStats(Map<String, dynamic> stats) async {
     if (_uid == null) return;
@@ -220,380 +171,45 @@ class FirestoreService {
     return (doc.data()?['stats'] as Map<String, dynamic>?) ?? {};
   }
 
-  Stream<Map<String, dynamic>> statsStream() {
-    if (_uid == null) return Stream.value({});
-    return _userDoc.snapshots().map(
-      (s) => (s.data()?['stats'] as Map<String, dynamic>?) ?? {},
-    );
-  }
-
-  // ─── Challenges ──────────────────────────────────────────────────────────────
-
-  static String _generateChallengeCode() {
-    // Omit O/0 and I/1 to avoid visual confusion.
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final rng   = Random.secure();
-    return String.fromCharCodes(
-      List.generate(6, (_) => chars.codeUnitAt(rng.nextInt(chars.length))),
-    );
-  }
-
-  /// Creates a new challenge, selects 10 seeded questions, and returns the model.
-  /// Does NOT deduct the bet yet — deduction happens atomically when opponent joins.
-  Future<ChallengeModel> createChallenge({
-    required String animeTitle,
-    required int    betAmount,
+  // ─── Match History ───────────────────────────────────────────────────────────
+  Future<void> saveMatchHistory({
+    required String opponent,
+    required int    playerScore,
+    required int    opponentScore,
+    required int    betScore,
+    required String outcome, // 'win' | 'lose' | 'draw'
   }) async {
-    if (_uid == null) throw Exception('Not authenticated');
-
-    final username = await getUsername();
-    final allQ     = await _fetchQuestionsForChallenge(animeTitle);
-
-    if (allQ.length < 10) {
-      throw Exception(
-          'Not enough questions for "$animeTitle" yet. Try another anime!');
-    }
-
-    allQ.shuffle(Random.secure());
-    final questionIds = allQ.take(10).map((e) => e.key).toList();
-    final code        = _generateChallengeCode();
-    final now         = DateTime.now();
-
-    final ref = await _db.collection('challenges').add({
-      'code':             code,
-      'creatorUid':       _uid,
-      'creatorUsername':  username,
-      'opponentUid':      null,
-      'opponentUsername': null,
-      'betAmount':        betAmount,
-      'animeTitle':       animeTitle,
-      'questionIds':      questionIds,
-      'creatorScore':     null,
-      'opponentScore':    null,
-      'status':           ChallengeStatus.waiting.raw,
-      'createdAt':        FieldValue.serverTimestamp(),
-      'expiresAt':        Timestamp.fromDate(now.add(const Duration(hours: 24))),
-      'outcome':          null,
-    });
-
-    final snap = await ref.get();
-    return ChallengeModel.fromDoc(snap);
-  }
-
-  /// Looks up a challenge by its 6-character share code.
-  /// Throws descriptive exceptions for expired / completed / missing challenges.
-  Future<ChallengeModel?> getChallengeByCode(String code) async {
-    final snap = await _db
-        .collection('challenges')
-        .where('code', isEqualTo: code.toUpperCase().trim())
-        .limit(1)
-        .get(const GetOptions(source: Source.server));
-
-    if (snap.docs.isEmpty) return null;
-
-    final model = ChallengeModel.fromDoc(snap.docs.first);
-    if (model.isExpired)  throw Exception('This challenge has expired.');
-    if (model.isComplete) throw Exception('This challenge has already been completed.');
-    return model;
-  }
-
-  /// Opponent accepts a challenge.
-  /// Atomically deducts BOTH players' bets and sets status to [in_progress].
-  Future<void> joinChallenge(String challengeId) async {
-    if (_uid == null) throw Exception('Not authenticated');
-
-    final username     = await getUsername();
-    final challengeRef = _db.collection('challenges').doc(challengeId);
-
-    await _db.runTransaction((tx) async {
-      final cSnap = await tx.get(challengeRef);
-      if (!cSnap.exists) throw Exception('Challenge not found.');
-
-      final challenge = ChallengeModel.fromDoc(cSnap);
-
-      if (challenge.isExpired)          throw Exception('This challenge has expired.');
-      if (challenge.creatorUid == _uid) throw Exception('You cannot join your own challenge.');
-      if (challenge.hasOpponent)        throw Exception('This challenge already has an opponent.');
-      if (challenge.isComplete)         throw Exception('This challenge is already completed.');
-
-      final creatorDocRef  = _db.collection('users').doc(challenge.creatorUid);
-      final opponentDocRef = _db.collection('users').doc(_uid);
-
-      final cUserSnap = await tx.get(creatorDocRef);
-      final oUserSnap = await tx.get(opponentDocRef);
-
-      final creatorBal  = ((cUserSnap.data()?['totalScore']  as num?)?.toInt()) ?? 0;
-      final opponentBal = ((oUserSnap.data()?['totalScore']  as num?)?.toInt()) ?? 0;
-
-      if (creatorBal < challenge.betAmount) {
-        throw Exception("The challenger no longer has enough points for this bet.");
-      }
-      if (opponentBal < challenge.betAmount) {
-        throw Exception(
-            "You need ${challenge.betAmount} pts for this bet (you have $opponentBal pts).");
-      }
-
-      // Deduct both bets atomically — the winner gets them back after.
-      tx.update(creatorDocRef,  {'totalScore': FieldValue.increment(-challenge.betAmount)});
-      tx.update(opponentDocRef, {'totalScore': FieldValue.increment(-challenge.betAmount)});
-      tx.update(challengeRef, {
-        'opponentUid':      _uid,
-        'opponentUsername': username,
-        'status':           ChallengeStatus.inProgress.raw,
-      });
-    });
-  }
-
-  /// Saves the current user's quiz score.
-  /// If the OTHER player has already scored, resolves the challenge:
-  ///   - determines winner
-  ///   - transfers bets (winner gets 2× back; draw refunds both)
-  ///   - sets status to [completed]
-  ///
-  /// Returns the [ChallengeOutcome] when resolved, or null when still waiting.
-  Future<ChallengeOutcome?> saveScoreAndMaybeResolve({
-    required String challengeId,
-    required int    score,
-    required bool   isCreator,
-  }) async {
-    if (_uid == null) throw Exception('Not authenticated');
-
-    final challengeRef = _db.collection('challenges').doc(challengeId);
-    ChallengeOutcome? resolved;
-
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(challengeRef);
-      if (!snap.exists) throw Exception('Challenge not found.');
-      final data = snap.data()!;
-
-      // Idempotency guard — score already saved for this player.
-      final alreadySaved = isCreator
-          ? data['creatorScore']  != null
-          : data['opponentScore'] != null;
-      if (alreadySaved) {
-        resolved = parseChallengeOutcome(data['outcome'] as String?);
-        return;
-      }
-
-      final Map<String, dynamic> updates = isCreator
-          ? {'creatorScore':  score}
-          : {'opponentScore': score};
-
-      // Check whether the other player has already scored.
-      final int? otherScore = isCreator
-          ? (data['opponentScore'] as num?)?.toInt()
-          : (data['creatorScore']  as num?)?.toInt();
-
-      if (otherScore != null) {
-        // Both scores present — resolve now.
-        final int cScore = isCreator ? score     : otherScore;
-        final int oScore = isCreator ? otherScore : score;
-
-        final ChallengeOutcome outcome = cScore > oScore
-            ? ChallengeOutcome.creatorWins
-            : oScore > cScore
-                ? ChallengeOutcome.opponentWins
-                : ChallengeOutcome.draw;
-
-        resolved               = outcome;
-        updates['outcome']     = outcome.raw;
-        updates['status']      = ChallengeStatus.completed.raw;
-
-        final creatorUid  = data['creatorUid']  as String;
-        final opponentUid = data['opponentUid'] as String;
-        final betAmount   = (data['betAmount']  as num).toInt();
-
-        final cRef = _db.collection('users').doc(creatorUid);
-        final oRef = _db.collection('users').doc(opponentUid);
-
-        switch (outcome) {
-          case ChallengeOutcome.creatorWins:
-            tx.update(cRef, {
-              'totalScore':        FieldValue.increment(betAmount * 2),
-              'stats.gamesWon':    FieldValue.increment(1),
-              'stats.gamesPlayed': FieldValue.increment(1),
-              'stats.hseStaked':   FieldValue.increment(betAmount),
-              'stats.hseWon':      FieldValue.increment(betAmount),
-            });
-            tx.update(oRef, {
-              'stats.gamesLost':   FieldValue.increment(1),
-              'stats.gamesPlayed': FieldValue.increment(1),
-              'stats.hseStaked':   FieldValue.increment(betAmount),
-              'stats.hseLost':     FieldValue.increment(betAmount),
-            });
-          case ChallengeOutcome.opponentWins:
-            tx.update(oRef, {
-              'totalScore':        FieldValue.increment(betAmount * 2),
-              'stats.gamesWon':    FieldValue.increment(1),
-              'stats.gamesPlayed': FieldValue.increment(1),
-              'stats.hseStaked':   FieldValue.increment(betAmount),
-              'stats.hseWon':      FieldValue.increment(betAmount),
-            });
-            tx.update(cRef, {
-              'stats.gamesLost':   FieldValue.increment(1),
-              'stats.gamesPlayed': FieldValue.increment(1),
-              'stats.hseStaked':   FieldValue.increment(betAmount),
-              'stats.hseLost':     FieldValue.increment(betAmount),
-            });
-          case ChallengeOutcome.draw:
-            tx.update(cRef, {
-              'totalScore':        FieldValue.increment(betAmount),
-              'stats.gamesDraw':   FieldValue.increment(1),
-              'stats.gamesPlayed': FieldValue.increment(1),
-              'stats.hseStaked':   FieldValue.increment(betAmount),
-            });
-            tx.update(oRef, {
-              'totalScore':        FieldValue.increment(betAmount),
-              'stats.gamesDraw':   FieldValue.increment(1),
-              'stats.gamesPlayed': FieldValue.increment(1),
-              'stats.hseStaked':   FieldValue.increment(betAmount),
-            });
-        }
-      }
-
-      tx.update(challengeRef, updates);
-    });
-
-    // Non-critical: save match history in the background after the transaction.
-    if (resolved != null) {
-      _saveMatchHistoryForChallenge(challengeId, score, isCreator, resolved!)
-          .catchError((_) {});
-    }
-
-    return resolved;
-  }
-
-  Future<void> _saveMatchHistoryForChallenge(
-    String           challengeId,
-    int              myScore,
-    bool             isCreator,
-    ChallengeOutcome outcome,
-  ) async {
     if (_uid == null) return;
-    final snap = await _db.collection('challenges').doc(challengeId).get();
-    if (!snap.exists) return;
-    final data = snap.data()!;
-
-    final betAmount     = (data['betAmount'] as num).toInt();
-    final theirName     = isCreator
-        ? (data['opponentUsername'] as String? ?? 'Opponent')
-        : (data['creatorUsername']  as String? ?? 'Challenger');
-    final myFinalScore  = ((isCreator ? data['creatorScore']  : data['opponentScore']) as num?)
-            ?.toInt() ?? myScore;
-    final theirScore    = ((isCreator ? data['opponentScore'] : data['creatorScore'])  as num?)
-            ?.toInt() ?? 0;
-
-    final outcomeStr = switch (outcome) {
-      ChallengeOutcome.creatorWins  => isCreator ? 'win'  : 'lose',
-      ChallengeOutcome.opponentWins => isCreator ? 'lose' : 'win',
-      ChallengeOutcome.draw         => 'draw',
-    };
-    final pointsChange = switch (outcomeStr) {
-      'win'  => betAmount,
-      'lose' => -betAmount,
-      _      => 0,
-    };
-
+    final int pointsChange;
+    switch (outcome) {
+      case 'win':
+        pointsChange = betScore;
+      case 'draw':
+        pointsChange = 0;
+      default:
+        pointsChange = -betScore;
+    }
     await _userDoc.collection('matches').add({
-      'opponent':      theirName,
-      'playerScore':   myFinalScore,
-      'opponentScore': theirScore,
-      'betScore':      betAmount,
-      'outcome':       outcomeStr,
+      'opponent':      opponent,
+      'playerScore':   playerScore,
+      'opponentScore': opponentScore,
+      'betScore':      betScore,
+      'outcome':       outcome,
       'pointsChange':  pointsChange,
       'timestamp':     FieldValue.serverTimestamp(),
-      'challengeId':   challengeId,
     });
   }
 
-  /// Live stream of a challenge document. Filters out non-existent snapshots.
-  Stream<ChallengeModel> challengeStream(String challengeId) => _db
-      .collection('challenges')
-      .doc(challengeId)
-      .snapshots()
-      .where((s) => s.exists)
-      .map(ChallengeModel.fromDoc);
-
-  // ─── BUG FIX: myChallengesStream ─────────────────────────────────────────────
-  // BEFORE: Used StreamController() — single-subscription stream.
-  //         TabBarView disposes hidden tabs, so switching Active ↔ Completed
-  //         caused StreamBuilder to cancel then re-subscribe, throwing
-  //         "Bad state: Stream has already been listened to."
-  //
-  // AFTER:  Uses StreamController.broadcast() with onListen/onCancel so:
-  //   - The Firestore subscriptions start fresh each time a listener subscribes.
-  //   - The Firestore subscriptions cancel when the last listener unsubscribes.
-  //   - Multiple listeners (or re-subscribes after dispose) all work correctly.
-  /// Returns a live stream of all challenges the current user is involved in.
-  /// Merges two queries (as creator, as opponent) client-side.
-  /// [activeOnly] = true → only waiting/in_progress; false → include completed.
-  Stream<List<ChallengeModel>> myChallengesStream({bool activeOnly = false}) {
+  Stream<List<Map<String, dynamic>>> matchHistoryStream() {
     if (_uid == null) return Stream.value([]);
-
-    final statuses = activeOnly
-        ? ['waiting', 'in_progress']
-        : ['waiting', 'in_progress', 'completed'];
-
-    var asCreator  = <ChallengeModel>[];
-    var asOpponent = <ChallengeModel>[];
-
-    StreamSubscription? sub1;
-    StreamSubscription? sub2;
-    StreamController<List<ChallengeModel>>? ctrl;
-
-    void emit() {
-      if (ctrl == null || ctrl!.isClosed) return;
-      final seen     = <String>{};
-      final combined = [...asCreator, ...asOpponent]
-          .where((c) => seen.add(c.challengeId))
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      ctrl!.add(combined);
-    }
-
-    void startListening() {
-      // Reset state on each fresh subscription so stale data isn't emitted.
-      asCreator  = [];
-      asOpponent = [];
-
-      sub1 = _db
-          .collection('challenges')
-          .where('creatorUid', isEqualTo: _uid)
-          .where('status', whereIn: statuses)
-          .orderBy('createdAt', descending: true)
-          .limit(30)
-          .snapshots()
-          .listen(
-            (s) { asCreator = s.docs.map(ChallengeModel.fromDoc).toList(); emit(); },
-            onError: (_) {},
-          );
-
-      sub2 = _db
-          .collection('challenges')
-          .where('opponentUid', isEqualTo: _uid)
-          .where('status', whereIn: statuses)
-          .orderBy('createdAt', descending: true)
-          .limit(30)
-          .snapshots()
-          .listen(
-            (s) { asOpponent = s.docs.map(ChallengeModel.fromDoc).toList(); emit(); },
-            onError: (_) {},
-          );
-    }
-
-    void stopListening() {
-      sub1?.cancel(); sub1 = null;
-      sub2?.cancel(); sub2 = null;
-    }
-
-    // broadcast() → can be listened to, cancelled, and re-listened to any
-    // number of times. onListen/onCancel manage the underlying Firestore subs.
-    ctrl = StreamController<List<ChallengeModel>>.broadcast(
-      onListen: startListening,
-      onCancel: stopListening,
-    );
-
-    return ctrl!.stream;
+    return _userDoc
+        .collection('matches')
+        .orderBy('timestamp', descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => {...doc.data(), 'id': doc.id})
+            .toList());
   }
 
   // ─── Leaderboard ────────────────────────────────────────────────────────────
@@ -665,6 +281,7 @@ class FirestoreService {
   }
 
   // ─── Campus Leaderboard ──────────────────────────────────────────────────────
+  /// Streams the top 50 players from [university] sorted by weeklyPoints.
   Stream<List<Map<String, dynamic>>> weeklyCampusLeaderboardStream(
       String university) {
     if (university.isEmpty) return Stream.value([]);
@@ -704,7 +321,7 @@ class FirestoreService {
 
   // ─── Top Universities (5-minute in-memory cache) ─────────────────────────────
   Map<String, int>? _topUniCache;
-  DateTime?         _topUniCacheTime;
+  DateTime?          _topUniCacheTime;
 
   Future<List<UniversityTotal>> getTopUniversities() async {
     if (_topUniCache != null &&
@@ -800,7 +417,11 @@ class FirestoreService {
           .toList()
         ..sort((a, b) => a.rank.compareTo(b.rank));
 
-      return LastWeekResult(weekId: weekId, totalNaira: total, winners: winners);
+      return LastWeekResult(
+        weekId:     weekId,
+        totalNaira: total,
+        winners:    winners,
+      );
     } catch (_) {
       return null;
     }
@@ -812,7 +433,8 @@ class FirestoreService {
     final doc        = await _userDoc.get();
     final lastChange = doc.data()?['lastUsernameChange'] as Timestamp?;
     if (lastChange == null) return true;
-    return DateTime.now().difference(lastChange.toDate()).inDays >= 7;
+    final daysSince = DateTime.now().difference(lastChange.toDate()).inDays;
+    return daysSince >= 7;
   }
 
   Future<DateTime?> nextUsernameChangeDate() async {
@@ -844,5 +466,171 @@ class FirestoreService {
     return (doc.data()?['username'] as String?) ??
         _auth.currentUser?.displayName ??
         'Trainer';
+  }
+
+  // ─── Challenges ───────────────────────────────────────────────────────────────
+  CollectionReference<Map<String, dynamic>> get _challenges =>
+      _db.collection('challenges');
+
+  String _generateChallengeCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rand = Random();
+    return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
+  }
+
+  /// Creates a new challenge, deducts the bet from creator's score, and returns
+  /// the challengeId + the 10 questionIds to play immediately.
+  /// Uses a batch write so the score deduction and challenge creation are atomic.
+  Future<ChallengeCreationResult> createChallenge({
+    required String animeTitle,
+    required int    betAmount,
+  }) async {
+    if (_uid == null) throw Exception('Not authenticated');
+    final username    = await getUsername();
+    final questionIds = await _pickRandomQuestionIds(animeTitle, 10);
+    if (questionIds.length < 10) {
+      throw Exception(
+        'Not enough questions for "$animeTitle" yet. Need at least 10.',
+      );
+    }
+
+    // Generate a unique code — use it as the Firestore document ID for O(1) lookup
+    String code;
+    bool exists;
+    do {
+      code  = _generateChallengeCode();
+      final snap = await _challenges.doc(code).get();
+      exists = snap.exists;
+    } while (exists);
+
+    final now       = DateTime.now();
+    final expiresAt = now.add(const Duration(hours: 24));
+
+    // Atomic: create challenge + deduct bet in one batch
+    final batch = _db.batch();
+    batch.set(_challenges.doc(code), {
+      'challengeId':      code,
+      'creatorUid':       _uid,
+      'creatorUsername':  username,
+      'opponentUid':      null,
+      'opponentUsername': null,
+      'betAmount':        betAmount,
+      'animeTitle':       animeTitle,
+      'questionIds':      questionIds,
+      'creatorScore':     null,
+      'opponentScore':    null,
+      'status':           'waiting',
+      'createdAt':        Timestamp.fromDate(now),
+      'expiresAt':        Timestamp.fromDate(expiresAt),
+      'outcome':          null,
+    });
+    batch.update(_userDoc, {'totalScore': FieldValue.increment(-betAmount)});
+    await batch.commit();
+
+    return ChallengeCreationResult(challengeId: code, questionIds: questionIds);
+  }
+
+  /// Streams the challenge doc in real time.
+  Stream<ChallengeModel?> challengeStream(String challengeId) {
+    return _challenges
+        .doc(challengeId)
+        .snapshots()
+        .map((s) => s.exists ? ChallengeModel.fromDoc(s) : null);
+  }
+
+  /// Looks up a challenge by its 6-char code.
+  Future<ChallengeModel?> getChallengeByCode(String code) async {
+    final snap = await _challenges
+        .doc(code.trim().toUpperCase())
+        .get(const GetOptions(source: Source.server));
+    return snap.exists ? ChallengeModel.fromDoc(snap) : null;
+  }
+
+  /// Opponent accepts the challenge: validates state, deducts their bet,
+  /// and sets their uid/username atomically inside a transaction so two
+  /// players can't join the same challenge simultaneously.
+  Future<void> joinChallenge(String challengeId) async {
+    if (_uid == null) throw Exception('Not authenticated');
+    final username = await getUsername();
+    await _db.runTransaction((tx) async {
+      final ref  = _challenges.doc(challengeId);
+      final snap = await tx.get(ref);
+      if (!snap.exists) throw Exception('Challenge not found.');
+
+      final data      = snap.data()!;
+      final status    = data['status'] as String;
+      final betAmount = (data['betAmount'] as num).toInt();
+      final expiresAt = (data['expiresAt'] as Timestamp).toDate();
+
+      if (data['creatorUid'] == _uid) {
+        throw Exception("You can't join your own challenge.");
+      }
+      if (status != 'waiting') {
+        throw Exception('This challenge is no longer available.');
+      }
+      if (DateTime.now().isAfter(expiresAt)) {
+        throw Exception('This challenge has expired.');
+      }
+
+      final userRef  = _db.collection('users').doc(_uid);
+      final userSnap = await tx.get(userRef);
+      final balance  = (userSnap.data()?['totalScore'] as num?)?.toInt() ?? 0;
+
+      if (balance < betAmount) {
+        throw Exception(
+          'You need at least $betAmount pts to accept this challenge.',
+        );
+      }
+
+      tx.update(ref, {
+        'opponentUid':      _uid,
+        'opponentUsername': username,
+        'status':           'opponent_joined',
+      });
+      tx.update(userRef, {
+        'totalScore': FieldValue.increment(-betAmount),
+      });
+    });
+  }
+
+  Future<void> submitCreatorScore(String challengeId, int score) async {
+    if (_uid == null) return;
+    await _challenges.doc(challengeId).update({'creatorScore': score});
+  }
+
+  Future<void> submitOpponentScore(String challengeId, int score) async {
+    if (_uid == null) return;
+    await _challenges.doc(challengeId).update({'opponentScore': score});
+  }
+
+  /// Fetches [AnimeQuestion] objects by their Firestore document IDs,
+  /// preserving the original order from [ids].
+  Future<List<AnimeQuestion>> fetchQuestionsByIds(List<String> ids) async {
+    final futures = ids.map(
+      (id) => _db.collection('questions').doc(id).get(),
+    );
+    final results = await Future.wait(futures);
+    return results
+        .where((s) => s.exists)
+        .map((s) => AnimeQuestion.fromDoc(s))
+        .toList();
+  }
+
+  /// Internal: picks [count] random question IDs for the given anime title.
+  Future<List<String>> _pickRandomQuestionIds(
+    String animeTitle,
+    int    count,
+  ) async {
+    final snap = await _db
+        .collection('questions')
+        .where('animeTitle', isEqualTo: animeTitle)
+        .get(const GetOptions(source: Source.server));
+
+    if (snap.docs.isEmpty) {
+      throw Exception('No questions found for "$animeTitle".');
+    }
+
+    final docs = List.of(snap.docs)..shuffle(Random());
+    return docs.take(count).map((d) => d.id).toList();
   }
 }

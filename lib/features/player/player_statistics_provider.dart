@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/services/firestore_service.dart';
 
@@ -6,7 +5,7 @@ import '../../core/services/firestore_service.dart';
 class PlayerStatistics {
   int gamesWon;
   int gamesLost;
-  int gamesDraw;
+  int gamesDraw;   // ← NEW
   int hseStaked;
   int hseWon;
   int hseLost;
@@ -46,7 +45,6 @@ class PlayerStatistics {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 class PlayerStatisticsProvider extends ChangeNotifier {
   PlayerStatistics _stats = PlayerStatistics();
-  StreamSubscription<Map<String, dynamic>>? _statsSub;
 
   PlayerStatistics get playerStatistics => _stats;
 
@@ -57,28 +55,30 @@ class PlayerStatisticsProvider extends ChangeNotifier {
   bool get won5000Score    => _stats.hseWon      >= 5000;
   bool get lost2500Score   => _stats.hseLost     >= 2500;
 
-  /// Subscribes to the live stats stream from Firestore.
-  /// Call once after login (e.g. from HomePage.initState).
-  /// Stats will now auto-update whenever a challenge resolves,
-  /// even if the current user was the first to submit their score.
-  void init() {
-    _statsSub?.cancel(); // guard against double-init
-    _statsSub = FirestoreService.instance.statsStream().listen(
-      (map) {
-        if (map.isNotEmpty) {
-          _stats = PlayerStatistics.fromMap(map);
-          notifyListeners();
-        }
-      },
-      onError: (_) {
-        // Silently fail — stats stay at current values
-      },
-    );
+  /// Loads stats from Firestore. Call once after login (e.g. from HomePage.initState).
+  Future<void> init() async {
+    try {
+      final map = await FirestoreService.instance.loadUserStats();
+      if (map.isNotEmpty) {
+        _stats = PlayerStatistics.fromMap(map);
+        notifyListeners();
+      }
+    } catch (_) {
+      // Silently fail — stats stay at defaults
+    }
   }
 
-  @override
-  void dispose() {
-    _statsSub?.cancel();
-    super.dispose();
+  void updatePlayerStatistics(PlayerStatistics newStats) {
+    _stats = newStats;
+    notifyListeners();
+    _saveToFirestore();
+  }
+
+  Future<void> _saveToFirestore() async {
+    try {
+      await FirestoreService.instance.updateStats(_stats.toMap());
+    } catch (_) {
+      // Silently fail — local state already updated
+    }
   }
 }

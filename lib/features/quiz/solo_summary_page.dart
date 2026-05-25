@@ -12,7 +12,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/services/ad_service.dart';
 import '../../core/providers/user_data_provider.dart';
-import '../questions/questions_page.dart';
+import 'questions_page.dart';
 import 'share_card_widget.dart';
 
 class SoloSummaryPage extends StatefulWidget {

@@ -33,7 +33,12 @@ flutter:
   uses-material-design: true
 
   assets:
-    
+    - assets/attack on titan.png
+    - assets/demon slayer.png
+    - assets/jujutsu kaisen.png
+    - assets/naruto.png
+    - assets/one piece.png
+    - assets/one punch man.png
 
   fonts:
     - family: Nunito

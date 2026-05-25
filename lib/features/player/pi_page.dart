@@ -6,10 +6,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../multiplayer/models/challenge_model.dart';
-import '../multiplayer/challenge_lobby_page.dart';
-import '../multiplayer/challenge_result_page.dart';
 import 'player_statistics_provider.dart';
 
 class PInform extends StatefulWidget {
@@ -75,7 +71,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
               tabs: const [
                 Tab(text: 'Statistics'),
                 Tab(text: 'Achievements'),
-                Tab(text: 'Challenges'),
+                Tab(text: 'History'),
               ],
             ),
           ),
@@ -85,7 +81,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
           children: [
             _StatisticsTab(stats: stats),
             const _AchievementsTab(),
-            const _ChallengesTab(),
+            const _HistoryTab(),
           ],
         ),
       ),
@@ -650,387 +646,157 @@ class _AchievementCard extends StatelessWidget {
 }
 
 // ─── History Tab ──────────────────────────────────────────────────────────────
-// ─── Challenges Tab ───────────────────────────────────────────────────────────
-class _ChallengesTab extends StatefulWidget {
-  const _ChallengesTab();
-
-  @override
-  State<_ChallengesTab> createState() => _ChallengesTabState();
-}
-
-class _ChallengesTabState extends State<_ChallengesTab>
-    with SingleTickerProviderStateMixin {
-  late final TabController                    _subTabCtrl;
-  late final Stream<List<ChallengeModel>>     _activeStream;
-  late final Stream<List<ChallengeModel>>     _allStream;
-
-  @override
-  void initState() {
-    super.initState();
-    _subTabCtrl   = TabController(length: 2, vsync: this);
-    // Streams are created once here — never inside build().
-    _activeStream = FirestoreService.instance.myChallengesStream(activeOnly: true);
-    _allStream    = FirestoreService.instance.myChallengesStream(activeOnly: false);
-  }
-
-  @override
-  void dispose() {
-    _subTabCtrl.dispose();
-    super.dispose();
-  }
+class _HistoryTab extends StatelessWidget {
+  const _HistoryTab();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        TabBar(
-          controller:           _subTabCtrl,
-          labelColor:           AppColors.primary,
-          unselectedLabelColor: AppColors.textMuted,
-          indicatorColor:       AppColors.primary,
-          indicatorWeight:      2,
-          dividerColor:         AppColors.divider,
-          tabs: const [
-            Tab(text: 'Active'),
-            Tab(text: 'Completed'),
-          ],
-        ),
-        Expanded(
-          child: TabBarView(
-            controller: _subTabCtrl,
-            children: [
-              _ChallengeFeed(stream: _activeStream, activeOnly: true),
-              _ChallengeFeed(stream: _allStream,    activeOnly: false),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Challenge Feed ───────────────────────────────────────────────────────────
-class _ChallengeFeed extends StatelessWidget {
-  final Stream<List<ChallengeModel>> stream;
-  final bool                         activeOnly;
-  const _ChallengeFeed({required this.stream, required this.activeOnly});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<ChallengeModel>>(
-      stream: stream,
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: FirestoreService.instance.matchHistoryStream(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          );
+              child: CircularProgressIndicator(color: AppColors.primary));
         }
 
-        if (snap.hasError) {
+        final matches = snap.data ?? [];
+
+        if (matches.isEmpty) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.error_outline_rounded,
-                    size: 48, color: AppColors.wrong.withOpacity(0.6)),
-                const SizedBox(height: 12),
-                const Text('Could not load challenges',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
+                Icon(Icons.history_rounded,
+                    size: 64,
+                    color: AppColors.textMuted.withOpacity(0.5)),
+                const SizedBox(height: 16),
+                const Text('No match history yet',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 16)),
+                const SizedBox(height: 6),
+                const Text(
+                  'Play a multiplayer game to see your history here',
+                  style:
+                      TextStyle(color: AppColors.textMuted, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
               ],
-            ),
-          );
-        }
-
-        final all = snap.data ?? [];
-        final challenges = activeOnly
-            ? all.where((c) => c.isWaiting || c.isInProgress).toList()
-            : all.where((c) => c.isComplete).toList();
-
-        if (challenges.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    activeOnly
-                        ? Icons.sports_kabaddi_rounded
-                        : Icons.history_rounded,
-                    size:  60,
-                    color: AppColors.textMuted.withOpacity(0.4),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    activeOnly ? 'No active challenges' : 'No completed challenges',
-                    style: const TextStyle(color: AppColors.textMuted, fontSize: 16),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    activeOnly
-                        ? 'Create one from the home screen!'
-                        : 'Finish a challenge to see it here.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
-                  ),
-                ],
-              ),
             ),
           );
         }
 
         return ListView.separated(
-          padding:          const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          itemCount:        challenges.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, i) {
-            final c = challenges[i];
-            return _ProfileChallengeCard(
-              challenge: c,
-              onTap:     () => _navigateToChallenge(context, c),
-            );
-          },
+          padding: const EdgeInsets.all(20),
+          itemCount: matches.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (_, i) => _HistoryCard(match: matches[i]),
         );
       },
     );
   }
-
-  void _navigateToChallenge(BuildContext context, ChallengeModel c) {
-    final uid       = FirebaseAuth.instance.currentUser?.uid;
-    final isCreator = c.creatorUid == uid;
-    final myScore   = isCreator ? (c.creatorScore ?? 0) : (c.opponentScore ?? 0);
-
-    if (isCreator && !c.creatorHasPlayed && !c.isComplete) {
-      Navigator.push(context,
-        MaterialPageRoute(builder: (_) => ChallengeLobbyPage(challenge: c)));
-      return;
-    }
-
-    Navigator.push(context,
-      MaterialPageRoute(
-        builder: (_) => ChallengeResultPage(
-          challengeId: c.challengeId,
-          challenge:   c,
-          isCreator:   isCreator,
-          myScore:     myScore,
-        ),
-      ));
-  }
 }
 
-// ─── Profile Challenge Card ────────────────────────────────────────────────────
-class _ProfileChallengeCard extends StatelessWidget {
-  final ChallengeModel challenge;
-  final VoidCallback   onTap;
-  const _ProfileChallengeCard({required this.challenge, required this.onTap});
+class _HistoryCard extends StatelessWidget {
+  final Map<String, dynamic> match;
+  const _HistoryCard({required this.match});
 
   @override
   Widget build(BuildContext context) {
-    final uid        = FirebaseAuth.instance.currentUser?.uid;
-    final isCreator  = challenge.creatorUid == uid;
-    final opponent   = isCreator
-        ? (challenge.opponentUsername ?? 'Waiting for opponent…')
-        : challenge.creatorUsername;
-    final myScore    = isCreator ? challenge.creatorScore    : challenge.opponentScore;
-    final theirScore = isCreator ? challenge.opponentScore   : challenge.creatorScore;
+    final outcome      = match['outcome'] as String? ?? 'lose';
+    final opponent     = match['opponent'] as String? ?? 'Unknown';
+    final playerScore  = match['playerScore'] as int? ?? 0;
+    final opponentScore = match['opponentScore'] as int? ?? 0;
+    final betScore     = match['betScore'] as int? ?? 0;
+    final pointsChange = match['pointsChange'] as int? ?? 0;
+    final timestamp    = match['timestamp'];
 
-    final statusColor = _statusColor();
-    final statusLabel = _statusLabel(isCreator);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding:    const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color:        AppColors.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: statusColor.withOpacity(0.3), width: 1.5),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Opponent + status ─────────────────────────────────────────────
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(children: [
-                  CircleAvatar(
-                    radius:          18,
-                    backgroundColor: AppColors.primary.withOpacity(0.12),
-                    child: Text(
-                      opponent[0].toUpperCase(),
-                      style: const TextStyle(
-                          color: AppColors.primary, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('vs $opponent',
-                        style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15)),
-                    Text(challenge.animeTitle,
-                        style: const TextStyle(
-                            color: AppColors.textMuted, fontSize: 12)),
-                  ]),
-                ]),
-                _ChallengeStatusBadge(label: statusLabel, color: statusColor),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-            const Divider(color: AppColors.divider, height: 1),
-            const SizedBox(height: 12),
-
-            // ── Scores + bet ──────────────────────────────────────────────────
-            Row(children: [
-              Expanded(child: _ChallengeScoreTile(
-                label: 'You',
-                score: myScore,
-                total: challenge.questionIds.length,
-              )),
-              Container(width: 1, height: 36, color: AppColors.divider),
-              Expanded(child: _ChallengeScoreTile(
-                label:    opponent.split(' ').first,
-                score:    theirScore,
-                total:    challenge.questionIds.length,
-                alignEnd: true,
-              )),
-              Container(width: 1, height: 36, color: AppColors.divider),
-              Expanded(child: Column(children: [
-                const Text('Bet',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
-                Text('${challenge.betAmount}',
-                    style: const TextStyle(
-                        color:      AppColors.secondary,
-                        fontWeight: FontWeight.w800,
-                        fontSize:   16),
-                    textAlign: TextAlign.center),
-              ])),
-            ]),
-
-            // ── Outcome ribbon ────────────────────────────────────────────────
-            if (challenge.isComplete) ...[
-              const SizedBox(height: 10),
-              _ChallengeOutcomeRibbon(challenge: challenge, isCreator: isCreator),
-            ],
-
-            // ── Expiry ────────────────────────────────────────────────────────
-            if (!challenge.isComplete) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                const Icon(Icons.timer_outlined,
-                    color: AppColors.textMuted, size: 13),
-                const SizedBox(width: 4),
-                Text(challenge.expiryLabel,
-                    style: const TextStyle(
-                        color: AppColors.textMuted, fontSize: 12)),
-              ]),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _statusColor() {
-    if (challenge.isComplete)   return AppColors.correct;
-    if (challenge.isInProgress) return AppColors.secondary;
-    return AppColors.primary;
-  }
-
-  String _statusLabel(bool isCreator) {
-    if (challenge.isComplete) return 'Finished';
-    if (challenge.isInProgress) {
-      final uid        = FirebaseAuth.instance.currentUser?.uid;
-      final iAmCreator = challenge.creatorUid == uid;
-      if (iAmCreator  && !challenge.creatorHasPlayed)  return 'Your turn';
-      if (!iAmCreator && !challenge.opponentHasPlayed) return 'Your turn';
-      return 'Opponent playing';
+    final Color color;
+    final String outLabel;
+    final IconData outIcon;
+    switch (outcome) {
+      case 'win':
+        color    = AppColors.correct;
+        outLabel = 'Win';
+        outIcon  = Icons.emoji_events_rounded;
+      case 'draw':
+        color    = AppColors.accent;
+        outLabel = 'Draw';
+        outIcon  = Icons.handshake_rounded;
+      default:
+        color    = AppColors.wrong;
+        outLabel = 'Loss';
+        outIcon  = Icons.close_rounded;
     }
-    return 'Waiting';
-  }
-}
 
-// ─── Small reusable challenge widgets ─────────────────────────────────────────
-
-class _ChallengeStatusBadge extends StatelessWidget {
-  final String label;
-  final Color  color;
-  const _ChallengeStatusBadge({required this.label, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding:    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color:        color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                color: color, fontSize: 11, fontWeight: FontWeight.w700)),
-      );
-}
-
-class _ChallengeScoreTile extends StatelessWidget {
-  final String label;
-  final int?   score;
-  final int    total;
-  final bool   alignEnd;
-  const _ChallengeScoreTile({
-    required this.label,
-    required this.score,
-    required this.total,
-    this.alignEnd = false,
-  });
-
-  @override
-  Widget build(BuildContext context) => Column(children: [
-        Text(label,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
-            overflow: TextOverflow.ellipsis),
-        Text(
-          score != null ? '$score/$total' : '—',
-          style: TextStyle(
-            color:      score != null ? AppColors.textPrimary : AppColors.textMuted,
-            fontWeight: FontWeight.w800,
-            fontSize:   15,
-          ),
-          textAlign: alignEnd ? TextAlign.right : TextAlign.center,
-        ),
-      ]);
-}
-
-class _ChallengeOutcomeRibbon extends StatelessWidget {
-  final ChallengeModel challenge;
-  final bool           isCreator;
-  const _ChallengeOutcomeRibbon(
-      {required this.challenge, required this.isCreator});
-
-  @override
-  Widget build(BuildContext context) {
-    final iWon  = challenge.outcome ==
-        (isCreator ? ChallengeOutcome.creatorWins : ChallengeOutcome.opponentWins);
-    final isDraw = challenge.outcome == ChallengeOutcome.draw;
-
-    final color = iWon ? AppColors.correct : isDraw ? AppColors.secondary : AppColors.wrong;
-    final label = iWon
-        ? '🏆 You won +${challenge.betAmount} pts'
-        : isDraw
-            ? '🤝 Draw — bet refunded'
-            : '💀 You lost −${challenge.betAmount} pts';
+    String timeStr = '';
+    if (timestamp != null) {
+      try {
+        final dt = (timestamp as dynamic).toDate() as DateTime;
+        final now = DateTime.now();
+        final diff = now.difference(dt);
+        if (diff.inMinutes < 60) {
+          timeStr = '${diff.inMinutes}m ago';
+        } else if (diff.inHours < 24) {
+          timeStr = '${diff.inHours}h ago';
+        } else {
+          timeStr = '${diff.inDays}d ago';
+        }
+      } catch (_) {}
+    }
 
     return Container(
-      width:      double.infinity,
-      padding:    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color:        color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.25)),
       ),
-      child: Text(label,
-          style: TextStyle(
-              color: color, fontSize: 12, fontWeight: FontWeight.w700)),
+      child: Row(children: [
+        // Outcome icon
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+              color: color.withOpacity(0.15), shape: BoxShape.circle),
+          child: Icon(outIcon, color: color, size: 22),
+        ),
+        const SizedBox(width: 12),
+
+        // Opponent + score
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text(outLabel,
+                style: TextStyle(
+                    color: color, fontSize: 13, fontWeight: FontWeight.w700)),
+            const Text(' vs ',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+            Flexible(child: Text(opponent,
+                style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis)),
+          ]),
+          const SizedBox(height: 4),
+          Text('$playerScore – $opponentScore  •  Bet: $betScore pts',
+              style: const TextStyle(
+                  color: AppColors.textMuted, fontSize: 11)),
+        ])),
+
+        // Points change + time
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text(
+            pointsChange >= 0 ? '+$pointsChange' : '$pointsChange',
+            style: TextStyle(
+                color: pointsChange >= 0 ? AppColors.correct : AppColors.wrong,
+                fontSize: 15,
+                fontWeight: FontWeight.w800),
+          ),
+          if (timeStr.isNotEmpty)
+            Text(timeStr,
+                style: const TextStyle(
+                    color: AppColors.textMuted, fontSize: 11)),
+        ]),
+      ]),
     );
   }
 }
