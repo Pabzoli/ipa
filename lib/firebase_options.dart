@@ -23,10 +23,7 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for macos - '
@@ -61,6 +58,15 @@ class DefaultFirebaseOptions {
     messagingSenderId: '342531348832',
     projectId: 'anime-quiz-1ab1b',
     storageBucket: 'anime-quiz-1ab1b.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyCjcPaKG1_BIU0Ssos7Ufqy_0tDRpQWHeU',
+    appId: '1:342531348832:ios:ef6e33cd4df9673b982605',
+    messagingSenderId: '342531348832',
+    projectId: 'anime-quiz-1ab1b',
+    storageBucket: 'anime-quiz-1ab1b.firebasestorage.app',
+    iosBundleId: 'com.example.quiz',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
