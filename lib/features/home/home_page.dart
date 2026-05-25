@@ -11,8 +11,8 @@ import '../../core/services/prize_pool_service.dart';
 import '../auth/auth_service.dart';
 import '../quiz/questions_page.dart';
 import '../player/pi_page.dart';
-import '../../features/multiplayer/bet_screen.dart';
-import '../../features/multiplayer/join_challenge_page.dart'; // Imported for Join Challenge
+// ── Multiplayer now enters through the hub, not directly into BetScreen ──────
+import '../../features/multiplayer/multiplayer_hub_page.dart';
 import '../leaderboard/leaderboard_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
 
@@ -83,7 +83,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (_selected.length < 2 || !_prefsReady) return;
 
     final titlesToPlay = _selected.toList();
-
     setState(() => _selected.clear());
 
     final counts   = [0, 0, 10 * 60, 7 * 60 + 30, 5 * 60, 2 * 60 + 30, 0];
@@ -114,11 +113,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
-      drawer: _AppDrawer(
-        username: username,
-        // Grabs the first selected anime title from the grid state or falls back to 'general'
-        selectedAnimeTitle: _selected.isNotEmpty ? _selected.first : 'general',
-      ),
+      // ── Drawer no longer passes selectedAnimeTitle — the hub handles
+      // anime selection internally via AnimeSelectPage. ─────────────────
+      drawer: _AppDrawer(username: username),
       body: FadeTransition(
         opacity: _entranceFade,
         child: CustomScrollView(slivers: [
@@ -182,7 +179,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           ),
 
-          // ── Rivalry banner (NEW) ───────────────────────────────────────
+          // ── Rivalry banner ─────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
@@ -190,7 +187,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    // Open directly on the Campus tab
                     builder: (_) =>
                         const WeeklyLeaderboardPage(initialTab: 1),
                   ),
@@ -214,7 +210,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
               gridDelegate:
                   const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount:  2,
+                crossAxisCount:   2,
                 crossAxisSpacing: 14,
                 mainAxisSpacing:  14,
                 childAspectRatio: 0.85,
@@ -310,7 +306,7 @@ class _AnimeCardState extends State<_AnimeCard>
             boxShadow: widget.isSelected
                 ? [
                     BoxShadow(
-                        color:     AppColors.primary.withOpacity(0.35),
+                        color:      AppColors.primary.withOpacity(0.35),
                         blurRadius: 20)
                   ]
                 : [],
@@ -344,9 +340,9 @@ class _AnimeCardState extends State<_AnimeCard>
                 child: Text(
                   widget.title.toUpperCase(),
                   style: const TextStyle(
-                      color:      Colors.white,
-                      fontSize:   11,
-                      fontWeight: FontWeight.w800,
+                      color:         Colors.white,
+                      fontSize:      11,
+                      fontWeight:    FontWeight.w800,
                       letterSpacing: 1),
                   maxLines:  2,
                   textAlign: TextAlign.center,
@@ -396,14 +392,14 @@ class _AnimeCardState extends State<_AnimeCard>
 }
 
 // ─── Drawer ───────────────────────────────────────────────────────────────────
+// What changed: removed selectedAnimeTitle parameter — the drawer no longer
+// needs to know which anime the home grid has selected, because multiplayer
+// now goes through MultiplayerHubPage → AnimeSelectPage instead of jumping
+// straight into BetScreen. The two separate "Multiplayer" + "Join Challenge"
+// tiles are merged into one "⚔️ Battle Arena" tile.
 class _AppDrawer extends StatelessWidget {
   final String username;
-  final String selectedAnimeTitle;
-
-  const _AppDrawer({
-    required this.username,
-    required this.selectedAnimeTitle,
-  });
+  const _AppDrawer({required this.username});
 
   @override
   Widget build(BuildContext context) {
@@ -413,6 +409,7 @@ class _AppDrawer extends StatelessWidget {
       backgroundColor: AppColors.surface,
       child: SafeArea(
         child: Column(children: [
+          // ── Profile header ─────────────────────────────────────────────
           Container(
             padding: const EdgeInsets.all(24),
             decoration: AppDecorations.heroBg,
@@ -453,7 +450,9 @@ class _AppDrawer extends StatelessWidget {
               ),
             ]),
           ),
+
           const SizedBox(height: 12),
+
           _Tile(
             icon:  Icons.person_outline_rounded,
             label: 'My Profile',
@@ -463,31 +462,27 @@ class _AppDrawer extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const PInform()));
             },
           ),
+
+          // ── Single multiplayer entry point ────────────────────────────
+          // Old code had two tiles: "Multiplayer" → BetScreen (broken — it
+          // passed a random home-grid title) and "Join Challenge" →
+          // JoinChallengePage. Both are replaced by one tile that goes to
+          // MultiplayerHubPage where the user consciously chooses.
           _Tile(
-            icon:  Icons.people_outline_rounded,
-            label: 'Multiplayer',
+            icon:  Icons.sports_esports_rounded,
+            label: 'Battle Arena',
+            color: AppColors.primary,
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => BetScreen(animeTitle: selectedAnimeTitle),
+                  builder: (_) => const MultiplayerHubPage(),
                 ),
               );
             },
           ),
-          _Tile(
-            icon:  Icons.vpn_key_outlined,
-            label: 'Join Challenge',
-            color: const Color(0xFF3ECFCF),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const JoinChallengePage()),
-              );
-            },
-          ),
+
           _Tile(
             icon:  Icons.leaderboard_rounded,
             label: 'Leaderboard',
@@ -509,6 +504,7 @@ class _AppDrawer extends StatelessWidget {
                       builder: (_) => const WeeklyLeaderboardPage()));
             },
           ),
+
           const Spacer(),
           const Divider(color: AppColors.divider),
           _Tile(
@@ -546,8 +542,8 @@ class _Tile extends StatelessWidget {
       title:   Text(label,
           style: TextStyle(
               color: c, fontSize: 15, fontWeight: FontWeight.w600)),
-      onTap: onTap,
-      shape: RoundedRectangleBorder(
+      onTap:   onTap,
+      shape:   RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12)),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
@@ -656,7 +652,7 @@ class _PrizePoolBannerState extends State<_PrizePoolBanner> {
   }
 }
 
-// ─── Rivalry Banner (NEW) ─────────────────────────────────────────────────────
+// ─── Rivalry Banner ───────────────────────────────────────────────────────────
 class _RivalryBanner extends StatefulWidget {
   final VoidCallback onTap;
   const _RivalryBanner({required this.onTap});
@@ -719,7 +715,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
               child: Text(
                 'Campus battles heat up as more students join',
                 style: TextStyle(
-                  color:   AppColors.textMuted,
+                  color:    AppColors.textMuted,
                   fontSize: 12,
                   height:   1.3,
                 ),
@@ -732,11 +728,8 @@ class _RivalryBannerState extends State<_RivalryBanner> {
       );
     }
 
-    final leader    = top[0];
+    final leader     = top[0];
     final challenger = top[1];
-
-    final leaderFmt     = _fmt(leader.total);
-    final challengerFmt = _fmt(challenger.total);
 
     return _RivalryBannerShell(
       onTap: widget.onTap,
@@ -770,8 +763,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
                 const SizedBox(height: 2),
                 RichText(
                   text: TextSpan(
-                    style: const TextStyle(
-                        fontSize: 13, height: 1.2),
+                    style: const TextStyle(fontSize: 13, height: 1.2),
                     children: [
                       TextSpan(
                         text: leader.university,
@@ -782,8 +774,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
                       ),
                       const TextSpan(
                         text: ' leads ',
-                        style: TextStyle(
-                            color: AppColors.textSecondary),
+                        style: TextStyle(color: AppColors.textSecondary),
                       ),
                       TextSpan(
                         text: challenger.university,
@@ -793,7 +784,8 @@ class _RivalryBannerState extends State<_RivalryBanner> {
                         ),
                       ),
                       TextSpan(
-                        text: '  ·  $leaderFmt – $challengerFmt',
+                        text:
+                            '  ·  ${_fmt(leader.total)} – ${_fmt(challenger.total)}',
                         style: const TextStyle(
                           color:      AppColors.textMuted,
                           fontSize:   11,
@@ -833,8 +825,7 @@ class _RivalryBannerShell extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [

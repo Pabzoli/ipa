@@ -86,7 +86,7 @@ class FirestoreService {
 
   // ─── Score ──────────────────────────────────────────────────────────────────
   Stream<int> scoreStream() {
-    if (_uid == null) return Stream.value(0); // FIX: Fallback to 0 instead of 500
+    if (_uid == null) return Stream.value(0);
     return _userDoc.snapshots().map(
           (s) => (s.data()?['totalScore'] as int?) ?? 0,
         );
@@ -157,6 +157,31 @@ class FirestoreService {
     }
 
     return filtered;
+  }
+
+  // ─── Anime Titles (NEW) ──────────────────────────────────────────────────────
+  /// Returns a sorted, deduplicated list of every animeTitle present in the
+  /// questions collection. Powers AnimeSelectPage so the grid stays in sync
+  /// with Firestore automatically — no hardcoded list needed.
+  Future<List<String>> fetchAnimeTitles() async {
+    try {
+      final snap = await _db
+          .collection('questions')
+          .get(const GetOptions(source: Source.server));
+
+      if (snap.docs.isEmpty) return [];
+
+      final titles = snap.docs
+          .map((d) => (d.data()['animeTitle'] as String?) ?? '')
+          .where((t) => t.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      return titles;
+    } catch (e) {
+      throw Exception('Failed to load anime list: $e');
+    }
   }
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
@@ -494,7 +519,6 @@ class FirestoreService {
       );
     }
 
-    // Generate a unique code — use it as the Firestore document ID for O(1) lookup
     String code;
     bool exists;
     do {
@@ -506,7 +530,6 @@ class FirestoreService {
     final now       = DateTime.now();
     final expiresAt = now.add(const Duration(hours: 24));
 
-    // Atomic: create challenge + deduct bet in one batch
     final batch = _db.batch();
     batch.set(_challenges.doc(code), {
       'challengeId':      code,
@@ -605,15 +628,28 @@ class FirestoreService {
 
   /// Fetches [AnimeQuestion] objects by their Firestore document IDs,
   /// preserving the original order from [ids].
+  /// Uses batched whereIn queries (chunked at 30) instead of N parallel
+  /// .doc(id).get() calls — fewer read operations billed.
   Future<List<AnimeQuestion>> fetchQuestionsByIds(List<String> ids) async {
-    final futures = ids.map(
-      (id) => _db.collection('questions').doc(id).get(),
-    );
-    final results = await Future.wait(futures);
-    return results
-        .where((s) => s.exists)
-        .map((s) => AnimeQuestion.fromDoc(s))
-        .toList();
+    if (ids.isEmpty) return [];
+
+    final chunks = <List<String>>[];
+    for (int i = 0; i < ids.length; i += 30) {
+      chunks.add(ids.sublist(i, (i + 30).clamp(0, ids.length)));
+    }
+
+    final results = <AnimeQuestion>[];
+    for (final chunk in chunks) {
+      final snap = await _db
+          .collection('questions')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get(const GetOptions(source: Source.server));
+      results.addAll(snap.docs.map((d) => AnimeQuestion.fromDoc(d)));
+    }
+
+    // Restore original order — whereIn does not guarantee order
+    final byId = {for (final q in results) q.id: q};
+    return ids.map((id) => byId[id]).whereType<AnimeQuestion>().toList();
   }
 
   /// Internal: picks [count] random question IDs for the given anime title.

@@ -133,15 +133,14 @@ class _QuestionsPageState extends State<QuestionsPage>
   void _startTimer() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || _isNavigating) return;
+    if (!mounted || _isNavigating) return;
 
-      if (_timerSeconds == 0) {
-        _timer?.cancel();
-        _moveNext();
-      } else {
-        _timer?.cancel();
-        setState(() => _timerSeconds--);
-      }
+    if (_timerSeconds == 0) {
+      _timer?.cancel();
+      _moveNext();
+    } else {
+      setState(() => _timerSeconds--); // just decrement, let it keep ticking
+    }
     });
   }
 

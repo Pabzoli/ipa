@@ -31,13 +31,15 @@ class UserDataProvider extends ChangeNotifier {
 
   void init() {
     // ── 1. Connectivity: one-shot + live changes ─────────────────────────────
-    Connectivity().checkConnectivity().then((results) {
+    Connectivity().checkConnectivity()
+    .timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => [ConnectivityResult.wifi], // assume online if it hangs
+    )
+    .then((results) {
       _isOnline            = _hasConnection(results);
       _connectivityChecked = true;
       notifyListeners();
-      // Don't start Firestore streams here — let the auth listener do it.
-      // This avoids the race condition where checkConnectivity resolves before
-      // FirebaseAuth has a user ready, causing scoreStream() to use a null UID.
     });
 
     _connectSub = Connectivity().onConnectivityChanged.listen((results) {
