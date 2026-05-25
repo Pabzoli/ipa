@@ -30,49 +30,68 @@ class UserDataProvider extends ChangeNotifier {
   StreamSubscription<int>?                      _weeklyPointsSub;
 
   void init() {
-    // ── 1. Connectivity: one-shot + live changes ─────────────────────────────
-    Connectivity().checkConnectivity()
-    .timeout(
-      const Duration(seconds: 4),
-      onTimeout: () => [ConnectivityResult.wifi], // assume online if it hangs
-    )
-    .then((results) {
-      _isOnline            = _hasConnection(results);
+    // ── 1. Connectivity Check (Bulletproofed for iOS) ─────────────────────────
+    try {
+      Connectivity().checkConnectivity()
+      .timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => [ConnectivityResult.wifi], // Assume online if iOS hangs
+      )
+      .then((results) {
+        _isOnline = _hasConnection(results);
+      })
+      .catchError((_) {
+        _isOnline = true; // Fallback on plugin failure
+      })
+      .whenComplete(() {
+        _connectivityChecked = true;
+        notifyListeners();
+      });
+    } catch (e) {
+      // Emergency catch-all to prevent locking the screen
+      _isOnline = true;
       _connectivityChecked = true;
       notifyListeners();
-    });
+    }
 
-    _connectSub = Connectivity().onConnectivityChanged.listen((results) {
-      final online = _hasConnection(results);
-      if (online != _isOnline) {
-        _isOnline = online;
-        notifyListeners();
-        // Only restart streams when we come back online AND a user is signed in
-        if (online && FirebaseAuth.instance.currentUser != null) {
+    // ── 2. Live Connection Listener ──────────────────────────────────────────
+    try {
+      _connectSub = Connectivity().onConnectivityChanged.listen((results) {
+        final online = _hasConnection(results);
+        if (online != _isOnline) {
+          _isOnline = online;
+          notifyListeners();
+          if (online && FirebaseAuth.instance.currentUser != null) {
+            _startFirestoreStreams();
+          }
+        }
+      }, onError: (error) {
+        debugPrint("Connectivity stream error ignored on iOS: $error");
+      });
+    } catch (e) {
+      debugPrint("Failed to bind connectivity stream on iOS: $e");
+    }
+
+    // ── 3. Auth State Listener ───────────────────────────────────────────────
+    try {
+      _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+        if (user == null) {
+          _cancelFirestoreStreams();
+          _resetLocalState();
+          notifyListeners();
+        } else {
           _startFirestoreStreams();
         }
-      }
-    });
-
-    // ── 2. Auth state listener — the core fix ────────────────────────────────
-    // This fires immediately with the current user (or null), and again
-    // whenever the user signs in or out. It replaces the old one-time
-    // _startFirestoreStreams() call that never re-ran on account switches.
-    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user == null) {
-        // User signed out → kill streams and wipe local state so the next
-        // user never sees stale data (fixes the "previous account hints" bug)
-        _cancelFirestoreStreams();
-        _resetLocalState();
+      }, onError: (error) {
+        // If Firebase throws an error here, still force the app to load
+        _connectivityChecked = true;
         notifyListeners();
-      } else {
-        // User signed in (or app started with an existing session) →
-        // start fresh streams for this UID
-        _startFirestoreStreams();
-      }
-    });
+      });
+    } catch (e) {
+      _connectivityChecked = true;
+      notifyListeners();
+    }
   }
-
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   bool _hasConnection(List<ConnectivityResult> results) =>
