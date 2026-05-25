@@ -21,7 +21,7 @@ jobs:
         run: flutter config --no-enable-swift-package-manager
 
       - name: Install dependencies
-        run: flutter pub get
+        run: flutter pub upgrade
 
       - name: Upgrade connectivity_plus
         run: flutter pub upgrade connectivity_plus
