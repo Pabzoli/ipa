@@ -16,7 +16,7 @@ dependencies:
   firebase_core: ^4.7.0
   firebase_auth: ^6.4.0
   cloud_firestore: ^6.3.0
-  connectivity_plus: ^7.1.1   # offline detection
+  connectivity_plus: ^6.1.4
   google_mobile_ads: ^5.1.0   # AdMob — rewarded + interstitial
   cloud_functions: ^6.2.0     # Call Cloud Functions (prize pool increment)
   cupertino_icons: ^1.0.2
