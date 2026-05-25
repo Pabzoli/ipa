@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -18,21 +19,15 @@ import 'firebase_options.dart';
 /// SharedPreferences key tracking which weekId the user has already seen.
 const _kAnnouncementKey = 'lastSeenAnnouncementWeekId';
 
-void main() async {
+void main() {
+  // 1. Initialize bindings synchronously so we can mount the app canvas immediately
   WidgetsFlutterBinding.ensureInitialized();
 
-  await SystemChrome.setPreferredOrientations([
+  SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // AdMob must be initialised after Firebase.
-  await MobileAds.instance.initialize();
-  AdService.instance.preloadAll();
-
-  // Transparent status bar with light icons to show through our dark gradient.
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor:          Colors.transparent,
@@ -40,15 +35,113 @@ void main() async {
     ),
   );
 
-  runApp(
-    MultiProvider(
+  // 2. Call runApp IMMEDIATELY to completely destroy the iOS native white screen hang
+  runApp(const AppBootstrapper());
+}
+
+// ─── Native Initialization Bootstrapper ──────────────────────────────────────
+class AppBootstrapper extends StatefulWidget {
+  const AppBootstrapper({super.key});
+
+  @override
+  State<AppBootstrapper> createState() => _AppBootstrapperState();
+}
+
+class _AppBootstrapperState extends State<AppBootstrapper> {
+  bool _initialized = false;
+  String? _errorLog;
+
+  @override
+  void initState() {
+    super.initState();
+    _initServices();
+  }
+
+  Future<void> _initServices() async {
+    try {
+      // Initialize Firebase with a safety timeout fallback
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+          .timeout(const Duration(seconds: 6), onTimeout: () {
+        throw TimeoutException(
+            "Firebase initialization timed out (6s).\nVerify that GoogleService-Info.plist is correctly added to your ios/Runner directory.");
+      });
+
+      // Initialize AdMob with a safety timeout fallback
+      await MobileAds.instance.initialize().timeout(const Duration(seconds: 4), onTimeout: () {
+        throw TimeoutException(
+            "AdMob initialization timed out (4s).\nDouble check your iOS AdMob App ID entry inside Info.plist.");
+      });
+
+      // Safely preload ad targets without crashing initialization
+      try {
+        AdService.instance.preloadAll();
+      } catch (adError) {
+        debugPrint("Ad preloading bypassed: $adError");
+      }
+
+      if (mounted) {
+        setState(() => _initialized = true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorLog = e.toString());
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Self-diagnostics UI: If native hooks hang, render the error stream on screen
+    if (_errorLog != null) {
+      return MaterialApp(
+        theme: AppTheme.dark,
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: const Color(0xFF121214),
+          body: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 64),
+                  const SizedBox(height: 20),
+                  const Text(
+                    "iOS Initialization Failed",
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorLog!,
+                    style: const TextStyle(color: Colors.grey, fontSize: 14, fontFamily: 'monospace'),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // While native services spin up, show the clean theme-accurate splash layout
+    if (!_initialized) {
+      return MaterialApp(
+        theme: AppTheme.dark,
+        debugShowCheckedModeBanner: false,
+        home: const _SplashScreen(),
+      );
+    }
+
+    // Hand off configuration to MultiProvider and mount the actual game tree
+    return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
         ChangeNotifierProvider(create: (_) => UserDataProvider()..init()),
       ],
       child: const AnimeQuizApp(),
-    ),
-  );
+    );
+  }
 }
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
@@ -112,42 +205,42 @@ class _AnnouncementGateState extends State<_AnnouncementGate> {
   }
 
   Future<void> _maybeShowAnnouncement() async {
-  if (DateTime.now().weekday != DateTime.monday) {
-    _markReady();
-    return;
-  }
-
-  try {
-    final prefs    = await SharedPreferences.getInstance();
-    final lastSeen = prefs.getString(_kAnnouncementKey);
-    final result   = await FirestoreService.instance.getLastWeekWinners();
-
-    if (result == null ||
-        result.winners.isEmpty ||
-        result.weekId == lastSeen) {
+    if (DateTime.now().weekday != DateTime.monday) {
       _markReady();
       return;
     }
 
-    await prefs.setString(_kAnnouncementKey, result.weekId);
+    try {
+      final prefs    = await SharedPreferences.getInstance();
+      final lastSeen = prefs.getString(_kAnnouncementKey);
+      final result   = await FirestoreService.instance.getLastWeekWinners();
 
-    if (!mounted) return;
+      if (result == null ||
+          result.winners.isEmpty ||
+          result.weekId == lastSeen) {
+        _markReady();
+        return;
+      }
 
-    await Navigator.of(context).push<String?>(
-      PageRouteBuilder(
-        pageBuilder:        (_, __, ___) => WinnerAnnouncementPage(result: result),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-        transitionDuration: const Duration(milliseconds: 400),
-        fullscreenDialog:   true,
-      ),
-    );
-  } catch (_) {
-    // Any error → skip silently, never block the user from home.
+      await prefs.setString(_kAnnouncementKey, result.weekId);
+
+      if (!mounted) return;
+
+      await Navigator.of(context).push<String?>(
+        PageRouteBuilder(
+          pageBuilder:        (_, __, ___) => WinnerAnnouncementPage(result: result),
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+          transitionDuration: const Duration(milliseconds: 400),
+          fullscreenDialog:   true,
+        ),
+      );
+    } catch (_) {
+      // Any error → skip silently, never block the user from home.
+    }
+
+    _markReady();
   }
-
-  _markReady();
-}
 
   void _markReady() {
     if (mounted) setState(() => _ready = true);
@@ -259,7 +352,7 @@ class _SplashContent extends StatelessWidget {
           width:  22,
           height: 22,
           child: CircularProgressIndicator(
-            color:       AppColors.primary,
+            color:        AppColors.primary,
             strokeWidth: 2.5,
           ),
         ),
