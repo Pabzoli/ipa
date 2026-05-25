@@ -30,6 +30,11 @@ jobs:
         run: |
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g' ios/Runner.xcodeproj/project.pbxproj
 
+      - name: Add AdMob App ID to Info.plist
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :GADApplicationIdentifier string ca-app-pub-9195964766205519~7370529609" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :SKAdNetworkItems array" ios/Runner/Info.plist || true
+
       - name: Build iOS (no code sign)
         run: flutter build ios --release --no-codesign
 
