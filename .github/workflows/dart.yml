@@ -23,6 +23,10 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Set iOS deployment target to 15.0
+        run: |
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g' ios/Runner.xcodeproj/project.pbxproj
+
       - name: Build iOS (no code sign)
         run: flutter build ios --release --no-codesign
 
