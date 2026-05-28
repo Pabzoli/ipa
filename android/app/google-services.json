@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "342531348832",
+    "project_id": "anime-quiz-1ab1b",
+    "storage_bucket": "anime-quiz-1ab1b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:342531348832:android:07a8c184f69401d8982605",
+        "android_client_info": {
+          "package_name": "com.example.quiz"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9E0pfoXBS5VM4FwUM9ZMlU0V2ensJmFo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

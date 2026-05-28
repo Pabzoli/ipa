@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
+import '../../core/widgets/coin_earn_animation.dart';      // ← NEW
 import '../../core/services/firestore_service.dart';
+import '../../core/providers/user_data_provider.dart';    // ← NEW
 import 'auth_service.dart';
 
 // ─── Auth Gate ────────────────────────────────────────────────────────────────
@@ -32,6 +35,10 @@ class AuthGate extends StatelessWidget {
 // ─── University Gate ──────────────────────────────────────────────────────────
 /// Silently checks whether the current user has a university set.
 /// If not, surfaces [_UniversitySetupPage] once, then hands off to [home].
+///
+/// Also runs the daily login bonus check (+5 AC) and shows
+/// [CoinEarnAnimation] the first time [home] is rendered on a new calendar
+/// day (WAT).
 class _UniversityGate extends StatefulWidget {
   final Widget home;
   const _UniversityGate({required this.home});
@@ -44,10 +51,17 @@ class _UniversityGateState extends State<_UniversityGate> {
   bool _checked         = false;
   bool _needsUniversity = false;
 
+  // ── Daily login bonus ────────────────────────────────────────────────────────
+  /// Coins earned this session (0 = already claimed today or error).
+  int  _pendingBonusCoins   = 0;
+  /// Ensures we schedule the animation overlay exactly once.
+  bool _bonusAnimScheduled  = false;
+
   @override
   void initState() {
     super.initState();
     _checkUniversity();
+    _checkDailyLoginBonus();
   }
 
   Future<void> _checkUniversity() async {
@@ -66,6 +80,20 @@ class _UniversityGateState extends State<_UniversityGate> {
     }
   }
 
+  /// Calls [UserDataProvider.checkAndAwardDailyLogin] and stores the result
+  /// so [build] can trigger the coin animation once home is shown.
+  Future<void> _checkDailyLoginBonus() async {
+    try {
+      final coins = await context
+          .read<UserDataProvider>()
+          .checkAndAwardDailyLogin();
+      if (!mounted || coins == 0) return;
+      setState(() => _pendingBonusCoins = coins);
+    } catch (e) {
+      debugPrint('[AuthGate] daily bonus check error (ignored): $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_checked) return const _SplashScreen();
@@ -74,6 +102,16 @@ class _UniversityGateState extends State<_UniversityGate> {
       return _UniversitySetupPage(
         onComplete: () => setState(() => _needsUniversity = false),
       );
+    }
+
+    // ── Show coin animation on the first frame after home is rendered ─────────
+    if (_pendingBonusCoins > 0 && !_bonusAnimScheduled) {
+      _bonusAnimScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _pendingBonusCoins == 0) return;
+        CoinEarnAnimation.show(context, amount: _pendingBonusCoins);
+        setState(() => _pendingBonusCoins = 0);
+      });
     }
 
     return widget.home;
@@ -229,7 +267,7 @@ class _UniversitySetupPageState extends State<_UniversitySetupPage>
                             style: TextStyle(
                               color:    AppColors.textPrimary,
                               fontSize: 13,
-                              height:   1.4,
+                              height:   1.5,
                             ),
                           ),
                         ),
@@ -564,7 +602,7 @@ class _RegisterFormState extends State<RegisterForm> {
 
   bool    _obscure            = true;
   bool    _loading            = false;
-  String? _selectedUniversity;       // ← NEW
+  String? _selectedUniversity;
 
   @override
   void dispose() {
@@ -583,7 +621,7 @@ class _RegisterFormState extends State<RegisterForm> {
         email:      _emailCtrl.text,
         password:   _passCtrl.text,
         username:   _nameCtrl.text,
-        university: _selectedUniversity,  // ← NEW: passes null if not selected
+        university: _selectedUniversity,
       );
       // AuthGate will automatically navigate on auth state change
     } on FirebaseAuthException catch (e) {
@@ -695,11 +733,10 @@ class _RegisterFormState extends State<RegisterForm> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ── University dropdown (NEW) ───────────────────────────
+                  // ── University dropdown ────────────────────────────────
                   _UniversityDropdown(
                     value:     _selectedUniversity,
                     onChanged: (v) => setState(() => _selectedUniversity = v),
-                    // Not required — user can set it later
                     isRequired: false,
                   ),
                 ],
@@ -781,7 +818,6 @@ class _UniversityDropdown extends StatelessWidget {
         labelText: 'University',
         prefixIcon: const Icon(Icons.school_outlined,
             color: AppColors.textMuted, size: 20),
-        // Remove the extra padding DropdownButtonFormField adds by default
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       ),

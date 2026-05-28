@@ -10,10 +10,12 @@ class AuthService {
   final _db   = FirebaseFirestore.instance;
 
   // ── Stream ────────────────────────────────────────────────────────────────
+
   Stream<User?> get authStateChanges => _auth.authStateChanges();
   User?         get currentUser      => _auth.currentUser;
 
   // ── Sign Up ───────────────────────────────────────────────────────────────
+
   /// [university] is optional so the call site stays backward-compatible.
   /// When provided (and non-empty), it is stored in the Firestore profile
   /// so the campus leaderboard can filter by it.
@@ -21,7 +23,7 @@ class AuthService {
     required String email,
     required String password,
     required String username,
-    String?         university,   // ← NEW: campus / university name
+    String?         university,
   }) async {
     final cred = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
@@ -30,17 +32,20 @@ class AuthService {
 
     await cred.user!.updateDisplayName(username.trim());
 
-    // Build the profile doc. We only write `university` when the user
-    // actually selected one — existing-user upgrade paths set it later via
-    // FirestoreService.updateUniversity().
+    // Build the profile document.
+    // - hintCount is gone; animeCoins replaces it.
+    // - streakShieldActive / lastStreakShieldUsed are written at account
+    //   creation so ensureStreakShieldFields() never needs to patch new users.
     final profile = <String, dynamic>{
-      'username':     username.trim(),
-      'email':        email.trim(),
-      'totalScore':   500,
-      'hintCount':    5,
-      'weeklyPoints': 0,
-      'weeklyReset':  FieldValue.serverTimestamp(),
-      'createdAt':    FieldValue.serverTimestamp(),
+      'username':            username.trim(),
+      'email':               email.trim(),
+      'totalScore':          500,
+      'animeCoins':          0,
+      'weeklyPoints':        0,
+      'weeklyReset':         FieldValue.serverTimestamp(),
+      'createdAt':           FieldValue.serverTimestamp(),
+      'streakShieldActive':  false,
+      'lastStreakShieldUsed': null,
       'stats': {
         'gamesPlayed': 0,
         'gamesWon':    0,
@@ -51,7 +56,7 @@ class AuthService {
       },
     };
 
-    // Only persist the field if the user actually chose something
+    // Only persist the university field if the user actually chose one.
     if (university != null && university.isNotEmpty) {
       profile['university'] = university;
     }
@@ -62,6 +67,7 @@ class AuthService {
   }
 
   // ── Sign In ───────────────────────────────────────────────────────────────
+
   Future<UserCredential> signIn({
     required String email,
     required String password,
@@ -73,13 +79,16 @@ class AuthService {
   }
 
   // ── Sign Out ──────────────────────────────────────────────────────────────
+
   Future<void> signOut() => _auth.signOut();
 
   // ── Password Reset ────────────────────────────────────────────────────────
+
   Future<void> sendPasswordReset(String email) =>
       _auth.sendPasswordResetEmail(email: email.trim());
 
   // ── Firestore helpers ─────────────────────────────────────────────────────
+
   Future<Map<String, dynamic>?> getUserProfile() async {
     final uid = currentUser?.uid;
     if (uid == null) return null;

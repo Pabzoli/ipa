@@ -1,11 +1,33 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../features/quiz/questions.dart';
 import '../../features/multiplayer/challenge_model.dart';
 
+// ─── Exceptions ───────────────────────────────────────────────────────────────
+
+/// Thrown by [FirestoreService.updateAnimeCoins] when a spend would push the
+/// balance below zero. Carry [required] and [available] so the UI can render
+/// a precise "you need X more coins" message without doing maths itself.
+class InsufficientCoinsException implements Exception {
+  final int required;
+  final int available;
+
+  const InsufficientCoinsException({
+    required this.required,
+    required this.available,
+  });
+
+  @override
+  String toString() =>
+      'InsufficientCoinsException: need ${required.abs()} coins, '
+      'only $available available.';
+}
+
 // ─── University Constants ─────────────────────────────────────────────────────
+
 /// Canonical list used in signup dropdown and campus leaderboard queries.
 const List<String> kNigerianUniversities = [
   'UNILAG',
@@ -20,14 +42,15 @@ const List<String> kNigerianUniversities = [
   'Other',
 ];
 
-/// A lightweight model returned by [FirestoreService.getTopUniversities].
+// ─── Lightweight Models ───────────────────────────────────────────────────────
+
+/// Returned by [FirestoreService.getTopUniversities].
 class UniversityTotal {
   final String university;
   final int    total;
   const UniversityTotal({required this.university, required this.total});
 }
 
-// ─── Prize Winner Model ───────────────────────────────────────────────────────
 /// A single winner entry from a [prize_pool] document's `winners` array.
 class PrizeWinner {
   final String uid;
@@ -45,15 +68,14 @@ class PrizeWinner {
   });
 
   factory PrizeWinner.fromMap(Map<String, dynamic> map) => PrizeWinner(
-        uid:         (map['uid']          as String?) ?? '',
-        username:    (map['username']     as String?) ?? 'Anonymous',
-        rank:        ((map['rank']        as num?)?.toInt()) ?? 0,
-        prizeAmount: ((map['prize'] as num?)?.toDouble()) ?? 0.0,
-        university:  (map['university']   as String?) ?? '',
+        uid:         (map['uid']       as String?) ?? '',
+        username:    (map['username']  as String?) ?? 'Anonymous',
+        rank:        ((map['rank']     as num?)?.toInt()) ?? 0,
+        prizeAmount: ((map['prize']    as num?)?.toDouble()) ?? 0.0,
+        university:  (map['university'] as String?) ?? '',
       );
 }
 
-// ─── Last Week Result Model ───────────────────────────────────────────────────
 /// The payload returned by [FirestoreService.getLastWeekWinners].
 ///
 /// [weekId] is the Monday date string of the completed week, e.g. "2025-05-19".
@@ -71,6 +93,7 @@ class LastWeekResult {
 }
 
 // ─── Firestore Service ────────────────────────────────────────────────────────
+
 class FirestoreService {
   FirestoreService._();
   static final FirestoreService instance = FirestoreService._();
@@ -78,18 +101,19 @@ class FirestoreService {
   final _db   = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
-  String? get _uid => _auth.currentUser?.uid;
+  String? get _uid       => _auth.currentUser?.uid;
   String? get currentUid => _uid;
 
   DocumentReference<Map<String, dynamic>> get _userDoc =>
       _db.collection('users').doc(_uid);
 
   // ─── Score ──────────────────────────────────────────────────────────────────
+
   Stream<int> scoreStream() {
     if (_uid == null) return Stream.value(0);
     return _userDoc.snapshots().map(
-          (s) => (s.data()?['totalScore'] as int?) ?? 0,
-        );
+      (s) => (s.data()?['totalScore'] as int?) ?? 0,
+    );
   }
 
   Future<void> addToScore(int amount) async {
@@ -102,28 +126,238 @@ class FirestoreService {
     await _userDoc.update({'totalScore': FieldValue.increment(-amount)});
   }
 
-  // ─── Hints ──────────────────────────────────────────────────────────────────
-  Stream<int> hintStream() {
+  // ─── Anime Coins ─────────────────────────────────────────────────────────────
+
+  /// Live stream of the current user's [animeCoins] balance.
+  Stream<int> animeCoinsStream() {
     if (_uid == null) return Stream.value(0);
     return _userDoc.snapshots().map(
-          (s) => (s.data()?['hintCount'] as int?) ?? 5,
+      (s) => (s.data()?['animeCoins'] as int?) ?? 0,
+    );
+  }
+
+  /// Atomically adjusts [animeCoins] by [delta] (positive = earn, negative = spend)
+  /// and appends an immutable entry to the [coinTransactions] subcollection.
+  ///
+  /// [type] must match the coinTransactions schema:
+  ///   'earn_daily' | 'earn_quiz' | 'earn_ad' | 'earn_referral' |
+  ///   'spend_hint' | 'spend_cooldown' | 'spend_unlock' |
+  ///   'spend_shield' | 'spend_timer' | 'iap'
+  ///
+  /// Throws [InsufficientCoinsException] if the resulting balance would be < 0.
+  Future<void> updateAnimeCoins(int delta, String type) async {
+    if (_uid == null) throw Exception('Not authenticated');
+
+    await _db.runTransaction((tx) async {
+      final snap    = await tx.get(_userDoc);
+      final current = (snap.data()?['animeCoins'] as int?) ?? 0;
+      final after   = current + delta;
+
+      if (after < 0) {
+        throw InsufficientCoinsException(
+          required:  delta.abs(),
+          available: current,
         );
+      }
+
+      // 1. Update balance field atomically.
+      tx.update(_userDoc, {'animeCoins': after});
+
+      // 2. Append an immutable transaction log entry.
+      final logRef = _userDoc.collection('coinTransactions').doc();
+      tx.set(logRef, {
+        'type':         type,
+        'delta':        delta,
+        'balanceAfter': after,
+        'timestamp':    FieldValue.serverTimestamp(),
+      });
+    });
   }
 
-  Future<void> deductHint() async {
+  // ─── One-time migration: hintCount → animeCoins ───────────────────────────
+
+  /// Converts any legacy [hintCount] field into [animeCoins] (× 2 exchange rate)
+  /// and deletes the old field — all in a single atomic transaction.
+  Future<void> runMigrationIfNeeded() async {
     if (_uid == null) return;
-    final snap    = await _userDoc.get();
-    final current = (snap.data()?['hintCount'] as int?) ?? 0;
-    if (current <= 0) return;
-    await _userDoc.update({'hintCount': FieldValue.increment(-1)});
+    try {
+      await _db.runTransaction((tx) async {
+        final snap = await tx.get(_userDoc);
+        final data = snap.data();
+        if (data == null || !data.containsKey('hintCount')) return;
+
+        final hintCount = (data['hintCount'] as int?) ?? 0;
+
+        final animeCoins = data.containsKey('animeCoins')
+            ? (data['animeCoins'] as int?) ?? 0
+            : hintCount * 2;
+
+        tx.update(_userDoc, {
+          'animeCoins': animeCoins,
+          'hintCount':  FieldValue.delete(),
+        });
+      });
+    } catch (e) {
+      debugPrint('[FirestoreService] migration error (ignored): $e');
+    }
   }
 
-  Future<void> addHint() async {
+  // ─── Streak Shield fields (additive patch) ────────────────────────────────
+
+  /// Adds [streakShieldActive] and [lastStreakShieldUsed] to docs that predate
+  /// the field. No-ops on accounts that already have both fields.
+  Future<void> ensureStreakShieldFields() async {
     if (_uid == null) return;
-    await _userDoc.update({'hintCount': FieldValue.increment(1)});
+    try {
+      final snap = await _userDoc.get();
+      final data = snap.data();
+      if (data == null) return;
+
+      final updates = <String, dynamic>{};
+      if (!data.containsKey('streakShieldActive')) {
+        updates['streakShieldActive'] = false;
+      }
+      if (!data.containsKey('lastStreakShieldUsed')) {
+        updates['lastStreakShieldUsed'] = null;
+      }
+      if (updates.isNotEmpty) await _userDoc.update(updates);
+    } catch (e) {
+      debugPrint('[FirestoreService] ensureStreakShieldFields error (ignored): $e');
+    }
+  }
+
+  // ─── Anime Coins field patch (additive) ──────────────────────────────────
+
+  /// Adds [animeCoins: 0] to docs that predate the field.
+  /// No-ops on accounts that already have it.
+  /// Call from UserDataProvider._startFirestoreStreams() alongside the other
+  /// patch calls so every existing user is healed on their next sign-in.
+  Future<void> ensureAnimeCoinField() async {
+    if (_uid == null) return;
+    try {
+      final snap = await _userDoc.get();
+      final data = snap.data();
+      if (data == null) return;
+      if (!data.containsKey('animeCoins')) {
+        await _userDoc.update({'animeCoins': 0});
+      }
+    } catch (e) {
+      debugPrint('[FirestoreService] ensureAnimeCoinField error (ignored): $e');
+    }
+  }
+
+  // ─── Streak Shield stream + write ─────────────────────────────────────────
+  // FIX: These two methods were missing, causing a compile error because
+  // UserDataProvider calls them. Added here.
+
+  /// Live stream of users/{uid}.streakShieldActive.
+  /// Emits false if the field is absent (safe default).
+  Stream<bool> streakShieldStream() {
+    if (_uid == null) return Stream.value(false);
+    return _userDoc.snapshots().map(
+      (s) => (s.data()?['streakShieldActive'] as bool?) ?? false,
+    );
+  }
+
+  /// Writes [value] to users/{uid}.streakShieldActive.
+  /// Pass `true` to activate, `false` to consume (deactivate) the shield.
+  Future<void> setStreakShieldActive(bool value) async {
+    if (_uid == null) return;
+    await _userDoc.update({'streakShieldActive': value});
+  }
+
+  // ─── Daily Ad Watched stream (P-04) ──────────────────────────────────────
+
+  /// Live stream of how many rewarded ads the signed-in user has watched today.
+  ///
+  /// Emits 0 when:
+  ///   • [lastAdWatchDate] is absent (new account / first open).
+  ///   • [lastAdWatchDate] is from a prior WAT day — the UI resets immediately
+  ///     without needing a server write, matching the Cloud Function's logic.
+  ///   • The user is not authenticated.
+  ///
+  /// [dailyAdWatched] and [lastAdWatchDate] are written ONLY by the
+  /// [recordAdWatch] Cloud Function — never by the client directly.
+  /// Firestore rules enforce this at the document level.
+  Stream<int> dailyAdWatchedStream() {
+    if (_uid == null) return Stream.value(0);
+    return _userDoc.snapshots().map((snap) {
+      final data = snap.data();
+      if (data == null) return 0;
+
+      // ── WAT midnight reset check ─────────────────────────────────────────
+      // WAT = UTC+1. If the stored date is from a prior WAT day, return 0 so
+      // the cap display resets at midnight without waiting for the next CF call.
+      final lastWatchTs = data['lastAdWatchDate'] as Timestamp?;
+      if (lastWatchTs == null) return 0;
+
+      final lastWAT = lastWatchTs.toDate().toUtc().add(const Duration(hours: 1));
+      final nowWAT  = DateTime.now().toUtc().add(const Duration(hours: 1));
+      final sameDay = lastWAT.year  == nowWAT.year  &&
+                      lastWAT.month == nowWAT.month &&
+                      lastWAT.day   == nowWAT.day;
+
+      if (!sameDay) return 0; // new WAT day → show fresh count
+      return (data['dailyAdWatched'] as int?) ?? 0;
+    });
+  }
+
+  /// Adds [dailyAdWatched: 0] and [lastAdWatchDate: null] to docs that
+  /// predate P-04. No-ops on accounts that already have the fields.
+  /// Call alongside the other ensure* patches in UserDataProvider.
+  Future<void> ensureDailyAdWatchedFields() async {
+    if (_uid == null) return;
+    try {
+      final snap = await _userDoc.get();
+      final data = snap.data();
+      if (data == null) return;
+
+      final updates = <String, dynamic>{};
+      if (!data.containsKey('dailyAdWatched')) {
+        updates['dailyAdWatched'] = 0;
+      }
+      if (!data.containsKey('lastAdWatchDate')) {
+        updates['lastAdWatchDate'] = null;
+      }
+      if (updates.isNotEmpty) await _userDoc.update(updates);
+    } catch (e) {
+      debugPrint('[FirestoreService] ensureDailyAdWatchedFields error (ignored): $e');
+    }
+  }
+
+  // ─── Premium Active stream (P-05) ────────────────────────────────────────
+
+  /// Live stream of users/{uid}.premiumActive.
+  ///
+  /// Emits `false` when:
+  ///   • The field is absent (pre-P-05 accounts / free users).
+  ///   • The user is not authenticated.
+  ///
+  /// Written server-side only by the purchase-verification Cloud Function
+  /// (Google Play Billing). Firestore rules block all client writes to this
+  /// field. Used by [UserDataProvider.premiumActive] to gate regular
+  /// interstitial ads on result screens.
+  Stream<bool> premiumActiveStream() {
+    if (_uid == null) return Stream.value(false);
+    return _userDoc.snapshots().map(
+      (s) => (s.data()?['premiumActive'] as bool?) ?? false,
+    );
+  }
+
+  // ─── Early Anime Unlock ────────────────────────────────────────────────────
+  // FIX: New method required by Surface 4 in home_page.dart.
+
+  /// Appends [animeTitle] to users/{uid}.unlockedAnimes (array-union so it is
+  /// idempotent and safe to call more than once).
+  Future<void> unlockAnimeEarly(String animeTitle) async {
+    if (_uid == null) return;
+    await _userDoc.update({
+      'unlockedAnimes': FieldValue.arrayUnion([animeTitle]),
+    });
   }
 
   // ─── Questions ──────────────────────────────────────────────────────────────
+
   Future<List<AnimeQuestion>> fetchQuestions() async {
     final snap = await _db
         .collection('questions')
@@ -159,10 +393,8 @@ class FirestoreService {
     return filtered;
   }
 
-  // ─── Anime Titles (NEW) ──────────────────────────────────────────────────────
-  /// Returns a sorted, deduplicated list of every animeTitle present in the
-  /// questions collection. Powers AnimeSelectPage so the grid stays in sync
-  /// with Firestore automatically — no hardcoded list needed.
+  // ─── Anime Titles ────────────────────────────────────────────────────────────
+
   Future<List<String>> fetchAnimeTitles() async {
     try {
       final snap = await _db
@@ -185,6 +417,7 @@ class FirestoreService {
   }
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
+
   Future<void> updateStats(Map<String, dynamic> stats) async {
     if (_uid == null) return;
     await _userDoc.set({'stats': stats}, SetOptions(merge: true));
@@ -197,12 +430,13 @@ class FirestoreService {
   }
 
   // ─── Match History ───────────────────────────────────────────────────────────
+
   Future<void> saveMatchHistory({
     required String opponent,
     required int    playerScore,
     required int    opponentScore,
     required int    betScore,
-    required String outcome, // 'win' | 'lose' | 'draw'
+    required String outcome,
   }) async {
     if (_uid == null) return;
     final int pointsChange;
@@ -238,6 +472,7 @@ class FirestoreService {
   }
 
   // ─── Leaderboard ────────────────────────────────────────────────────────────
+
   Stream<List<Map<String, dynamic>>> leaderboardStream() {
     return _db
         .collection('users')
@@ -273,11 +508,12 @@ class FirestoreService {
   }
 
   // ─── Weekly Points ───────────────────────────────────────────────────────────
+
   Stream<int> weeklyPointsStream() {
     if (_uid == null) return Stream.value(0);
     return _userDoc.snapshots().map(
-          (s) => (s.data()?['weeklyPoints'] as int?) ?? 0,
-        );
+      (s) => (s.data()?['weeklyPoints'] as int?) ?? 0,
+    );
   }
 
   Future<void> addWeeklyPoints(int amount) async {
@@ -306,7 +542,7 @@ class FirestoreService {
   }
 
   // ─── Campus Leaderboard ──────────────────────────────────────────────────────
-  /// Streams the top 50 players from [university] sorted by weeklyPoints.
+
   Stream<List<Map<String, dynamic>>> weeklyCampusLeaderboardStream(
       String university) {
     if (university.isEmpty) return Stream.value([]);
@@ -332,6 +568,7 @@ class FirestoreService {
   }
 
   // ─── University Helpers ──────────────────────────────────────────────────────
+
   Future<String?> getCurrentUserUniversity() async {
     if (_uid == null) return null;
     final doc = await _userDoc.get();
@@ -345,8 +582,9 @@ class FirestoreService {
   }
 
   // ─── Top Universities (5-minute in-memory cache) ─────────────────────────────
+
   Map<String, int>? _topUniCache;
-  DateTime?          _topUniCacheTime;
+  DateTime?         _topUniCacheTime;
 
   Future<List<UniversityTotal>> getTopUniversities() async {
     if (_topUniCache != null &&
@@ -391,6 +629,7 @@ class FirestoreService {
   }
 
   // ─── Prize Pool ──────────────────────────────────────────────────────────────
+
   static String currentWeekId() {
     final now    = DateTime.now().toUtc();
     final monday = now.subtract(Duration(days: now.weekday - 1));
@@ -419,6 +658,7 @@ class FirestoreService {
   }
 
   // ─── Last Week Winners ───────────────────────────────────────────────────────
+
   Future<LastWeekResult?> getLastWeekWinners() async {
     try {
       final snap = await _db
@@ -453,12 +693,13 @@ class FirestoreService {
   }
 
   // ─── Username ────────────────────────────────────────────────────────────────
+
   Future<bool> canChangeUsername() async {
     if (_uid == null) return false;
     final doc        = await _userDoc.get();
     final lastChange = doc.data()?['lastUsernameChange'] as Timestamp?;
     if (lastChange == null) return true;
-    final daysSince = DateTime.now().difference(lastChange.toDate()).inDays;
+    final daysSince  = DateTime.now().difference(lastChange.toDate()).inDays;
     return daysSince >= 7;
   }
 
@@ -494,18 +735,16 @@ class FirestoreService {
   }
 
   // ─── Challenges ───────────────────────────────────────────────────────────────
+
   CollectionReference<Map<String, dynamic>> get _challenges =>
       _db.collection('challenges');
 
   String _generateChallengeCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rand = Random();
+    final rand  = Random();
     return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
   }
 
-  /// Creates a new challenge, deducts the bet from creator's score, and returns
-  /// the challengeId + the 10 questionIds to play immediately.
-  /// Uses a batch write so the score deduction and challenge creation are atomic.
   Future<ChallengeCreationResult> createChallenge({
     required String animeTitle,
     required int    betAmount,
@@ -520,7 +759,7 @@ class FirestoreService {
     }
 
     String code;
-    bool exists;
+    bool   exists;
     do {
       code  = _generateChallengeCode();
       final snap = await _challenges.doc(code).get();
@@ -553,7 +792,6 @@ class FirestoreService {
     return ChallengeCreationResult(challengeId: code, questionIds: questionIds);
   }
 
-  /// Streams the challenge doc in real time.
   Stream<ChallengeModel?> challengeStream(String challengeId) {
     return _challenges
         .doc(challengeId)
@@ -561,7 +799,6 @@ class FirestoreService {
         .map((s) => s.exists ? ChallengeModel.fromDoc(s) : null);
   }
 
-  /// Looks up a challenge by its 6-char code.
   Future<ChallengeModel?> getChallengeByCode(String code) async {
     final snap = await _challenges
         .doc(code.trim().toUpperCase())
@@ -569,9 +806,6 @@ class FirestoreService {
     return snap.exists ? ChallengeModel.fromDoc(snap) : null;
   }
 
-  /// Opponent accepts the challenge: validates state, deducts their bet,
-  /// and sets their uid/username atomically inside a transaction so two
-  /// players can't join the same challenge simultaneously.
   Future<void> joinChallenge(String challengeId) async {
     if (_uid == null) throw Exception('Not authenticated');
     final username = await getUsername();
@@ -626,10 +860,6 @@ class FirestoreService {
     await _challenges.doc(challengeId).update({'opponentScore': score});
   }
 
-  /// Fetches [AnimeQuestion] objects by their Firestore document IDs,
-  /// preserving the original order from [ids].
-  /// Uses batched whereIn queries (chunked at 30) instead of N parallel
-  /// .doc(id).get() calls — fewer read operations billed.
   Future<List<AnimeQuestion>> fetchQuestionsByIds(List<String> ids) async {
     if (ids.isEmpty) return [];
 
@@ -647,12 +877,10 @@ class FirestoreService {
       results.addAll(snap.docs.map((d) => AnimeQuestion.fromDoc(d)));
     }
 
-    // Restore original order — whereIn does not guarantee order
     final byId = {for (final q in results) q.id: q};
     return ids.map((id) => byId[id]).whereType<AnimeQuestion>().toList();
   }
 
-  /// Internal: picks [count] random question IDs for the given anime title.
   Future<List<String>> _pickRandomQuestionIds(
     String animeTitle,
     int    count,

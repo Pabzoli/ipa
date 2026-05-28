@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
+import '../../core/widgets/insufficient_coins_sheet.dart';    // FIX: added
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import 'player_statistics_provider.dart';
@@ -38,10 +39,77 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
+  // ── SPEND SURFACE 6: Streak Shield (30 AC) ──────────────────────────────────
+  // FIX: new method called from the shield card in _StatisticsTab.
+
+  Future<void> _buyStreakShield() async {
+    const cost = 30;
+    final userData = context.read<UserDataProvider>();
+
+    if (userData.animeCoins < cost) {
+      if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text(
+          'Protect Your Streak?',
+          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'Spend 30🪙 to activate a Streak Shield.\n\n'
+          'If you miss a day, the shield absorbs it and your streak is preserved. '
+          'One shield can be active at a time.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.55),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(
+              '🛡 Activate  −30🪙',
+              style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await userData.updateAnimeCoins(-cost, 'spend_shield');
+      await userData.setStreakShieldActive(true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🛡 Streak Shield activated!'),
+            backgroundColor: AppColors.correct,
+          ),
+        );
+      }
+    } on InsufficientCoinsException {
+  if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+} catch (e) {
+  debugPrint('Unexpected error: $e');
+  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Something went wrong — please try again.')),
+  );
+}
+  }
+
   @override
   Widget build(BuildContext context) {
     final stats      = context.watch<PlayerStatisticsProvider>().playerStatistics;
     final totalScore = context.watch<UserDataProvider>().score;
+    // FIX: read shield state here so _StatisticsTab stays a StatelessWidget
+    final shieldActive = context.watch<UserDataProvider>().streakShieldActive;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
@@ -79,7 +147,12 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
         body: TabBarView(
           controller: _tabCtrl,
           children: [
-            _StatisticsTab(stats: stats),
+            // FIX: pass shield props so the Statistics tab can render the card
+            _StatisticsTab(
+              stats:        stats,
+              shieldActive: shieldActive,
+              onBuyShield:  _buyStreakShield,
+            ),
             const _AchievementsTab(),
             const _HistoryTab(),
           ],
@@ -89,7 +162,6 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
   }
 
   void _showEditUsername(BuildContext context) async {
-    // Check if user can change
     final nextDate = await FirestoreService.instance.nextUsernameChangeDate();
 
     if (!mounted) return;
@@ -232,7 +304,6 @@ class _ProfileHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // ── Icon badge (no avatar image) ──────────────────────────────────
           Container(
             width: 80,
             height: 80,
@@ -254,13 +325,11 @@ class _ProfileHeader extends StatelessWidget {
           ),
           const SizedBox(width: 16),
 
-          // ── Username + score ──────────────────────────────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Username row with edit button
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -293,7 +362,6 @@ class _ProfileHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
 
-                // Score badge
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 12, vertical: 6),
@@ -330,9 +398,20 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 // ─── Statistics Tab ───────────────────────────────────────────────────────────
+// FIX: added [shieldActive] and [onBuyShield] so Surface 6 can be rendered
+// without converting this widget to a StatefulWidget or reading the provider
+// directly (which would require a BuildContext with a Provider ancestor, which
+// NestedScrollView's TabBarView always has — but passing props is cleaner).
 class _StatisticsTab extends StatelessWidget {
   final PlayerStatistics stats;
-  const _StatisticsTab({required this.stats});
+  final bool             shieldActive;   // FIX: new
+  final VoidCallback     onBuyShield;    // FIX: new
+
+  const _StatisticsTab({
+    required this.stats,
+    required this.shieldActive,
+    required this.onBuyShield,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -341,11 +420,18 @@ class _StatisticsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ── SPEND SURFACE 6: Streak Shield card ───────────────────────────
+          // FIX: entire card is new. Shows active state or the buy button.
+          _StreakShieldCard(
+            active:     shieldActive,
+            onBuy:      onBuyShield,
+          ),
+          const SizedBox(height: 24),
+
           // ── Match Summary Cards ────────────────────────────────────────────
           const SectionHeader(title: 'Match Record'),
           const SizedBox(height: 16),
 
-          // Wins / Losses / Draws in a 3-column row
           Row(
             children: [
               Expanded(child: _BigStatCard(
@@ -372,7 +458,6 @@ class _StatisticsTab extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // Games played
           GlassCard(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             child: Row(children: [
@@ -391,7 +476,6 @@ class _StatisticsTab extends StatelessWidget {
             ]),
           ),
 
-          // Win rate bar
           if (stats.gamesPlayed > 0) ...[
             const SizedBox(height: 12),
             GlassCard(
@@ -455,6 +539,116 @@ class _StatisticsTab extends StatelessWidget {
             wide: true,
           ),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Streak Shield Card (SPEND SURFACE 6) ────────────────────────────────────
+// FIX: new widget. Placed at the top of _StatisticsTab.
+// Shows shield status when active, or the "buy" button when inactive.
+class _StreakShieldCard extends StatelessWidget {
+  final bool         active;
+  final VoidCallback onBuy;
+
+  const _StreakShieldCard({required this.active, required this.onBuy});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.correct : AppColors.secondary;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.30)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width:  48,
+            height: 48,
+            decoration: BoxDecoration(
+              color:  color.withOpacity(0.14),
+              shape:  BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '🛡',
+                style: TextStyle(
+                  fontSize: active ? 26 : 22,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  active ? 'Streak Shield Active' : 'Streak Shield',
+                  style: TextStyle(
+                    color:      active ? AppColors.correct : AppColors.textPrimary,
+                    fontSize:   15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  active
+                      ? 'Your next missed day will be forgiven automatically.'
+                      : 'Protect your streak against one missed day  —  30🪙',
+                  style: const TextStyle(
+                    color:    AppColors.textMuted,
+                    fontSize: 12,
+                    height:   1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          if (active)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color:        AppColors.correct.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.correct.withOpacity(0.35)),
+              ),
+              child: const Text(
+                'ON',
+                style: TextStyle(
+                  color:      AppColors.correct,
+                  fontSize:   12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            )
+          else
+            GestureDetector(
+              onTap: onBuy,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color:        AppColors.secondary.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.secondary.withOpacity(0.40)),
+                ),
+                child: const Text(
+                  'Activate',
+                  style: TextStyle(
+                    color:      AppColors.secondary,
+                    fontSize:   13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -549,7 +743,6 @@ class _AchievementsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        // Progress header
         Container(
           padding: const EdgeInsets.all(16),
           decoration: AppDecorations.card,
@@ -751,7 +944,6 @@ class _HistoryCard extends StatelessWidget {
         border: Border.all(color: color.withOpacity(0.25)),
       ),
       child: Row(children: [
-        // Outcome icon
         Container(
           width: 44,
           height: 44,
@@ -761,7 +953,6 @@ class _HistoryCard extends StatelessWidget {
         ),
         const SizedBox(width: 12),
 
-        // Opponent + score
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Text(outLabel,
@@ -782,7 +973,6 @@ class _HistoryCard extends StatelessWidget {
                   color: AppColors.textMuted, fontSize: 11)),
         ])),
 
-        // Points change + time
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Text(
             pointsChange >= 0 ? '+$pointsChange' : '$pointsChange',

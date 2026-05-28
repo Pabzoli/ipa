@@ -1,10 +1,14 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
+import '../../core/widgets/coin_earn_animation.dart';
+import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
+import '../../core/services/ad_service.dart';              // ← P-05
 import 'challenge_model.dart';
 
 // ─── Challenge Result — redesigned from scratch ───────────────────────────────
@@ -16,6 +20,9 @@ import 'challenge_model.dart';
 // - Bet outcome card has a more expressive layout with large point change number.
 // - "Calculating result…" state has a proper animated loading indicator instead
 //   of just a spinner + text.
+// - [P-02] Win awards +15 AC via CoinEarnAnimation overlay (idempotent).
+// - [P-05] Rewarded interstitial fires 500ms after score is revealed (all users).
+//          Regular interstitial fires sequentially for non-Premium on every 3rd quiz.
 class ChallengeResultPage extends StatelessWidget {
   final String challengeId;
   const ChallengeResultPage({super.key, required this.challengeId});
@@ -88,6 +95,16 @@ class _ResultBodyState extends State<_ResultBody>
   late Animation<double> _bannerFade;
   late AnimationController _confettiCtrl;
 
+  /// Guards the +15 AC award so it fires at most once per page session,
+  /// even if the StreamBuilder emits multiple updates for the same doc.
+  bool _winCoinAwarded = false;
+
+  // ── P-05: Ad sequence guard ───────────────────────────────────────────────
+  // Ensures the rewarded interstitial + optional regular interstitial fires
+  // exactly once per result page instance, regardless of how many times
+  // StreamBuilder emits or didUpdateWidget is called.
+  bool _adSequenceFired = false;
+
   @override
   void initState() {
     super.initState();
@@ -106,7 +123,7 @@ class _ResultBodyState extends State<_ResultBody>
       duration: const Duration(milliseconds: 3000),
     );
 
-    // Delay slightly so StreamBuilder has settled
+    // Delay slightly so StreamBuilder has settled.
     if (widget.challenge.isCompleted && widget.challenge.outcome != null) {
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted) {
@@ -114,7 +131,15 @@ class _ResultBodyState extends State<_ResultBody>
           if (widget.challenge.didCurrentUserWin(widget.currentUid)) {
             _confettiCtrl.forward();
           }
+          // Award win coins (first-time only).
+          _tryAwardWinCoins();
         }
+      });
+
+      // ── P-05: Ad sequence fires 500ms after result is shown ───────────────
+      // 300ms after the banner starts animating in (200ms + 300ms = 500ms total).
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) _runAdSequence();
       });
     }
   }
@@ -122,13 +147,91 @@ class _ResultBodyState extends State<_ResultBody>
   @override
   void didUpdateWidget(_ResultBody old) {
     super.didUpdateWidget(old);
-    // Trigger animation when result first arrives
+    // Trigger when the result first arrives via the live Firestore stream.
     if (!old.challenge.isCompleted && widget.challenge.isCompleted) {
       _bannerCtrl.forward();
       if (widget.challenge.didCurrentUserWin(widget.currentUid)) {
         _confettiCtrl.forward();
       }
+      // Award win coins when result arrives live.
+      _tryAwardWinCoins();
+
+      // ── P-05: Ad sequence — 500ms after the result becomes visible ────────
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) _runAdSequence();
+      });
     }
+  }
+
+  /// Awards +15 AC for a win result, exactly once per page instance.
+  /// Silently no-ops on draw, loss, or if already awarded.
+  Future<void> _tryAwardWinCoins() async {
+    if (_winCoinAwarded) return;
+    if (!widget.challenge.isCompleted) return;
+    if (!widget.challenge.didCurrentUserWin(widget.currentUid)) return;
+
+    _winCoinAwarded = true; // set immediately to prevent double-fire
+
+    try {
+      await context
+          .read<UserDataProvider>()
+          .updateAnimeCoins(15, 'earn_challenge_win');
+
+      if (!mounted) return;
+      // Show the animation after a short pause so it doesn't compete
+      // with the banner entrance animation.
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted) CoinEarnAnimation.show(context, amount: 15);
+    } catch (e) {
+      debugPrint('[ChallengeResultPage] win coin award error (ignored): $e');
+      // Don't reset _winCoinAwarded — if the write failed, a retry on the
+      // same session could double-award. Surface it only in debug logs.
+    }
+  }
+
+  // ── P-05: Ad sequence ─────────────────────────────────────────────────────
+  /// Runs the full result-screen ad sequence exactly once per page instance.
+  ///
+  /// Step 1 — increment the in-memory session quiz counter.
+  /// Step 2 — show rewarded interstitial (all users, including Premium).
+  ///           If the user watches the full ad: award +5 AC + animation.
+  ///           If the user skips: no penalty, continue normally.
+  /// Step 3 — once the rewarded interstitial is fully dismissed, show the
+  ///           regular interstitial if this is the 3rd session quiz and the
+  ///           user is not Premium. Never overlaps with Step 2.
+  Future<void> _runAdSequence() async {
+    if (_adSequenceFired) return; // strictly once per page instance
+    _adSequenceFired = true;
+
+    if (!mounted) return;
+    final userData = context.read<UserDataProvider>();
+
+    // Step 1: update the session count BEFORE the interstitial check so
+    // showInterstitialIfDue sees the incremented value.
+    userData.incrementSessionQuizCount();
+
+    // Step 2: rewarded interstitial — fires for all users, including Premium.
+    await AdService.instance.showRewardedInterstitial(
+      context,
+      onRewarded: () {
+        if (!mounted) return;
+        // Award +5 AC (fire-and-forget; Firestore transaction is atomic).
+        userData.updateAnimeCoins(5, 'earn_rewarded_interstitial').catchError((e) {
+          debugPrint('[ChallengeResultPage] rewarded interstitial coin award error: $e');
+        });
+        // Show coin animation overlay.
+        CoinEarnAnimation.show(context, amount: 5);
+      },
+    );
+
+    // Step 3: regular interstitial — non-Premium, every 3rd session quiz.
+    // Runs only after the rewarded interstitial Future resolves, so the
+    // two ads are always sequential, never simultaneous.
+    if (!mounted) return;
+    AdService.instance.showInterstitialIfDue(
+      isPremium:        userData.premiumActive,
+      sessionQuizCount: userData.sessionQuizCount,
+    );
   }
 
   @override
@@ -205,6 +308,35 @@ class _ResultBodyState extends State<_ResultBody>
               isDraw: isDraw,
               betAmount: c.betAmount,
             ),
+
+          // ── Win coins badge ──────────────────────────────────────────
+          if (isResolved && iWon && _winCoinAwarded) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFBBF24).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: const Color(0xFFFBBF24).withOpacity(0.35)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('🪙', style: TextStyle(fontSize: 18)),
+                  SizedBox(width: 8),
+                  Text(
+                    '+15 coins for winning!',
+                    style: TextStyle(
+                      color:      Color(0xFFFBBF24),
+                      fontSize:   14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           const SizedBox(height: 32),
 
@@ -494,9 +626,6 @@ class _PlayerColumn extends StatelessWidget {
 }
 
 // ── Bet outcome card ───────────────────────────────────────────────────────────
-// Why: The old card showed the text and icon but the point change felt
-// underwhelming. The new card gives the point change a massive number so
-// the emotional impact is immediate.
 class _BetOutcomeCard extends StatelessWidget {
   final bool iWon;
   final bool isDraw;
@@ -581,9 +710,6 @@ class _BetOutcomeCard extends StatelessWidget {
 }
 
 // ── Confetti painter (win only) ────────────────────────────────────────────────
-// Why: A win without confetti feels incomplete. This custom painter draws
-// 40 dots that fall with varying speeds and colours — pure CSS is unavailable
-// in Flutter so a CustomPainter is the right tool here.
 class _ConfettiPainter extends CustomPainter {
   final double progress;
   static final _rand = math.Random(42); // fixed seed = consistent shapes
