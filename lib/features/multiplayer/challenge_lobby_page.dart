@@ -11,17 +11,9 @@ import 'challenge_model.dart';
 import 'challenge_result_page.dart';
 
 // ─── Challenge Lobby — redesigned ─────────────────────────────────────────────
-// What changed:
-// - Added an animated radar/pulse waiting indicator so the waiting state
-//   doesn't feel static and dead.
-// - The challenge code is now displayed in two visual groups (like XXXX-XX)
-//   with a glow effect on the primary colour.
-// - Share options are a row of icon-buttons (WhatsApp + Copy) rather than a
-//   single full-width button, saving vertical space.
-// - A live status timeline shows the 3-stage progress: Created → Opponent
-//   Joined → Complete.
-// - Timer tick is moved to a separate 1-minute periodic so it doesn't
-//   interfere with StreamBuilder rebuilds.
+// Stage 08 changes:
+//   - Share message updated to use "AC" (animeCoins) instead of "pts".
+//   - Everything else is preserved from the previous redesign.
 class ChallengeLobbyPage extends StatefulWidget {
   final String challengeId;
   const ChallengeLobbyPage({super.key, required this.challengeId});
@@ -67,12 +59,13 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage>
   }
 
   Future<void> _shareViaWhatsApp(ChallengeModel c) async {
+    // Stage 08: AC replaces "pts" in the share message.
     final text = Uri.encodeComponent(
       '⚔️ Anime quiz challenge!\n\n'
-      '📺 ${c.animeTitle} · ${c.betAmount} pts bet\n'
+      '📺 ${c.animeTitle} · ${c.stakeAmount} AC at stake\n'
       '🔑 Code: *${c.challengeId}*\n\n'
       'Open the app → Battle Arena → Join Challenge → enter code above.\n'
-      '⏰ You have 24 hours!',
+      '⏰ You have 48 hours!',
     );
     final uri = Uri.parse('https://wa.me/?text=$text');
     if (await canLaunchUrl(uri)) {
@@ -125,9 +118,11 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage>
               stream: FirestoreService.instance
                   .challengeStream(widget.challengeId),
               builder: (context, snap) {
-                if (!snap.hasData && snap.connectionState == ConnectionState.waiting) {
+                if (!snap.hasData &&
+                    snap.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
+                    child: CircularProgressIndicator(
+                        color: AppColors.primary),
                   );
                 }
 
@@ -361,8 +356,6 @@ class _ScoreStrip extends StatelessWidget {
 }
 
 // ── Animated radar waiting indicator ──────────────────────────────────────────
-// Why: The old waiting state was just text. This custom painter creates
-// expanding radar rings that communicate "actively waiting" visually.
 class _RadarWaiting extends StatelessWidget {
   final AnimationController pulseCtrl;
   final AnimationController radarCtrl;
@@ -460,7 +453,7 @@ class _RadarPainter extends CustomPainter {
   bool shouldRepaint(_RadarPainter old) => old.progress != progress;
 }
 
-// ── Opponent playing banner ────────────────────────────────────────────────────
+// ── Banners ────────────────────────────────────────────────────────────────────
 class _OpponentPlayingBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) => _InfoBanner(
@@ -486,7 +479,7 @@ class _ExpiredBanner extends StatelessWidget {
   Widget build(BuildContext context) => _InfoBanner(
         emoji: '⏰',
         title: 'Challenge expired',
-        subtitle: 'Your bet has been refunded.',
+        subtitle: 'Your stake has been refunded automatically.',
         color: AppColors.wrong,
       );
 }
@@ -547,7 +540,6 @@ class _CodeCard extends StatelessWidget {
   final VoidCallback onCopy;
   const _CodeCard({required this.code, required this.onCopy});
 
-  // Split code: first 3 chars + last 3 chars with visual separator
   String get _formatted =>
       '${code.substring(0, 3)} - ${code.substring(3)}';
 
@@ -576,7 +568,7 @@ class _CodeCard extends StatelessWidget {
               child: Text(
                 _formatted,
                 style: const TextStyle(
-                  color: Colors.white, // overridden by ShaderMask
+                  color: Colors.white,
                   fontSize: 38,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 4,
@@ -605,8 +597,6 @@ class _CodeCard extends StatelessWidget {
 }
 
 // ── Share actions row ──────────────────────────────────────────────────────────
-// Why: Two visual buttons side-by-side (WhatsApp green + copy grey) is
-// faster to act on than a single button that only does WhatsApp.
 class _ShareActions extends StatelessWidget {
   final VoidCallback onWhatsApp;
   final VoidCallback onCopy;
@@ -691,9 +681,6 @@ class _ShareBtn extends StatelessWidget {
 }
 
 // ── Status timeline ────────────────────────────────────────────────────────────
-// Why: A 3-step timeline (Created → Joined → Done) shows the user exactly
-// where in the challenge lifecycle things are without them needing to infer
-// it from the status string alone.
 class _StatusTimeline extends StatelessWidget {
   final ChallengeModel challenge;
   const _StatusTimeline({required this.challenge});
@@ -764,7 +751,6 @@ class _TimelineStep extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Dot + line
           SizedBox(
             width: 24,
             child: Column(

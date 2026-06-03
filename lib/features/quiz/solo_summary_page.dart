@@ -7,14 +7,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ← NEW (spend_retry)
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/widgets/coin_earn_animation.dart';
-import '../../core/widgets/insufficient_coins_sheet.dart'; // ← NEW (spend_retry)
+import '../../core/widgets/insufficient_coins_sheet.dart';
 import '../../core/services/firestore_service.dart';       // for InsufficientCoinsException
-import '../../core/services/ad_service.dart';              // ← P-05
+import '../../core/services/ad_service.dart';
 import '../../core/providers/user_data_provider.dart';
 import 'questions_page.dart';
 import 'share_card_widget.dart';
@@ -28,16 +28,31 @@ class SoloSummaryPage extends StatefulWidget {
   final List<String> selectedTitles;
 
   /// Coins that were just earned for completing this quiz.
-  /// Passed from [QuestionsPage] so we can show [CoinEarnAnimation]
-  /// and the inline badge without a second Firestore round-trip.
-  final int          coinsEarned;
+  /// Returned by the submitQuizAnswers CF (or the fallback path) and passed
+  /// from [QuestionsPage] so the animation and badge need no extra round-trip.
+  final int coinsEarned;
+
+  /// Weekly points awarded for this quiz session.
+  /// Returned by the submitQuizAnswers CF as [totalWP] (already includes the
+  /// 1.5× DC multiplier when applicable, or estimated as correctCount × 10
+  /// on the fallback path) and passed from [QuestionsPage].
+  final int wpEarned;
+
+  /// Whether this result came from a Daily Challenge session.
+  ///
+  /// When true, a prominent "⚡ Daily Challenge — 1.5× WP Applied" banner is
+  /// shown on the result card to explain the boosted [wpEarned] figure.
+  /// Passed from [QuestionsPage] via [controller.isDailyChallenge].
+  final bool isDailyChallenge;                             // ← DC
 
   const SoloSummaryPage({
     super.key,
     required this.correctCount,
     required this.totalQuestions,
     required this.selectedTitles,
-    this.coinsEarned = 0,
+    this.coinsEarned      = 0,
+    this.wpEarned         = 0,
+    this.isDailyChallenge = false,                         // ← DC
   });
 
   @override
@@ -67,7 +82,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       if (!mounted) return;
 
       // ── 1. Coin earn animation for quiz completion reward ─────────────────
-      // Fires at 400ms so the score UI has settled before the overlay appears.
+      // Fires at 400 ms so the score UI has settled before the overlay appears.
       if (widget.coinsEarned > 0) {
         Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted) CoinEarnAnimation.show(context, amount: widget.coinsEarned);
@@ -82,52 +97,24 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     });
   }
 
-  /// P-05: Runs the full result-screen ad sequence.
+  /// Runs the result-screen ad sequence.
   ///
-  /// Step 1 — increment the in-memory session quiz counter.
-  /// Step 2 — wait 500ms so the player sees their score first.
-  /// Step 3 — show rewarded interstitial (all users, including Premium).
-  ///           If the user watches the full ad: award +5 AC and show animation.
-  ///           If the user skips: no penalty, continue normally.
-  /// Step 4 — once the rewarded interstitial is fully dismissed, show the
-  ///           regular interstitial if this is the 3rd quiz in the session
-  ///           and the user is not Premium.
-  ///
-  /// Both ads run sequentially — never simultaneously.
+  /// Increments the session quiz count (for any non-ad consumers), waits
+  /// 500 ms so the player sees their score, then delegates the interstitial
+  /// frequency/cooldown/cap decision entirely to AdService.
   Future<void> _runAdSequence() async {
     if (!mounted) return;
 
     final userData = context.read<UserDataProvider>();
 
-    // Step 1: increment session quiz count BEFORE the interstitial check so
-    // the count is already updated when showInterstitialIfDue reads it.
     userData.incrementSessionQuizCount();
 
-    // Step 2: let the player see their result.
+    // Let the player see their result before any ad.
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
 
-    // Step 3: rewarded interstitial — fires for all users, including Premium.
-    await AdService.instance.showRewardedInterstitial(
-      context,
-      onRewarded: () {
-        if (!mounted) return;
-        // Award +5 AC via Provider → FirestoreService (fire-and-forget is fine;
-        // the Firestore transaction is atomic regardless of awaiting here).
-        userData.updateAnimeCoins(5, 'earn_rewarded_interstitial').catchError((e) {
-          debugPrint('[SoloSummaryPage] rewarded interstitial coin award error: $e');
-        });
-        // Show the coin animation overlay.
-        CoinEarnAnimation.show(context, amount: 5);
-      },
-    );
-
-    // Step 4: regular interstitial — non-Premium users, every 3rd session quiz.
-    // The future above already completed, so this never overlaps with Step 3.
-    if (!mounted) return;
-    AdService.instance.showInterstitialIfDue(
-      isPremium:       userData.premiumActive,
-      sessionQuizCount: userData.sessionQuizCount,
+    await AdService.instance.recordResultAndMaybeShowInterstitial(
+      isPremium: userData.premiumActive,
     );
   }
 
@@ -137,7 +124,6 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     super.dispose();
   }
 
-  int   get _pointsEarned => widget.correctCount * 10;
   _Tier get _tier {
     final ratio = widget.correctCount / widget.totalQuestions;
     if (ratio == 1.0) return _Tier.perfect;
@@ -174,7 +160,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
               tierTitle:      _tier.title,
               tierColor:      _tier.color,
               weeklyPoints:   userData.weeklyPoints,
-              totalScore:     userData.score,
+              totalScore:     userData.weeklyPoints, // mirrors WP; remove once ShareCardWidget.totalScore is made optional
             ),
           ),
         ),
@@ -260,7 +246,56 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                       ),
                     ),
 
-                    const SizedBox(height: 36),
+                    const SizedBox(height: 24),
+
+                    // ── ⚡ Daily Challenge banner (shown only when active) ──
+                    // Appears above the score card so it's the first thing the
+                    // user reads after the tier emoji.
+                    if (widget.isDailyChallenge) ...[
+                      Container(
+                        width:   double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 13),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFFF59E0B).withOpacity(0.18),
+                              const Color(0xFFFF6B00).withOpacity(0.12),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                              color: const Color(0xFFF59E0B).withOpacity(0.55)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('⚡',
+                                style: TextStyle(fontSize: 20)),
+                            const SizedBox(width: 10),
+                            const Text(
+                              'Daily Challenge',
+                              style: TextStyle(
+                                color:      Color(0xFFF59E0B),
+                                fontSize:   14,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '·  1.5× WP applied',
+                              style: TextStyle(
+                                color:      const Color(0xFFF59E0B)
+                                    .withOpacity(0.80),
+                                fontSize:   13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
 
                     // ── Score card ─────────────────────────────────────────
                     GlassCard(
@@ -310,35 +345,8 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                             ),
                           ),
                           const SizedBox(height: 20),
-                          // ── Points earned ───────────────────────────────
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 12),
-                            decoration: BoxDecoration(
-                              color:        AppColors.accent.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                  color: AppColors.accent.withOpacity(0.3)),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.stars_rounded,
-                                    color: AppColors.accent, size: 20),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '+$_pointsEarned pts added to your balance',
-                                  style: const TextStyle(
-                                    color:      AppColors.accent,
-                                    fontSize:   14,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
 
-                          // ── Coins earned badge (shown when > 0) ─────────
+                          // ── Coins earned badge (shown when > 0) ──────────
                           if (widget.coinsEarned > 0) ...[
                             const SizedBox(height: 10),
                             Container(
@@ -361,6 +369,48 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                                     '+${widget.coinsEarned} coins earned!',
                                     style: const TextStyle(
                                       color:      Color(0xFFFBBF24),
+                                      fontSize:   14,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          // ── Weekly points earned badge (shown when > 0) ──
+                          // wpEarned is the server-validated total returned by
+                          // the submitQuizAnswers CF (or correctCount × 10 on
+                          // the fallback path). When isDailyChallenge is true,
+                          // this value already includes the 1.5× multiplier
+                          // applied by the CF. Sky-blue distinguishes it from
+                          // the accent-purple score badge and gold coins badge.
+                          if (widget.wpEarned > 0) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF38BDF8).withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: const Color(0xFF38BDF8)
+                                        .withOpacity(0.35)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.leaderboard_rounded,
+                                    color: Color(0xFF38BDF8),
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '+${widget.wpEarned} weekly pts earned!'
+                                    '${widget.isDailyChallenge ? '  ⚡' : ''}',
+                                    style: const TextStyle(
+                                      color:      Color(0xFF38BDF8),
                                       fontSize:   14,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -409,37 +459,39 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                     // ── Actions ────────────────────────────────────────────
 
                     // ── SPEND SURFACE 3: Try Again (40 AC) ────────────────
-                    // Resets the daily cooldown for every anime played so the
-                    // user can immediately replay the same selection.
-                    GestureDetector(
-                      onTap: _tryAgainWithCoins,
-                      child: Container(
-                        width:  double.infinity,
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: AppColors.accent.withOpacity(0.10),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                              color: AppColors.accent.withOpacity(0.40)),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text('🔄', style: TextStyle(fontSize: 16)),
-                            SizedBox(width: 8),
-                            Text(
-                              'Try Again  —  40🪙',
-                              style: TextStyle(
-                                color:      AppColors.accent,
-                                fontSize:   14,
-                                fontWeight: FontWeight.w700,
+                    // Only shown for regular quizzes. Daily Challenge is
+                    // strictly 1 attempt per day — no retry is offered.
+                    if (!widget.isDailyChallenge) ...[
+                      GestureDetector(
+                        onTap: _tryAgainWithCoins,
+                        child: Container(
+                          width:  double.infinity,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                                color: AppColors.accent.withOpacity(0.40)),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text('🔄', style: TextStyle(fontSize: 16)),
+                              SizedBox(width: 8),
+                              Text(
+                                'Try Again  —  40🪙',
+                                style: TextStyle(
+                                  color:      AppColors.accent,
+                                  fontSize:   14,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
+                    ],
 
                     // ── Share Result ───────────────────────────────────────
                     AnimatedSwitcher(
@@ -495,6 +547,9 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
   // Cooldowns are stored in SharedPreferences (not Firestore) by HomePage,
   // using each anime title as the key. Removing the key here is enough to
   // clear the lock — HomePage re-reads prefs on its next initState call.
+  //
+  // This retry is NOT a Daily Challenge session — it is purely a cooldown
+  // reset. The new quiz will launch with isDailyChallenge: false.
   Future<void> _tryAgainWithCoins() async {
     if (_navigating) return;
 
@@ -549,7 +604,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
 
     try {
       // 1. Deduct coins (throws InsufficientCoinsException on race condition).
-      await userData.updateAnimeCoins(-_kRetryCost, 'spend_retry');
+      await userData.spendCoins(_kRetryCost, 'spend_retry');
 
       // 2. Clear the SharedPreferences cooldown entry for every title played.
       //    Keys are namespaced by UID (matching home_page's _prefKey helper).
@@ -561,13 +616,17 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
 
       if (!mounted) return;
 
-      // 3. Navigate directly into a fresh quiz — no interstitial on paid retry.
+      // 3. Navigate directly into a fresh quiz — no DC, no interstitial on
+      //    paid retry.
       _navigating = true;
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (_, a, __) => FadeTransition(
             opacity: a,
-            child: QuestionsPage(selectedTitles: widget.selectedTitles),
+            child: QuestionsPage(
+              selectedTitles:   widget.selectedTitles,
+              isDailyChallenge: false,                     // ← explicit: not DC
+            ),
           ),
           transitionDuration: const Duration(milliseconds: 400),
         ),
@@ -580,7 +639,8 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       debugPrint('[SoloSummaryPage] _tryAgainWithCoins error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Something went wrong — please try again.')),
+          const SnackBar(
+              content: Text('Something went wrong — please try again.')),
         );
       }
     }

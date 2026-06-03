@@ -1,20 +1,27 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ─── Status enum ──────────────────────────────────────────────────────────────
-enum ChallengeStatus { waiting, opponentJoined, completed, expired }
+enum ChallengeStatus {
+  waiting,
+  opponentJoined,
+  creatorSubmitted,
+  opponentSubmitted,
+  completed,
+  expired,
+  expiredRefunded,
+  ghost,
+}
 
-// What changed: moved parse() out of the extension body and into a proper
-// static method. Using an extension named constructor is a smell — the
-// extension exists only to attach parse() to the enum because Dart doesn't
-// allow static methods directly on enums in older SDKs. In Dart 2.17+ you
-// can add methods directly to enums; left as extension here to stay
-// compatible with the rest of the codebase.
 extension ChallengeStatusX on ChallengeStatus {
   static ChallengeStatus parse(String? s) => switch (s) {
-        'opponent_joined' => ChallengeStatus.opponentJoined,
-        'completed'       => ChallengeStatus.completed,
-        'expired'         => ChallengeStatus.expired,
-        _                 => ChallengeStatus.waiting,
+        'opponent_joined'    => ChallengeStatus.opponentJoined,
+        'creator_submitted'  => ChallengeStatus.creatorSubmitted,
+        'opponent_submitted' => ChallengeStatus.opponentSubmitted,
+        'completed'          => ChallengeStatus.completed,
+        'expired'            => ChallengeStatus.expired,
+        'expired_refunded'   => ChallengeStatus.expiredRefunded,
+        'ghost'              => ChallengeStatus.ghost,
+        _                    => ChallengeStatus.waiting,
       };
 }
 
@@ -25,7 +32,7 @@ class ChallengeModel {
   final String creatorUsername;
   final String? opponentUid;
   final String? opponentUsername;
-  final int betAmount;
+  final int stakeAmount;
   final String animeTitle;
   final List<String> questionIds;
   final int? creatorScore;
@@ -41,7 +48,7 @@ class ChallengeModel {
     required this.creatorUsername,
     this.opponentUid,
     this.opponentUsername,
-    required this.betAmount,
+    required this.stakeAmount,
     required this.animeTitle,
     required this.questionIds,
     this.creatorScore,
@@ -53,12 +60,9 @@ class ChallengeModel {
   });
 
   // ── Derived helpers ──────────────────────────────────────────────────────
-  // What changed: isExpired now also checks status != 'expired' from
-  // Firestore to respect the Cloud Function's explicit expiry writes.
-  // Previously it only checked the local clock, which could disagree with
-  // the server for users with wrong device times.
   bool get isExpired =>
       status == ChallengeStatus.expired ||
+      status == ChallengeStatus.expiredRefunded ||
       (DateTime.now().isAfter(expiresAt) &&
           status != ChallengeStatus.completed);
 
@@ -81,11 +85,29 @@ class ChallengeModel {
     return diff.isNegative ? Duration.zero : diff;
   }
 
-  // What changed: fromDoc now safely handles the case where doc.data()
-  // returns null (should never happen for existing docs, but defensive is
-  // better than a runtime crash). Also fixes the bug where animeTitle could
-  // come through with inconsistent casing — we normalise it to lowercase
-  // for consistent comparisons while keeping creatorUsername display-cased.
+  // ── Payout helpers ───────────────────────────────────────────────────────
+  // These mirror the formulas in resolveChallengeOutcome (index.js) and are
+  // used by StakeScreen (preview) and ChallengeResultPage (display).
+  //
+  //   Win:  own stake returned + 80% of opponent's stake
+  //   Draw: own stake returned minus 5% house fee
+  //   Lose: 0  (stake already deducted at join time)
+
+  /// Total AC received by the winner (own stake + 80% of loser's stake).
+  static int payoutWin(int stake) => stake + (stake * 0.8).floor();
+
+  /// AC returned to each player on a draw (stake minus 5% fee).
+  static int payoutDraw(int stake) => stake - (stake * 0.05).floor();
+
+  /// Loser receives nothing — their stake was deducted at challenge join.
+  static int payoutLose(int stake) => 0;
+
+  /// House fee retained on a win outcome (20% of the loser's stake).
+  static int houseFeeWin(int stake) => (stake * 0.2).floor();
+
+  /// House fee retained on a draw outcome (5% from each player).
+  static int houseFeeDraw(int stake) => (stake * 0.05).floor() * 2;
+
   factory ChallengeModel.fromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
@@ -96,9 +118,7 @@ class ChallengeModel {
       creatorUsername: (d['creatorUsername'] as String?) ?? 'Unknown',
       opponentUid: d['opponentUid'] as String?,
       opponentUsername: d['opponentUsername'] as String?,
-      betAmount: ((d['betAmount'] as num?)?.toInt()) ?? 0,
-      // Keep animeTitle exactly as stored — normalisation is done at
-      // query time in FirestoreService._pickRandomQuestionIds.
+      stakeAmount: ((d['stakeAmount'] as num?)?.toInt()) ?? 0,
       animeTitle: (d['animeTitle'] as String?) ?? '',
       questionIds: List<String>.from(
         (d['questionIds'] as List<dynamic>?) ?? [],

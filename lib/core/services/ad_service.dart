@@ -53,24 +53,25 @@ static String get _interstitialId {
       : 'ca-app-pub-9195964766205519/8027175151';
 }
 
-// ── Rewarded Interstitial ─────────────────────────────────────────────────────
-static String get _rewardedInterstitialId {
-  if (_isDebug) return Platform.isAndroid
-      ? 'ca-app-pub-3940256099942544/5354046379'   // Android test
-      : 'ca-app-pub-3940256099942544/6978759866';  // iOS test
-  return Platform.isAndroid
-      ? 'ca-app-pub-9195964766205519/7787502007'   // TODO: your Android unit
-      : 'ca-app-pub-9195964766205519/2225699506';
-}
-
   // ── State ─────────────────────────────────────────────────────────────────
-  RewardedAd?             _rewardedAd;
-  InterstitialAd?         _interstitialAd;
-  RewardedInterstitialAd? _rewardedInterstitialAd; // ← P-05
+  RewardedAd?     _rewardedAd;
+  InterstitialAd? _interstitialAd;
 
-  bool _rewardedLoading             = false;
-  bool _interstitialLoading         = false;
-  bool _rewardedInterstitialLoading = false;       // ← P-05
+  bool _rewardedLoading     = false;
+  bool _interstitialLoading = false;
+
+  /// Global concurrency gate — true while ANY ad is on-screen.
+  /// All show/load entry-points short-circuit when this is true.
+  bool _isAdShowing = false;
+
+  // ── Session-level interstitial throttling (reset on app restart) ──────────
+  static int _sessionResultCount        = 0;  // increments every result screen
+  static int _sessionInterstitialsShown = 0;
+  static DateTime? _lastInterstitialTime;
+
+  static const int _interstitialEvery   = 3;   // trigger every Nth result
+  static const int _sessionMax          = 5;   // hard cap per session
+  static const int _cooldownSeconds     = 90;  // minimum gap (seconds)
 
   // 90-second cooldown between rewarded ad views.
   static const Duration _cooldown = Duration(seconds: 90);
@@ -85,93 +86,73 @@ static String get _rewardedInterstitialId {
   void preloadAll() {
     loadRewardedAd();
     _loadInterstitial();
-    loadRewardedInterstitial(); // ← P-05
   }
 
   /// Explicitly pre-loads (or re-loads) the rewarded ad.
   /// Safe to call multiple times — no-ops if already loading or loaded.
   void loadRewardedAd() => _loadRewarded();
 
-  // ── P-05: Rewarded Interstitial public API ────────────────────────────────
+  // ── Session-frequency interstitial API ────────────────────────────────────
 
-  /// Pre-loads (or re-loads) the rewarded interstitial ad.
-  /// Called by [preloadAll] at startup and automatically after each dismiss.
-  /// Safe to call multiple times — no-ops if already loading or loaded.
-  void loadRewardedInterstitial() => _loadRewardedInterstitial();
-
-  /// Whether a rewarded interstitial ad is loaded and ready to show.
-  bool get isRewardedInterstitialReady => _rewardedInterstitialAd != null;
-
-  /// Shows a rewarded interstitial ad at quiz result screens.
-  ///
-  /// Behaviour:
-  ///   - Fires for ALL users including Premium (per spec).
-  ///   - [onRewarded] is called if the user watches the full ad.
-  ///   - Skips silently (returns immediately) if the ad is not yet loaded —
-  ///     never blocks the user.
-  ///   - Returns a [Future] that completes only after the ad is fully dismissed
-  ///     (or immediately if not loaded), allowing callers to chain
-  ///     [showInterstitialIfDue] after.
-  ///
-  /// Usage in result pages:
-  /// ```dart
-  /// await AdService.instance.showRewardedInterstitial(
-  ///   context,
-  ///   onRewarded: () {
-  ///     userData.updateAnimeCoins(5, 'earn_rewarded_interstitial');
-  ///     CoinEarnAnimation.show(context, amount: 5);
-  ///   },
-  /// );
-  /// // Ad is now fully dismissed — safe to chain the regular interstitial.
-  /// AdService.instance.showInterstitialIfDue(
-  ///   isPremium: userData.premiumActive,
-  ///   sessionQuizCount: userData.sessionQuizCount,
-  /// );
-  /// ```
-  Future<void> showRewardedInterstitial(
-    BuildContext context, {
-    VoidCallback? onRewarded,
+  /// Call this from every result screen as soon as it mounts.
+  /// Internally decides whether to fire an interstitial based on session
+  /// frequency, cooldown, and the per-session hard cap.
+  Future<void> recordResultAndMaybeShowInterstitial({
+    required bool isPremium,
   }) async {
-    if (_rewardedInterstitialAd == null) {
-      // Not ready — kick off a fresh load for next time, skip silently now.
-      _loadRewardedInterstitial();
+    _sessionResultCount++;
+    if (_shouldShowInterstitial(isPremium)) {
+      await _showInterstitialAd();
+    }
+  }
+
+  bool _shouldShowInterstitial(bool isPremium) {
+    if (isPremium) return false;
+    if (_sessionInterstitialsShown >= _sessionMax) return false;
+    if (_sessionResultCount % _interstitialEvery != 0) return false;
+    if (_lastInterstitialTime != null &&
+        DateTime.now()
+                .difference(_lastInterstitialTime!)
+                .inSeconds <
+            _cooldownSeconds) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _showInterstitialAd() async {
+    // Interstitials are revenue-only — no AC reward.
+    if (_isAdShowing) return;
+    if (_interstitialAd == null) {
+      _loadInterstitial(); // kick off a fresh load for next time
       return;
     }
 
-    final completer = Completer<void>();
-    bool _userEarnedReward = false;
+    _sessionInterstitialsShown++;
+    _lastInterstitialTime = DateTime.now();
+    _isAdShowing = true;
 
-    _rewardedInterstitialAd!.fullScreenContentCallback =
-        FullScreenContentCallback(
+    final completer = Completer<void>();
+
+    _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
-        _rewardedInterstitialAd = null;
-        loadRewardedInterstitial(); // pre-load next immediately
-
-        // Fire the reward callback only if the full ad was watched.
-        if (_userEarnedReward && context.mounted && onRewarded != null) {
-          onRewarded();
-        }
+        _interstitialAd = null;
+        _isAdShowing = false;
+        _loadInterstitial(); // pre-load next immediately
         completer.complete();
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
-        debugPrint('[AdService] rewarded interstitial failed to show: $error');
+        debugPrint('[AdService] interstitial failed to show: $error');
         ad.dispose();
-        _rewardedInterstitialAd = null;
-        loadRewardedInterstitial();
-        completer.complete(); // resolve so callers are not blocked
+        _interstitialAd = null;
+        _isAdShowing = false;
+        _loadInterstitial();
+        completer.complete();
       },
     );
 
-    _rewardedInterstitialAd!.show(
-      onUserEarnedReward: (_, __) {
-        // Fires when the user has watched enough of the ad to earn the reward.
-        // We flag it here; the actual coin award happens in onAdDismissed so
-        // we can act in a still-mounted context.
-        _userEarnedReward = true;
-      },
-    );
-
+    _interstitialAd!.show();
     return completer.future;
   }
 
@@ -179,11 +160,10 @@ static String get _rewardedInterstitialId {
   ///   1. The current user is NOT Premium ([isPremium] == false).
   ///   2. [sessionQuizCount] is a non-zero multiple of 3.
   ///
-  /// The counter is an in-memory value tracked in [UserDataProvider] and
-  /// reset to 0 on app restart. It is never persisted.
-  ///
-  /// Always call this AFTER [showRewardedInterstitial] has resolved so the
-  /// two ads are strictly sequential and never overlap.
+  /// Prefer [recordResultAndMaybeShowInterstitial] for result screens — it
+  /// handles frequency, cooldown, and the session cap automatically.
+  /// This method is retained for any other call sites that drive their own
+  /// session counter externally.
   ///
   /// Skips silently if the ad is not loaded — never blocks the user.
   void showInterstitialIfDue({
@@ -226,9 +206,9 @@ static String get _rewardedInterstitialId {
   }
 
   /// Shows a rewarded ad and — on full completion — calls the [recordAdWatch]
-  /// Cloud Function to award +10 Anime Coins server-side.
+  /// Cloud Function to award +15 Anime Coins server-side.
   ///
-  /// [onComplete] receives the number of coins actually awarded (10).
+  /// [onComplete] receives the number of coins actually awarded (15).
   ///
   /// Returns false (without showing anything) when:
   ///   - The ad is not yet loaded.
@@ -242,6 +222,9 @@ static String get _rewardedInterstitialId {
     required BuildContext context,
     required void Function(int coinsAwarded) onComplete,
   }) async {
+    // ── Concurrency gate ─────────────────────────────────────────────────────
+    if (_isAdShowing) return false;
+
     // ── Cooldown gate ────────────────────────────────────────────────────────
     final secs = cooldownSecondsRemaining();
     if (secs > 0) {
@@ -255,12 +238,14 @@ static String get _rewardedInterstitialId {
       return false;
     }
 
+    _isAdShowing = true;
     bool userCompletedWatch = false;
 
     _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) async {
         ad.dispose();
         _rewardedAd = null;
+        _isAdShowing = false;   // ← release concurrency gate
         loadRewardedAd(); // pre-load next ad immediately
 
         if (!userCompletedWatch) {
@@ -273,7 +258,7 @@ static String get _rewardedInterstitialId {
 
         // ── Full watch confirmed — call Cloud Function ────────────────────
         try {
-          final fn = FirebaseFunctions.instance
+          final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable('recordAdWatch');
           final result = await fn.call<Map<String, dynamic>>();
           final data = result.data as Map<String, dynamic>;
@@ -285,7 +270,7 @@ static String get _rewardedInterstitialId {
             if (context.mounted) onComplete(coins);
           } else if (data['error'] == 'daily_limit_reached') {
             if (context.mounted) {
-              _showSnackBar(context, "You've watched 10 ads today. Come back tomorrow!");
+              _showSnackBar(context, "You've reached the 10-ad daily limit. Come back tomorrow!");
             }
           }
         } catch (e) {
@@ -298,6 +283,7 @@ static String get _rewardedInterstitialId {
       onAdFailedToShowFullScreenContent: (ad, error) {
         ad.dispose();
         _rewardedAd = null;
+        _isAdShowing = false;   // ← release concurrency gate
         loadRewardedAd();
         if (context.mounted) {
           _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
@@ -322,19 +308,25 @@ static String get _rewardedInterstitialId {
 
   /// Shows an interstitial ad if loaded. Safe to call — no-ops if not ready.
   void showInterstitial() {
+    // ── Concurrency gate ───────────────────────────────────────────────────
+    if (_isAdShowing) return;
+
     if (_interstitialAd == null) {
       _loadInterstitial();
       return;
     }
+    _isAdShowing = true;
     _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _interstitialAd = null;
+        _isAdShowing = false;   // ← release concurrency gate
         _loadInterstitial();
       },
       onAdFailedToShowFullScreenContent: (ad, _) {
         ad.dispose();
         _interstitialAd = null;
+        _isAdShowing = false;   // ← release concurrency gate
         _loadInterstitial();
       },
     );
@@ -381,32 +373,6 @@ static String get _rewardedInterstitialId {
     );
   }
 
-  // ── P-05: Rewarded Interstitial loading ───────────────────────────────────
-  void _loadRewardedInterstitial() {
-    if (_rewardedInterstitialLoading || _rewardedInterstitialAd != null) return;
-    _rewardedInterstitialLoading = true;
-    RewardedInterstitialAd.load(
-      adUnitId: _rewardedInterstitialId,
-      request: const AdRequest(),
-      rewardedInterstitialAdLoadCallback: RewardedInterstitialAdLoadCallback(
-        onAdLoaded: (ad) {
-          _rewardedInterstitialAd      = ad;
-          _rewardedInterstitialLoading = false;
-          debugPrint('[AdService] rewarded interstitial loaded ✓');
-        },
-        onAdFailedToLoad: (error) {
-          _rewardedInterstitialLoading = false;
-          debugPrint('[AdService] rewarded interstitial failed to load: $error');
-          // Retry after 30s — same pattern as other ad types.
-          Future.delayed(
-            const Duration(seconds: 30),
-            _loadRewardedInterstitial,
-          );
-        },
-      ),
-    );
-  }
-
   // ── Private — helpers ─────────────────────────────────────────────────────
 
   String _todayUtc() => DateTime.now().toUtc().toIso8601String().substring(0, 10);
@@ -434,10 +400,108 @@ static String get _rewardedInterstitialId {
   /// Silently increments the prize pool after a full rewarded ad watch.
   /// No UI feedback — per AdMob §2.1, the user must not see a naira reward.
   void _silentlyIncrementPrizePool() {
-    FirebaseFunctions.instance
+    FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('incrementPrizePool')
         .call({'nairaAmount': 2.0})
         .catchError((_) {});
+  }
+
+  // ── Quick Match ad-token rewarded ad ─────────────────────────────────────
+  //
+  // Loads and shows a rewarded ad using the same ad unit as showRewardedAd.
+  // On full watch → calls the grantAdQMToken Cloud Function.
+  //   • CF success : calls onTokenGranted() so the caller can refresh UI.
+  //   • CF failure : shows a snackbar "Something went wrong — try again."
+  //   • User skips : shows "Watch the full ad to earn a token 🎟" snackbar.
+  //
+  // Does NOT call recordAdWatch — no AC is awarded; no prize-pool increment.
+  // Returns false without showing anything when:
+  //   • Another ad is already on screen.
+  //   • The rewarded ad is not yet loaded (kicks off a fresh load for next time).
+  Future<bool> showQMTokenAd({
+    required BuildContext context,
+    required VoidCallback onTokenGranted,
+  }) async {
+    // ── Concurrency gate ─────────────────────────────────────────────────────
+    if (_isAdShowing) return false;
+
+    // ── Cooldown gate (shared with showRewardedAd) ────────────────────────────
+    // Prevents back-to-back rewarded-ad views regardless of which path the
+    // user takes (AC earn or QM token).
+    final secs = cooldownSecondsRemaining();
+    if (secs > 0) {
+      _showSnackBar(context, 'Next ad available in ${secs}s.');
+      return false;
+    }
+
+    // ── Ad not ready ─────────────────────────────────────────────────────────
+    if (_rewardedAd == null) {
+      _loadRewarded();
+      return false;
+    }
+
+    _isAdShowing = true;
+    bool userCompletedWatch = false;
+
+    _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) async {
+        ad.dispose();
+        _rewardedAd  = null;
+        _isAdShowing = false;
+        loadRewardedAd(); // pre-load next ad immediately
+
+        if (!userCompletedWatch) {
+          if (context.mounted) {
+            _showSnackBar(context, 'Watch the full ad to earn a token 🎟');
+          }
+          return;
+        }
+
+        // ── Full watch confirmed — call Cloud Function ────────────────────────
+        try {
+          final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('grantAdQMToken')
+              .call<Map<Object?, Object?>>({});
+
+          final data = Map<String, dynamic>.from(result.data);
+          if (data['success'] == true) {
+            _lastAdCompletedAt = DateTime.now(); // start shared cooldown
+            if (context.mounted) onTokenGranted();
+          } else {
+            if (context.mounted) {
+              _showSnackBar(context, 'Something went wrong — try again.');
+            }
+          }
+        } catch (e) {
+          debugPrint('[AdService] grantAdQMToken error: $e');
+          if (context.mounted) {
+            _showSnackBar(context, 'Something went wrong — try again.');
+          }
+        }
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        debugPrint('[AdService] showQMTokenAd failed to show: $error');
+        ad.dispose();
+        _rewardedAd  = null;
+        _isAdShowing = false;
+        loadRewardedAd();
+        if (context.mounted) {
+          _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
+        }
+      },
+    );
+
+    _rewardedAd!.show(
+      onUserEarnedReward: (_, __) {
+        // Flag completion; CF call happens in onAdDismissed above so context
+        // is still mounted when we show the result / snackbar.
+        userCompletedWatch = true;
+        // NOTE: _silentlyIncrementPrizePool() is intentionally NOT called here.
+        // QM token ads do not contribute to the prize pool (they award no AC).
+      },
+    );
+
+    return true;
   }
 
   // ── Legacy method — kept for any call sites not yet migrated to P-04 ──────

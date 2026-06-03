@@ -2,16 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/services/firestore_service.dart';
-import 'bet_screen.dart';
+import 'stake_screen.dart';
 
 // ─── Anime selection — step 1 of Create Challenge flow ───────────────────────
-// What changed: Previously the anime title was passed into BetScreen from
-// somewhere upstream (unclear). Now there's a dedicated screen that fetches
-// available anime titles from Firestore (so the list stays in sync with your
-// questions collection), displays them in a grid, and handles the loading/
-// error/empty states properly.
+// What changed (Quick Match addition):
+//   Added an optional [onSelect] callback. When set, tapping a card pops this
+//   page and calls the callback instead of pushing StakeScreen. This lets
+//   MultiplayerHubPage launch matchmaking without duplicating the anime grid.
+//   The existing Create Challenge flow is completely unaffected (onSelect == null).
 class AnimeSelectPage extends StatefulWidget {
-  const AnimeSelectPage({super.key});
+  /// When non-null, called with the chosen anime title instead of pushing
+  /// StakeScreen. The page pops itself before invoking the callback so the
+  /// caller's context is already on top when it runs.
+  final void Function(String title)? onSelect;
+
+  const AnimeSelectPage({super.key, this.onSelect});
 
   @override
   State<AnimeSelectPage> createState() => _AnimeSelectPageState();
@@ -95,12 +100,23 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
   }
 
   void _select(String title) {
+    // ── Quick Match mode ────────────────────────────────────────────────────
+    // Pop this page first so the hub's context is on top, then invoke the
+    // callback. The callback runs synchronously after the pop schedule, so
+    // any dialog the hub shows will appear correctly over the hub.
+    if (widget.onSelect != null) {
+      Navigator.of(context).pop();
+      widget.onSelect!(title);
+      return;
+    }
+
+    // ── Create Challenge mode (unchanged) ───────────────────────────────────
     Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (_, a, __) => FadeTransition(
           opacity: a,
-          child: BetScreen(animeTitle: title),
+          child: StakeScreen(animeTitle: title),
         ),
         transitionDuration: const Duration(milliseconds: 300),
       ),
@@ -109,6 +125,11 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Reflect the mode in the subtitle copy so the UX is always coherent.
+    final subtitle = widget.onSelect != null
+        ? 'Quick Match — Pick your anime'
+        : 'Step 1 of 2 — Select your battlefield';
+
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
       body: Container(
@@ -127,11 +148,11 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
                           color: AppColors.textPrimary, size: 20),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             'Pick an Anime',
                             style: TextStyle(
                               color: AppColors.textPrimary,
@@ -141,8 +162,8 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
                             ),
                           ),
                           Text(
-                            'Step 1 of 2 — Select your battlefield',
-                            style: TextStyle(
+                            subtitle,
+                            style: const TextStyle(
                               color: AppColors.textMuted,
                               fontSize: 12,
                             ),
@@ -234,8 +255,6 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
 }
 
 // ── Individual anime card ──────────────────────────────────────────────────────
-// Why: Grid cards are much faster to scan than a list. The emoji + title
-// combination is memorable. The scale animation on tap makes it feel snappy.
 class _AnimeCard extends StatefulWidget {
   final String title;
   final String emoji;
@@ -257,7 +276,6 @@ class _AnimeCardState extends State<_AnimeCard>
   late AnimationController _ctrl;
   late Animation<double> _scale;
 
-  // Deterministic color per card based on title hash — consistent and vibrant
   static const _palettes = [
     [Color(0xFF7C3AED), Color(0xFF4F46E5)],
     [Color(0xFF0EA5E9), Color(0xFF0284C7)],
@@ -374,7 +392,6 @@ class _LoadingGridState extends State<_LoadingGrid>
     return AnimatedBuilder(
       animation: _shimmer,
       builder: (_, child) {
-        // Only the color lerp is here — grid structure is not rebuilt
         final shimmerColor = Color.lerp(
           AppColors.surface,
           AppColors.divider,

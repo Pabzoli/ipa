@@ -7,8 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
-import '../../core/widgets/coin_balance_widget.dart';           // FIX: added
-import '../../core/widgets/insufficient_coins_sheet.dart';     // FIX: added
+import '../../core/widgets/coin_balance_widget.dart';
+import '../../core/widgets/insufficient_coins_sheet.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
@@ -16,7 +16,6 @@ import '../auth/auth_service.dart';
 import '../quiz/questions_page.dart';
 import '../player/pi_page.dart';
 import '../../features/multiplayer/multiplayer_hub_page.dart';
-import '../leaderboard/leaderboard_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -34,7 +33,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   final Set<String>           _selected        = {};
   final Map<String, DateTime> _locks           = {};
-  Set<String>                 _unlockedForever = {}; // Bug 3: permanently unlocked animes
+  Set<String>                 _unlockedForever = {};
   late Timer                  _lockTimer;
   late AnimationController    _entranceCtrl;
   late Animation<double>      _entranceFade;
@@ -50,16 +49,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ..forward();
     _entranceFade =
         CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOut);
+
+    // Bug fix: lock timer ticks every second and removes expired cooldowns.
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(
             () => _locks.removeWhere((_, t) => t.isBefore(DateTime.now())));
       }
     });
+
     SharedPreferences.getInstance().then((p) {
       if (!mounted) return;
       _prefs = p;
-      // Bug 4 fix: keys are namespaced by UID so different accounts
+      // Bug fix (Bug 4): keys are namespaced by UID so different accounts
       // on the same device never share cooldown state.
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       for (final title in _animeTitles) {
@@ -71,14 +73,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       }
       setState(() => _prefsReady = true);
     });
-    // Bug 3 fix: load permanently unlocked animes from Firestore so
-    // _startQuiz never re-locks them after a paid 200 AC unlock.
+
+    // Bug fix (Bug 3): load permanently unlocked animes so _startQuiz
+    // never re-locks them after a paid 200 AC unlock.
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
-    if (!mounted) return;
-    setState(() => _unlockedForever = {}); // clear previous user's data
-    if (user != null) _loadUnlockedAnimes();
-  });
-}
+      if (!mounted) return;
+      setState(() => _unlockedForever = {}); // clear previous user's data
+      if (user != null) _loadUnlockedAnimes();
+    });
+  }
 
   @override
   void dispose() {
@@ -88,26 +91,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  // Bug 4 fix: namespace prefs keys by UID so account switches
+  // Bug fix (Bug 4): namespace prefs keys by UID so account switches
   // don't bleed cooldowns across users on the same device.
   String _prefKey(String title) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     return uid.isEmpty ? title : '${uid}_$title';
   }
 
-  // Bug 3 fix: fetch unlockedAnimes once on load and refresh after unlock.
-  // _startQuiz checks this set and skips re-locking for permanent unlocks.
+  // Bug fix (Bug 3): fetch unlockedAnimes once on load and after unlock.
   Future<void> _loadUnlockedAnimes() async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
-      final doc  = await FirebaseFirestore.instance
+      final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
           .get();
-      final list = (doc.data()?['unlockedAnimes'] as List?)
-              ?.cast<String>() ??
-          [];
+      final list =
+          (doc.data()?['unlockedAnimes'] as List?)?.cast<String>() ?? [];
       if (mounted) setState(() => _unlockedForever = list.toSet());
     } catch (e) {
       debugPrint('[HomePage] _loadUnlockedAnimes error (ignored): $e');
@@ -121,20 +122,30 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         : _selected.add(title));
   }
 
-  void _startQuiz() {
-    if (_selected.length < 2 || !_prefsReady) return;
+  // ── Start Quiz ─────────────────────────────────────────────────────────────
+  //
+  // isDailyChallenge defaults to false. Pass true when launching from the DC
+  // button so QuestionsPage can forward the flag to QuizController and then
+  // on to SoloSummaryPage.
 
-    final titlesToPlay = _selected.toList();
+  void _startQuiz({bool isDailyChallenge = false, List<String>? titles}) {
+    final titlesToPlay = titles ?? _selected.toList();
+    if (titlesToPlay.length < 2 || !_prefsReady) return;
+
+    // Always clear selection — DC picks its own titles invisibly, so any
+    // pre-existing selection must be wiped before navigating away. Without
+    // this, a title that was selected AND chosen by DC would return from
+    // the quiz still appearing selected while also being locked.
     setState(() => _selected.clear());
 
     final counts   = [0, 0, 10 * 60, 7 * 60 + 30, 5 * 60, 2 * 60 + 30, 0];
     final lockSecs = counts[titlesToPlay.length.clamp(0, 6)];
     for (final t in titlesToPlay) {
-      // Bug 3 fix: permanently unlocked animes never get re-locked.
+      // Bug fix (Bug 3): permanently unlocked animes never get re-locked.
       if (_unlockedForever.contains(t)) continue;
       if (lockSecs > 0) {
         _locks[t] = DateTime.now().add(Duration(seconds: lockSecs));
-        _prefs.setString(_prefKey(t), _locks[t]!.toIso8601String()); // Bug 4 fix
+        _prefs.setString(_prefKey(t), _locks[t]!.toIso8601String());
       }
     }
 
@@ -142,15 +153,57 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       PageRouteBuilder(
         pageBuilder: (_, a, __) => FadeTransition(
           opacity: a,
-          child: QuestionsPage(selectedTitles: titlesToPlay),
+          child: QuestionsPage(
+            selectedTitles:   titlesToPlay,
+            isDailyChallenge: isDailyChallenge, // ← DC flag forwarded
+          ),
         ),
         transitionDuration: const Duration(milliseconds: 400),
       ),
     );
   }
 
-  // ── SPEND SURFACE 2: Cooldown Skip (25 AC) ──────────────────────────────────
-  // FIX: new method wired to the locked card's skip button.
+  // ── Daily Challenge entry point ────────────────────────────────────────────
+  //
+  // • Free attempt not yet used today (WAT) → randomly select 2 titles and
+  //   launch immediately in DC mode (1.5× WP, server-side multiplier).
+  // • Free attempt already used → show a snackbar. No retry is offered;
+  //   the daily challenge is strictly 1 attempt per day.
+  //
+  // The actual 1.5× WP multiplier is applied server-side by the
+  // submitQuizAnswers CF when isDailyChallenge == true.
+
+  Future<void> _startDailyChallenge() async {
+    if (!_prefsReady) return;
+
+    final userData = context.read<UserDataProvider>();
+
+    if (userData.dailyChallengeUsedToday) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Daily Challenge already used. Come back tomorrow! ⚡'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // Prefer unlocked titles; fall back to all titles if fewer than 2 available.
+    final unlocked = _animeTitles
+        .where((t) => !_locks.containsKey(t) ||
+                      _locks[t]!.isBefore(DateTime.now()))
+        .toList();
+    final pool = unlocked.length >= 2
+        ? unlocked
+        : List<String>.from(_animeTitles);
+    pool.shuffle();
+    final dcTitles = pool.take(2).toList();
+
+    _startQuiz(isDailyChallenge: true, titles: dcTitles);
+  }
+
+  // ── SPEND SURFACE 2: Cooldown Skip (25 AC) ──────────────────────────────
 
   Future<void> _skipCooldown(String title) async {
     const cost = 25;
@@ -167,11 +220,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         backgroundColor: AppColors.surface,
         title: const Text(
           'Skip Cooldown?',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800),
+          style: TextStyle(
+              color: AppColors.textPrimary, fontWeight: FontWeight.w800),
         ),
         content: Text(
           'Spend 25🪙 to unlock "${title.toUpperCase()}" immediately?',
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+          style: const TextStyle(
+              color: AppColors.textSecondary, fontSize: 14),
         ),
         actions: [
           TextButton(
@@ -182,7 +237,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             onPressed: () => Navigator.pop(context, true),
             child: const Text(
               '⏩ Skip  −25🪙',
-              style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  color: AppColors.accent, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -192,24 +248,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (confirmed != true || !mounted) return;
 
     try {
-      await userData.updateAnimeCoins(-cost, 'spend_cooldown');
+      await userData.spendCoins(cost, 'spend_cooldown');
       if (!mounted) return;
       setState(() {
         _locks.remove(title);
-        _prefs.remove(_prefKey(title)); // Bug 4 fix
+        _prefs.remove(_prefKey(title));
       });
     } on InsufficientCoinsException {
-  if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
-} catch (e) {
-  debugPrint('Unexpected error: $e');
-  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Something went wrong — please try again.')),
-  );
-}
+      if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+    } catch (e) {
+      debugPrint('[HomePage] _skipCooldown error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Something went wrong — please try again.')),
+        );
+      }
+    }
   }
 
-  // ── SPEND SURFACE 4: Early Anime Unlock (200 AC) ────────────────────────────
-  // FIX: new method wired to the locked card's unlock button.
+  // ── SPEND SURFACE 4: Early Anime Unlock (200 AC) ────────────────────────
 
   Future<void> _unlockEarly(String title) async {
     const cost = 200;
@@ -226,12 +284,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         backgroundColor: AppColors.surface,
         title: const Text(
           'Unlock Early?',
-          style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800),
+          style: TextStyle(
+              color: AppColors.textPrimary, fontWeight: FontWeight.w800),
         ),
         content: Text(
           'Spend 200🪙 to permanently unlock "${title.toUpperCase()}"?\n\n'
           'This removes it from cooldown and adds it to your unlocked library.',
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.5),
+          style: const TextStyle(
+              color: AppColors.textSecondary, fontSize: 14, height: 1.5),
         ),
         actions: [
           TextButton(
@@ -242,7 +302,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             onPressed: () => Navigator.pop(context, true),
             child: const Text(
               '🔓 Unlock  −200🪙',
-              style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  color: AppColors.accent, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -252,22 +313,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (confirmed != true || !mounted) return;
 
     try {
-      await userData.updateAnimeCoins(-cost, 'spend_unlock');
+      await userData.spendCoins(cost, 'spend_unlock');
       await FirestoreService.instance.unlockAnimeEarly(title);
       if (!mounted) return;
       setState(() {
         _locks.remove(title);
-        _prefs.remove(_prefKey(title));    // Bug 4 fix
-        _unlockedForever.add(title);       // Bug 3 fix: prevent re-locking on next quiz
+        _prefs.remove(_prefKey(title));
+        _unlockedForever.add(title);
       });
     } on InsufficientCoinsException {
-  if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
-} catch (e) {
-  debugPrint('Unexpected error: $e');
-  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Something went wrong — please try again.')),
-  );
-}
+      if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+    } catch (e) {
+      debugPrint('[HomePage] _unlockEarly error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Something went wrong — please try again.')),
+        );
+      }
+    }
   }
 
   @override
@@ -294,13 +358,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
             ),
             actions: [
-              // FIX: CoinBalanceWidget replaces the old ScoreBadge for animeCoins.
-              // It is tappable, shows live balance with 🪙 pill styling, and
-              // navigates to EarnCoinsScreen when P-04 is built.
               const CoinBalanceWidget(),
               const SizedBox(width: 8),
               ScoreBadge(
-                  score: userData.score, icon: Icons.stars_rounded),
+                  score: userData.weeklyPoints, icon: Icons.leaderboard_rounded),
               const SizedBox(width: 16),
             ],
             flexibleSpace: FlexibleSpaceBar(
@@ -359,19 +420,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
           ),
 
+          // ── Daily Challenge button ─────────────────────────────────────
+          //
+          // Always visible above the grid. Tap launches the quiz in DC mode
+          // (1.5× WP, server-side multiplier) with 2 system-selected titles.
+          // If the free attempt has already been used today, a snackbar is
+          // shown — no retry is offered (strictly 1 DC per day).
+          //   amber glow  → free attempt available
+          //   muted/grey  → already used today
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+              child: _DailyChallengeButton(
+                isUsed: userData.dailyChallengeUsedToday,
+                onTap:  _startDailyChallenge,
+              ),
+            ),
+          ),
+
           // ── Anime grid ────────────────────────────────────────────────
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 120),
             sliver: SliverGrid(
               delegate: SliverChildBuilderDelegate(
                 (ctx, i) => _AnimeCard(
-                  title:            _animeTitles[i],
-                  isSelected:       _selected.contains(_animeTitles[i]),
-                  lockTime:         _locks[_animeTitles[i]],
-                  onTap:            () => _toggleSelection(_animeTitles[i]),
-                  // FIX: wire Surface 2 & 4 callbacks into every card
-                  onSkipCooldown:   () => _skipCooldown(_animeTitles[i]),
-                  onUnlockEarly:    () => _unlockEarly(_animeTitles[i]),
+                  title:          _animeTitles[i],
+                  isSelected:     _selected.contains(_animeTitles[i]),
+                  lockTime:       _locks[_animeTitles[i]],
+                  onTap:          () => _toggleSelection(_animeTitles[i]),
+                  onSkipCooldown: () => _skipCooldown(_animeTitles[i]),
+                  onUnlockEarly:  () => _unlockEarly(_animeTitles[i]),
                 ),
                 childCount: _animeTitles.length,
               ),
@@ -388,17 +466,163 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
       floatingActionButtonLocation:
           FloatingActionButtonLocation.centerFloat,
+      // Bug fix: wrap in lambda because _startQuiz now has a named param.
       floatingActionButton: _selected.length >= 2
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: GradientButton(
                 label: 'Start Quiz  (${_selected.length} selected)',
-                onTap: _startQuiz,
+                onTap: () => _startQuiz(),
                 icon:  Icons.play_arrow_rounded,
                 height: 58,
               ),
             )
           : null,
+    );
+  }
+}
+
+// ─── Daily Challenge Button ───────────────────────────────────────────────────
+//
+// Renders in two states:
+//   isUsed == false  →  amber glow, "⚡ Daily Challenge — 1.5× WP Bonus" label
+//   isUsed == true   →  muted grey, "Used Today · Retry for 40🪙" subtitle
+
+class _DailyChallengeButton extends StatelessWidget {
+  final bool         isUsed;
+  final VoidCallback onTap;
+
+  const _DailyChallengeButton({
+    required this.isUsed,
+    required this.onTap,
+  });
+
+  static const _amber  = Color(0xFFF59E0B);
+  static const _orange = Color(0xFFFF6B00);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        width:   double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        decoration: BoxDecoration(
+          gradient: isUsed
+              ? null
+              : LinearGradient(
+                  colors: [
+                    _amber.withOpacity(0.18),
+                    _orange.withOpacity(0.10),
+                  ],
+                ),
+          color:        isUsed ? AppColors.surface : null,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isUsed
+                ? AppColors.divider
+                : _amber.withOpacity(0.50),
+            width: isUsed ? 1 : 1.5,
+          ),
+          boxShadow: isUsed
+              ? []
+              : [
+                  BoxShadow(
+                    color:      _amber.withOpacity(0.12),
+                    blurRadius: 12,
+                    spreadRadius: 1,
+                  ),
+                ],
+        ),
+        child: Row(
+          children: [
+            // Icon container
+            Container(
+              width:  38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: isUsed
+                    ? AppColors.divider.withOpacity(0.5)
+                    : _amber.withOpacity(0.18),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  '⚡',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: isUsed
+                        ? AppColors.textMuted
+                        : null,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // Text column
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'DAILY CHALLENGE',
+                    style: TextStyle(
+                      color: isUsed
+                          ? AppColors.textMuted
+                          : _amber,
+                      fontSize:      10,
+                      fontWeight:    FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isUsed
+                        ? 'Used today  ·  Come back tomorrow'
+                        : '1.5× WP on all points this session',
+                    style: TextStyle(
+                      color: isUsed
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
+                      fontSize:   12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // Right indicator
+            if (!isUsed)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color:        _amber.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Tap to start',
+                  style: TextStyle(
+                    color:      _amber,
+                    fontSize:   11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              )
+            else
+              const Icon(
+                Icons.lock_outline_rounded,
+                color: AppColors.textMuted,
+                size:  16,
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -410,7 +634,6 @@ class _AnimeCard extends StatefulWidget {
   final bool         isSelected;
   final DateTime?    lockTime;
   final VoidCallback onTap;
-  // FIX: two new optional spend-surface callbacks
   final VoidCallback? onSkipCooldown;
   final VoidCallback? onUnlockEarly;
 
@@ -419,8 +642,8 @@ class _AnimeCard extends StatefulWidget {
     required this.isSelected,
     required this.onTap,
     this.lockTime,
-    this.onSkipCooldown,   // FIX
-    this.onUnlockEarly,    // FIX
+    this.onSkipCooldown,
+    this.onUnlockEarly,
   });
 
   @override
@@ -436,10 +659,10 @@ class _AnimeCardState extends State<_AnimeCard>
     super.initState();
     _ctrl = AnimationController(
         vsync: this,
-        duration: const Duration(milliseconds: 150),
+        duration:   const Duration(milliseconds: 150),
         lowerBound: 0.95,
         upperBound: 1.0,
-        value: 1.0);
+        value:      1.0);
   }
 
   @override
@@ -538,11 +761,8 @@ class _AnimeCardState extends State<_AnimeCard>
                   ),
                 ),
 
-              // ── Locked overlay with spend-surface buttons ──────────────────
-              // FIX: added "⏩ Skip wait" and "🔓 Unlock Early" action buttons.
-              // Each button is wrapped in its own GestureDetector to absorb
-              // the tap so it does NOT bubble up to the card's onTap.
-              if (_isLocked) ...[
+              // ── Locked overlay with spend-surface buttons ──────────────
+              if (_isLocked) ...[ 
                 Container(color: Colors.black.withOpacity(0.65)),
                 Center(
                   child: Column(
@@ -561,19 +781,16 @@ class _AnimeCardState extends State<_AnimeCard>
                             fontWeight: FontWeight.w700),
                       ),
 
-                      // ── Surface 2: Cooldown Skip (25 AC) ──────────────────
+                      // ── Surface 2: Cooldown Skip (25 AC) ────────────────
                       const SizedBox(height: 8),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          // Absorb tap — do not propagate to card's onTap.
-                          widget.onSkipCooldown?.call();
-                        },
+                        onTap:    () => widget.onSkipCooldown?.call(),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: AppColors.secondary.withOpacity(0.85),
+                            color:        AppColors.secondary.withOpacity(0.85),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Text(
@@ -587,18 +804,16 @@ class _AnimeCardState extends State<_AnimeCard>
                         ),
                       ),
 
-                      // ── Surface 4: Early Unlock (200 AC) ──────────────────
+                      // ── Surface 4: Early Unlock (200 AC) ────────────────
                       const SizedBox(height: 5),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          widget.onUnlockEarly?.call();
-                        },
+                        onTap:    () => widget.onUnlockEarly?.call(),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: AppColors.accent.withOpacity(0.85),
+                            color:        AppColors.accent.withOpacity(0.85),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Text(
@@ -623,6 +838,8 @@ class _AnimeCardState extends State<_AnimeCard>
   }
 }
 
+// ─── App Drawer ───────────────────────────────────────────────────────────────
+
 class _AppDrawer extends StatelessWidget {
   final String username;
   const _AppDrawer({required this.username});
@@ -631,12 +848,12 @@ class _AppDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final userData = context.watch<UserDataProvider>();
     return Drawer(
-      width: 260,
+      width:           260,
       backgroundColor: AppColors.surface,
       child: SafeArea(
         child: Column(children: [
           Container(
-            padding: const EdgeInsets.all(24),
+            padding:    const EdgeInsets.all(24),
             decoration: AppDecorations.heroBg,
             child: Row(children: [
               Container(
@@ -663,10 +880,10 @@ class _AppDrawer extends StatelessWidget {
                             fontWeight: FontWeight.w800),
                         overflow: TextOverflow.ellipsis),
                     Row(children: [
-                      const Icon(Icons.stars_rounded,
+                      const Icon(Icons.leaderboard_rounded,
                           color: AppColors.accent, size: 14),
                       const SizedBox(width: 4),
-                      Text('${userData.score} pts',
+                      Text('${userData.weeklyPoints} WP',
                           style: const TextStyle(
                               color: AppColors.accent, fontSize: 13)),
                     ]),
@@ -703,16 +920,7 @@ class _AppDrawer extends StatelessWidget {
             },
           ),
 
-          _Tile(
-            icon:  Icons.leaderboard_rounded,
-            label: 'Leaderboard',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context,
-                  MaterialPageRoute(
-                      builder: (_) => const LeaderboardPage()));
-            },
-          ),
+
           _Tile(
             icon:  Icons.emoji_events_rounded,
             label: 'Weekly Prizes',
@@ -754,6 +962,7 @@ class _Tile extends StatelessWidget {
     required this.onTap,
     this.color,
   });
+
   @override
   Widget build(BuildContext context) {
     final c = color ?? AppColors.textPrimary;
@@ -770,6 +979,8 @@ class _Tile extends StatelessWidget {
     );
   }
 }
+
+// ─── Prize Pool Banner ────────────────────────────────────────────────────────
 
 class _PrizePoolBanner extends StatefulWidget {
   final VoidCallback onTap;
@@ -810,7 +1021,7 @@ class _PrizePoolBannerState extends State<_PrizePoolBanner> {
                 ],
               ),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
+              border:       Border.all(
                   color: AppColors.primary.withOpacity(0.35)),
             ),
             child: Row(
@@ -848,8 +1059,7 @@ class _PrizePoolBannerState extends State<_PrizePoolBanner> {
                     const Text(
                       'Resets in',
                       style: TextStyle(
-                          color:    AppColors.textMuted,
-                          fontSize: 10),
+                          color: AppColors.textMuted, fontSize: 10),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -875,6 +1085,8 @@ class _PrizePoolBannerState extends State<_PrizePoolBanner> {
     );
   }
 }
+
+// ─── Rivalry Banner ───────────────────────────────────────────────────────────
 
 class _RivalryBanner extends StatefulWidget {
   final VoidCallback onTap;
@@ -996,7 +1208,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
                         ),
                       ),
                       const TextSpan(
-                        text: ' leads ',
+                        text:  ' leads ',
                         style: TextStyle(color: AppColors.textSecondary),
                       ),
                       TextSpan(
@@ -1007,8 +1219,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
                         ),
                       ),
                       TextSpan(
-                        text:
-                            '  ·  ${_fmt(leader.total)} – ${_fmt(challenger.total)}',
+                        text: '  ·  ${_fmt(leader.total)} – ${_fmt(challenger.total)}',
                         style: const TextStyle(
                           color:      AppColors.textMuted,
                           fontSize:   11,
@@ -1040,8 +1251,7 @@ class _RivalryBannerState extends State<_RivalryBanner> {
 class _RivalryBannerShell extends StatelessWidget {
   final VoidCallback onTap;
   final Widget       child;
-  const _RivalryBannerShell(
-      {required this.onTap, required this.child});
+  const _RivalryBannerShell({required this.onTap, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -1057,7 +1267,7 @@ class _RivalryBannerShell extends StatelessWidget {
             ],
           ),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
+          border:       Border.all(
               color: const Color(0xFF6C63FF).withOpacity(0.28)),
         ),
         child: child,
@@ -1089,13 +1299,13 @@ class _RivalrySkeleton extends StatelessWidget {
               Container(
                   width: 70, height: 8,
                   decoration: BoxDecoration(
-                      color: AppColors.surface,
+                      color:        AppColors.surface,
                       borderRadius: BorderRadius.circular(4))),
               const SizedBox(height: 6),
               Container(
                   width: double.infinity, height: 10,
                   decoration: BoxDecoration(
-                      color: AppColors.surface,
+                      color:        AppColors.surface,
                       borderRadius: BorderRadius.circular(4))),
             ],
           ),

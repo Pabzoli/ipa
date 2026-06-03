@@ -8,7 +8,7 @@ import '../../core/widgets/coin_earn_animation.dart';
 
 /// EarnCoinsScreen — P-04
 ///
-/// Lets users watch rewarded video ads to earn +10 Anime Coins.
+/// Lets users watch rewarded video ads to earn +15 Anime Coins.
 /// Cap: 10 ads/day (enforced server-side by recordAdWatch Cloud Function).
 /// Cooldown: 90 seconds between ads (enforced client-side by AdService).
 ///
@@ -372,7 +372,7 @@ class _WatchAdButton extends StatelessWidget {
       final s = (cooldownSecs % 60).toString().padLeft(2, '0');
       label = 'Next ad in $m:$s';
     } else {
-      label = 'Watch Ad — Earn +10 🪙';
+      label = 'Watch Ad — Earn +15 🪙';
     }
 
     return SizedBox(
@@ -479,7 +479,7 @@ class _EarnTipRow extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(child: _TipCard(emoji: '⏱️', label: '90s\ncooldown')),
         const SizedBox(width: 12),
-        Expanded(child: _TipCard(emoji: '🪙', label: '+10 coins\nper ad')),
+        Expanded(child: _TipCard(emoji: '🪙', label: '+15 coins\nper ad')),
       ],
     );
   }

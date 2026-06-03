@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
-import '../../core/widgets/insufficient_coins_sheet.dart';    // FIX: added
+import '../../core/widgets/insufficient_coins_sheet.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import 'player_statistics_provider.dart';
@@ -18,7 +18,7 @@ class PInform extends StatefulWidget {
 
 class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
-  String _username = 'Trainer';
+  String _username        = 'Trainer';
   bool   _usernameLoading = true;
 
   @override
@@ -39,9 +39,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
-  // ── SPEND SURFACE 6: Streak Shield (30 AC) ──────────────────────────────────
-  // FIX: new method called from the shield card in _StatisticsTab.
-
+  // ── Streak Shield purchase (30 AC) ─────────────────────────────────────────
   Future<void> _buyStreakShield() async {
     const cost = 30;
     final userData = context.read<UserDataProvider>();
@@ -84,7 +82,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
     if (confirmed != true || !mounted) return;
 
     try {
-      await userData.updateAnimeCoins(-cost, 'spend_shield');
+      await userData.spendCoins(cost, 'spend_streak_shield');
       await userData.setStreakShieldActive(true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -95,21 +93,24 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
         );
       }
     } on InsufficientCoinsException {
-  if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
-} catch (e) {
-  debugPrint('Unexpected error: $e');
-  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Something went wrong — please try again.')),
-  );
-}
+      if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+    } catch (e) {
+      debugPrint('Unexpected error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Something went wrong — please try again.')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final stats      = context.watch<PlayerStatisticsProvider>().playerStatistics;
-    final totalScore = context.watch<UserDataProvider>().score;
-    // FIX: read shield state here so _StatisticsTab stays a StatelessWidget
-    final shieldActive = context.watch<UserDataProvider>().streakShieldActive;
+    final stats        = context.watch<PlayerStatisticsProvider>().playerStatistics;
+    final udp          = context.watch<UserDataProvider>();
+    final weeklyPoints = udp.weeklyPoints;
+    final animeCoins   = udp.animeCoins;
+    final shieldActive = udp.streakShieldActive;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
@@ -122,13 +123,14 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
             leading: BackButton(color: AppColors.textPrimary),
             flexibleSpace: FlexibleSpaceBar(
               background: _ProfileHeader(
-                username:    _usernameLoading ? '...' : _username,
-                totalScore:  totalScore,
-                onEditName:  () => _showEditUsername(context),
+                username:     _usernameLoading ? '...' : _username,
+                weeklyPoints: weeklyPoints,
+                animeCoins:   animeCoins,
+                onEditName:   () => _showEditUsername(context),
               ),
             ),
             bottom: TabBar(
-              controller: _tabCtrl,
+              controller:           _tabCtrl,
               labelColor:           AppColors.primary,
               unselectedLabelColor: AppColors.textMuted,
               indicatorColor:       AppColors.primary,
@@ -147,7 +149,6 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
         body: TabBarView(
           controller: _tabCtrl,
           children: [
-            // FIX: pass shield props so the Statistics tab can render the card
             _StatisticsTab(
               stats:        stats,
               shieldActive: shieldActive,
@@ -163,7 +164,6 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
 
   void _showEditUsername(BuildContext context) async {
     final nextDate = await FirestoreService.instance.nextUsernameChangeDate();
-
     if (!mounted) return;
 
     if (nextDate != null) {
@@ -180,8 +180,9 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK')),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
           ],
         ),
       );
@@ -274,8 +275,7 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
                 },
           child: _saving
               ? const SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: 18, height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Text('Save'),
         ),
@@ -287,12 +287,14 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
 // ─── Profile Header ───────────────────────────────────────────────────────────
 class _ProfileHeader extends StatelessWidget {
   final String   username;
-  final int      totalScore;
+  final int      weeklyPoints;
+  final int      animeCoins;
   final VoidCallback onEditName;
 
   const _ProfileHeader({
     required this.username,
-    required this.totalScore,
+    required this.weeklyPoints,
+    required this.animeCoins,
     required this.onEditName,
   });
 
@@ -304,9 +306,9 @@ class _ProfileHeader extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // Avatar
           Container(
-            width: 80,
-            height: 80,
+            width: 80, height: 80,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [AppColors.primary, Color(0xFFFF6B6B)],
@@ -314,12 +316,7 @@ class _ProfileHeader extends StatelessWidget {
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(22),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withOpacity(0.4),
-                  blurRadius: 16,
-                ),
-              ],
+              boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.4), blurRadius: 16)],
             ),
             child: const Icon(Icons.person_rounded, color: Colors.white, size: 42),
           ),
@@ -330,6 +327,7 @@ class _ProfileHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Username row
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -362,31 +360,21 @@ class _ProfileHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
 
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.accent.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: AppColors.accent.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.stars_rounded,
-                          color: AppColors.accent, size: 15),
-                      const SizedBox(width: 5),
-                      Text(
-                        '$totalScore pts',
-                        style: const TextStyle(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
+                // Stat badges
+                Row(
+                  children: [
+                    _HeaderBadge(
+                      icon:  Icons.stars_rounded,
+                      label: '$weeklyPoints WP',
+                      color: AppColors.accent,
+                    ),
+                    const SizedBox(width: 8),
+                    _HeaderBadge(
+                      emoji: '🪙',
+                      label: '$animeCoins AC',
+                      color: AppColors.primary,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -397,15 +385,39 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
+class _HeaderBadge extends StatelessWidget {
+  final IconData? icon;
+  final String?   emoji;
+  final String    label;
+  final Color     color;
+
+  const _HeaderBadge({this.icon, this.emoji, required this.label, required this.color})
+      : assert(icon != null || emoji != null);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color:        color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(10),
+        border:       Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon  != null) Icon(icon, color: color, size: 14),
+        if (emoji != null) Text(emoji!, style: const TextStyle(fontSize: 12)),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13)),
+      ]),
+    );
+  }
+}
+
 // ─── Statistics Tab ───────────────────────────────────────────────────────────
-// FIX: added [shieldActive] and [onBuyShield] so Surface 6 can be rendered
-// without converting this widget to a StatefulWidget or reading the provider
-// directly (which would require a BuildContext with a Provider ancestor, which
-// NestedScrollView's TabBarView always has — but passing props is cleaner).
 class _StatisticsTab extends StatelessWidget {
   final PlayerStatistics stats;
-  final bool             shieldActive;   // FIX: new
-  final VoidCallback     onBuyShield;    // FIX: new
+  final bool             shieldActive;
+  final VoidCallback     onBuyShield;
 
   const _StatisticsTab({
     required this.stats,
@@ -415,128 +427,117 @@ class _StatisticsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final total = stats.gamesPlayed;
+    final winPct  = total > 0 ? stats.gamesWon  / total : 0.0;
+    final drawPct = total > 0 ? stats.gamesDraw / total : 0.0;
+    final losePct = total > 0 ? stats.gamesLost / total : 0.0;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── SPEND SURFACE 6: Streak Shield card ───────────────────────────
-          // FIX: entire card is new. Shows active state or the buy button.
-          _StreakShieldCard(
-            active:     shieldActive,
-            onBuy:      onBuyShield,
-          ),
+
+          // ── Streak Shield ─────────────────────────────────────────────────
+          _StreakShieldCard(active: shieldActive, onBuy: onBuyShield),
           const SizedBox(height: 24),
 
-          // ── Match Summary Cards ────────────────────────────────────────────
+          // ── Match Record header ───────────────────────────────────────────
           const SectionHeader(title: 'Match Record'),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
 
-          Row(
-            children: [
-              Expanded(child: _BigStatCard(
-                value: '${stats.gamesWon}',
-                label: 'Wins',
-                icon: Icons.emoji_events_rounded,
-                color: AppColors.correct,
-              )),
-              const SizedBox(width: 10),
-              Expanded(child: _BigStatCard(
-                value: '${stats.gamesDraw}',
-                label: 'Draws',
-                icon: Icons.handshake_rounded,
-                color: AppColors.accent,
-              )),
-              const SizedBox(width: 10),
-              Expanded(child: _BigStatCard(
-                value: '${stats.gamesLost}',
-                label: 'Losses',
-                icon: Icons.close_rounded,
-                color: AppColors.wrong,
-              )),
-            ],
-          ),
+          // W / D / L big cards
+          Row(children: [
+            Expanded(child: _BigStatCard(
+              value: '${stats.gamesWon}',
+              label: 'Wins',
+              icon:  Icons.emoji_events_rounded,
+              color: AppColors.correct,
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: _BigStatCard(
+              value: '${stats.gamesDraw}',
+              label: 'Draws',
+              icon:  Icons.handshake_rounded,
+              color: AppColors.accent,
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: _BigStatCard(
+              value: '${stats.gamesLost}',
+              label: 'Losses',
+              icon:  Icons.close_rounded,
+              color: AppColors.wrong,
+            )),
+          ]),
           const SizedBox(height: 12),
 
+          // Games Played + WLD bar
           GlassCard(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-            child: Row(children: [
-              const Icon(Icons.sports_esports_rounded,
-                  color: AppColors.secondary, size: 22),
-              const SizedBox(width: 12),
-              const Text('Games Played',
-                  style: TextStyle(
-                      color: AppColors.textSecondary, fontSize: 15)),
-              const Spacer(),
-              Text('${stats.gamesPlayed}',
-                  style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            child: Column(children: [
+              Row(children: [
+                const Icon(Icons.sports_esports_rounded,
+                    color: AppColors.secondary, size: 20),
+                const SizedBox(width: 10),
+                const Text('Games Played',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                const Spacer(),
+                Text('$total',
+                    style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900)),
+              ]),
+
+              if (total > 0) ...[
+                const SizedBox(height: 12),
+                // WDL ratio bar
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Row(children: [
+                    if (stats.gamesWon  > 0) Expanded(flex: (winPct  * 100).round(), child: Container(height: 8, color: AppColors.correct)),
+                    if (stats.gamesDraw > 0) Expanded(flex: (drawPct * 100).round(), child: Container(height: 8, color: AppColors.accent)),
+                    if (stats.gamesLost > 0) Expanded(flex: (losePct * 100).round(), child: Container(height: 8, color: AppColors.wrong)),
+                    if (total == 0) Expanded(child: Container(height: 8, color: AppColors.divider)),
+                  ]),
+                ),
+                const SizedBox(height: 6),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  _WDLLabel(color: AppColors.correct, label: '${(winPct  * 100).toStringAsFixed(0)}% W'),
+                  _WDLLabel(color: AppColors.accent,  label: '${(drawPct * 100).toStringAsFixed(0)}% D'),
+                  _WDLLabel(color: AppColors.wrong,   label: '${(losePct * 100).toStringAsFixed(0)}% L'),
+                ]),
+              ],
             ]),
           ),
-
-          if (stats.gamesPlayed > 0) ...[
-            const SizedBox(height: 12),
-            GlassCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Win Rate',
-                          style: TextStyle(color: AppColors.textSecondary)),
-                      Text(
-                        '${(stats.gamesWon / stats.gamesPlayed * 100).toStringAsFixed(1)}%',
-                        style: const TextStyle(
-                            color: AppColors.correct,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: stats.gamesWon / stats.gamesPlayed,
-                      backgroundColor: AppColors.divider,
-                      valueColor:
-                          const AlwaysStoppedAnimation(AppColors.correct),
-                      minHeight: 8,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
           const SizedBox(height: 24),
-          const SectionHeader(title: 'Betting Records'),
-          const SizedBox(height: 16),
+
+          // ── AC Coin Records ───────────────────────────────────────────────
+          const SectionHeader(title: 'AC Coin Records  🪙'),
+          const SizedBox(height: 14),
+
           Row(children: [
             Expanded(child: _StatTile(
-              label: 'Biggest Win',
-              value: '${stats.hseWon}',
-              icon: Icons.trending_up_rounded,
+              label: 'Best Single Win',
+              value: '+${stats.hseWon} AC',
+              icon:  Icons.trending_up_rounded,
               color: AppColors.correct,
             )),
             const SizedBox(width: 10),
             Expanded(child: _StatTile(
-              label: 'Worst Loss',
-              value: '${stats.hseLost}',
-              icon: Icons.trending_down_rounded,
+              label: 'Worst Single Loss',
+              value: '−${stats.hseLost} AC',
+              icon:  Icons.trending_down_rounded,
               color: AppColors.wrong,
             )),
           ]),
           const SizedBox(height: 10),
           _StatTile(
-            label: 'Highest Bet',
-            value: '${stats.hseStaked}',
-            icon: Icons.casino_rounded,
+            label: 'Highest Stake',
+            value: '${stats.hseStaked} AC',
+            icon:  Icons.casino_rounded,
             color: AppColors.accent,
-            wide: true,
+            wide:  true,
           ),
           const SizedBox(height: 24),
         ],
@@ -545,138 +546,116 @@ class _StatisticsTab extends StatelessWidget {
   }
 }
 
-// ─── Streak Shield Card (SPEND SURFACE 6) ────────────────────────────────────
-// FIX: new widget. Placed at the top of _StatisticsTab.
-// Shows shield status when active, or the "buy" button when inactive.
+class _WDLLabel extends StatelessWidget {
+  final Color  color;
+  final String label;
+  const _WDLLabel({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700));
+  }
+}
+
+// ─── Streak Shield Card ───────────────────────────────────────────────────────
 class _StreakShieldCard extends StatelessWidget {
   final bool         active;
   final VoidCallback onBuy;
-
   const _StreakShieldCard({required this.active, required this.onBuy});
 
   @override
   Widget build(BuildContext context) {
     final color = active ? AppColors.correct : AppColors.secondary;
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color:        color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.30)),
+        border:       Border.all(color: color.withOpacity(0.30)),
       ),
-      child: Row(
-        children: [
+      child: Row(children: [
+        Container(
+          width: 48, height: 48,
+          decoration: BoxDecoration(color: color.withOpacity(0.14), shape: BoxShape.circle),
+          child: Center(
+            child: Text('🛡', style: TextStyle(fontSize: active ? 26 : 22)),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(
+              active ? 'Streak Shield Active' : 'Streak Shield',
+              style: TextStyle(
+                color: active ? AppColors.correct : AppColors.textPrimary,
+                fontSize: 15, fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              active
+                  ? 'Your next missed day will be forgiven automatically.'
+                  : 'Protect your streak against one missed day  —  30🪙',
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 12, height: 1.4),
+            ),
+          ]),
+        ),
+        const SizedBox(width: 10),
+        if (active)
           Container(
-            width:  48,
-            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color:  color.withOpacity(0.14),
-              shape:  BoxShape.circle,
+              color:        AppColors.correct.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(10),
+              border:       Border.all(color: AppColors.correct.withOpacity(0.35)),
             ),
-            child: Center(
-              child: Text(
-                '🛡',
-                style: TextStyle(
-                  fontSize: active ? 26 : 22,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  active ? 'Streak Shield Active' : 'Streak Shield',
-                  style: TextStyle(
-                    color:      active ? AppColors.correct : AppColors.textPrimary,
-                    fontSize:   15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  active
-                      ? 'Your next missed day will be forgiven automatically.'
-                      : 'Protect your streak against one missed day  —  30🪙',
-                  style: const TextStyle(
-                    color:    AppColors.textMuted,
-                    fontSize: 12,
-                    height:   1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          if (active)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: const Text('ON',
+                style: TextStyle(color: AppColors.correct, fontSize: 12,
+                    fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+          )
+        else
+          GestureDetector(
+            onTap: onBuy,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color:        AppColors.correct.withOpacity(0.14),
+                color:        AppColors.secondary.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.correct.withOpacity(0.35)),
+                border:       Border.all(color: AppColors.secondary.withOpacity(0.40)),
               ),
-              child: const Text(
-                'ON',
-                style: TextStyle(
-                  color:      AppColors.correct,
-                  fontSize:   12,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            )
-          else
-            GestureDetector(
-              onTap: onBuy,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color:        AppColors.secondary.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.secondary.withOpacity(0.40)),
-                ),
-                child: const Text(
-                  'Activate',
-                  style: TextStyle(
-                    color:      AppColors.secondary,
-                    fontSize:   13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
+              child: const Text('Activate',
+                  style: TextStyle(color: AppColors.secondary, fontSize: 13,
+                      fontWeight: FontWeight.w700)),
             ),
-        ],
-      ),
+          ),
+      ]),
     );
   }
 }
 
+// ─── Reusable stat widgets ────────────────────────────────────────────────────
 class _BigStatCard extends StatelessWidget {
-  final String value;
-  final String label;
+  final String   value;
+  final String   label;
   final IconData icon;
-  final Color color;
-  const _BigStatCard({required this.value, required this.label, required this.icon, required this.color});
+  final Color    color;
+  const _BigStatCard({required this.value, required this.label,
+      required this.icon, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 18),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color:        color.withOpacity(0.10),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border:       Border.all(color: color.withOpacity(0.30)),
       ),
       child: Column(children: [
         Icon(icon, color: color, size: 22),
         const SizedBox(height: 6),
         Text(value,
-            style: TextStyle(
-                color: color, fontSize: 26, fontWeight: FontWeight.w900)),
+            style: TextStyle(color: color, fontSize: 26, fontWeight: FontWeight.w900)),
         const SizedBox(height: 2),
         Text(label,
             style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
@@ -686,37 +665,30 @@ class _BigStatCard extends StatelessWidget {
 }
 
 class _StatTile extends StatelessWidget {
-  final String label;
-  final String value;
+  final String   label;
+  final String   value;
   final IconData icon;
-  final Color color;
-  final bool wide;
-  const _StatTile({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.wide = false,
-  });
+  final Color    color;
+  final bool     wide;
+  const _StatTile({required this.label, required this.value,
+      required this.icon, required this.color, this.wide = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color:        color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border:       Border.all(color: color.withOpacity(0.25)),
       ),
       child: Row(children: [
         Icon(icon, color: color, size: 20),
         const SizedBox(width: 10),
         Expanded(child: Text(label,
-            style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 13))),
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13))),
         Text(value,
-            style: TextStyle(
-                color: color, fontSize: 18, fontWeight: FontWeight.w800)),
+            style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.w800)),
       ]),
     );
   }
@@ -731,11 +703,41 @@ class _AchievementsTab extends StatelessWidget {
     final p = context.watch<PlayerStatisticsProvider>();
 
     final achievements = [
-      _Achievement('Win Streak',  'Win 50 games',    p.won50Games,    Icons.emoji_events_rounded, AppColors.correct),
-      _Achievement('Resilient',   'Lose 50 games',   p.lost50Games,   Icons.shield_rounded,       AppColors.secondary),
-      _Achievement('Centurion',   'Play 100 games',  p.played100Games, Icons.sports_esports_rounded, AppColors.accent),
-      _Achievement('High Roller', 'Win 5,000 pts',   p.won5000Score,  Icons.casino_rounded,       AppColors.correct),
-      _Achievement('Risk Taker',  'Lose 2,500 pts',  p.lost2500Score, Icons.whatshot_rounded,     AppColors.wrong),
+      _Achievement(
+        'Victory Road',
+        'Win 50 games',
+        p.won50Games,
+        Icons.emoji_events_rounded,
+        AppColors.correct,
+      ),
+      _Achievement(
+        'Resilient',
+        'Lose 50 games',
+        p.lost50Games,
+        Icons.shield_rounded,
+        AppColors.secondary,
+      ),
+      _Achievement(
+        'Centurion',
+        'Play 100 games',
+        p.played100Games,
+        Icons.sports_esports_rounded,
+        AppColors.accent,
+      ),
+      _Achievement(
+        'High Roller',
+        'Stake 500+ AC in a single match',
+        p.staked500AC,
+        Icons.casino_rounded,
+        AppColors.primary,
+      ),
+      _Achievement(
+        'Big Winner',
+        'Win 1,000+ AC in a single match',
+        p.won1000AC,
+        Icons.trending_up_rounded,
+        AppColors.correct,
+      ),
     ];
 
     final unlocked = achievements.where((a) => a.achieved).length;
@@ -743,38 +745,51 @@ class _AchievementsTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        // Progress summary card
         Container(
           padding: const EdgeInsets.all(16),
           decoration: AppDecorations.card,
           child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('$unlocked / ${achievements.length} Unlocked',
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  '$unlocked / ${achievements.length} Unlocked',
                   style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 16,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: unlocked / achievements.length,
-                  backgroundColor: AppColors.divider,
-                  valueColor:
-                      const AlwaysStoppedAnimation(AppColors.accent),
-                  minHeight: 6,
+                      fontWeight: FontWeight.w800),
                 ),
-              ),
-            ])),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: achievements.isNotEmpty
+                        ? unlocked / achievements.length
+                        : 0.0,
+                    backgroundColor: AppColors.divider,
+                    valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                    minHeight: 7,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  unlocked == achievements.length
+                      ? '🏆 All achievements unlocked!'
+                      : '${achievements.length - unlocked} remaining',
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                ),
+              ]),
+            ),
             const SizedBox(width: 14),
-            const Icon(Icons.emoji_events_rounded,
-                color: AppColors.accent, size: 32),
+            const Icon(Icons.emoji_events_rounded, color: AppColors.accent, size: 34),
           ]),
         ),
         const SizedBox(height: 16),
+
         ...achievements.map((a) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _AchievementCard(item: a),
-            )),
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _AchievementCard(item: a),
+        )),
       ],
     );
   }
@@ -799,33 +814,31 @@ class _AchievementCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: item.achieved ? item.color.withOpacity(0.08) : AppColors.surface,
+        color:        item.achieved ? item.color.withOpacity(0.08) : AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: item.achieved
-              ? item.color.withOpacity(0.35)
-              : AppColors.divider,
+          color: item.achieved ? item.color.withOpacity(0.35) : AppColors.divider,
         ),
       ),
       child: Row(children: [
         Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-              color: color.withOpacity(0.15), shape: BoxShape.circle),
+          width: 48, height: 48,
+          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
           child: Icon(item.icon, color: color, size: 24),
         ),
         const SizedBox(width: 14),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(item.title,
-              style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700)),
-          const SizedBox(height: 2),
-          Text(item.desc,
-              style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-        ])),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(item.title,
+                style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 3),
+            Text(item.desc,
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          ]),
+        ),
         Icon(
           item.achieved
               ? Icons.check_circle_rounded
@@ -860,16 +873,14 @@ class _HistoryTab extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.history_rounded,
-                    size: 64,
-                    color: AppColors.textMuted.withOpacity(0.5)),
+                    size: 64, color: AppColors.textMuted.withOpacity(0.5)),
                 const SizedBox(height: 16),
                 const Text('No match history yet',
                     style: TextStyle(color: AppColors.textMuted, fontSize: 16)),
                 const SizedBox(height: 6),
                 const Text(
                   'Play a multiplayer game to see your history here',
-                  style:
-                      TextStyle(color: AppColors.textMuted, fontSize: 13),
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -892,18 +903,43 @@ class _HistoryCard extends StatelessWidget {
   final Map<String, dynamic> match;
   const _HistoryCard({required this.match});
 
+  // FIX: safely read numeric fields — Firestore can store ints as doubles,
+  // causing "type 'double' is not a subtype of type 'int'" at runtime.
+  static int _int(dynamic v) => (v as num?)?.toInt() ?? 0;
+
   @override
   Widget build(BuildContext context) {
-    final outcome      = match['outcome'] as String? ?? 'lose';
-    final opponent     = match['opponent'] as String? ?? 'Unknown';
-    final playerScore  = match['playerScore'] as int? ?? 0;
-    final opponentScore = match['opponentScore'] as int? ?? 0;
-    final betScore     = match['betScore'] as int? ?? 0;
-    final pointsChange = match['pointsChange'] as int? ?? 0;
-    final timestamp    = match['timestamp'];
+    final outcome       = match['outcome']       as String? ?? 'lose';
+    final opponent      = match['opponent']      as String? ?? 'Unknown';
+    final playerScore   = _int(match['playerScore']);
+    final opponentScore = _int(match['opponentScore']);
+    final stakeAmount   = _int(match['stakeAmount']);
+    final pointsChange  = _int(match['pointsChange']);
+    final isQuickMatch  = match['isQuickMatch']  as bool?   ?? false;
+    final animeTitle    = match['animeTitle']    as String? ?? '';
+    final timestamp     = match['timestamp'];
 
-    final Color color;
-    final String outLabel;
+    // ── Derive AC delta ──────────────────────────────────────────────────────
+    // QM:           win=+35 AC, draw=+15 AC, lose=0 AC
+    // Staked async: win=+floor(stake*0.8), draw=-floor(stake*0.05), lose=-stake
+    // Legacy/zero stake: fall back to stored pointsChange
+    final int acDelta;
+    if (isQuickMatch) {
+      acDelta = outcome == 'win' ? 35 : outcome == 'draw' ? 15 : 0;
+    } else if (stakeAmount > 0) {
+      if (outcome == 'win') {
+        acDelta = (stakeAmount * 0.8).floor();
+      } else if (outcome == 'draw') {
+        acDelta = -(stakeAmount * 0.05).floor();
+      } else {
+        acDelta = -stakeAmount;
+      }
+    } else {
+      acDelta = pointsChange;
+    }
+
+    final Color    color;
+    final String   outLabel;
     final IconData outIcon;
     switch (outcome) {
       case 'win':
@@ -920,12 +956,12 @@ class _HistoryCard extends StatelessWidget {
         outIcon  = Icons.close_rounded;
     }
 
+    // ── Relative timestamp ───────────────────────────────────────────────────
     String timeStr = '';
     if (timestamp != null) {
       try {
-        final dt = (timestamp as dynamic).toDate() as DateTime;
-        final now = DateTime.now();
-        final diff = now.difference(dt);
+        final dt   = (timestamp as dynamic).toDate() as DateTime;
+        final diff = DateTime.now().difference(dt);
         if (diff.inMinutes < 60) {
           timeStr = '${diff.inMinutes}m ago';
         } else if (diff.inHours < 24) {
@@ -939,52 +975,93 @@ class _HistoryCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
+        color:        color.withOpacity(0.07),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border:       Border.all(color: color.withOpacity(0.25)),
       ),
       child: Row(children: [
+        // Outcome icon bubble
         Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-              color: color.withOpacity(0.15), shape: BoxShape.circle),
+          width: 44, height: 44,
+          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
           child: Icon(outIcon, color: color, size: 22),
         ),
         const SizedBox(width: 12),
 
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Text(outLabel,
-                style: TextStyle(
-                    color: color, fontSize: 13, fontWeight: FontWeight.w700)),
-            const Text(' vs ',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
-            Flexible(child: Text(opponent,
-                style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis)),
-          ]),
-          const SizedBox(height: 4),
-          Text('$playerScore – $opponentScore  •  Bet: $betScore pts',
-              style: const TextStyle(
-                  color: AppColors.textMuted, fontSize: 11)),
-        ])),
+        // Info column
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Opponent + match-type badge row
+            Row(children: [
+              Text(outLabel,
+                  style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w700)),
+              const Text(' vs ',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+              Flexible(
+                child: Text(opponent,
+                    style: const TextStyle(
+                        color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 6),
+              // QM ⚡ or Async ⚔️ badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isQuickMatch
+                      ? AppColors.primary.withOpacity(0.15)
+                      : AppColors.secondary.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  isQuickMatch ? '⚡ QM' : '⚔️',
+                  style: TextStyle(
+                    fontSize: 10, fontWeight: FontWeight.w700,
+                    color: isQuickMatch ? AppColors.primary : AppColors.secondary,
+                  ),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 3),
 
+            // Score line + anime title
+            Text(
+              '$playerScore – $opponentScore'
+              '${animeTitle.isNotEmpty ? "  •  $animeTitle" : ""}',
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+              overflow: TextOverflow.ellipsis,
+            ),
+
+            // Stake line (async challenges only)
+            if (!isQuickMatch && stakeAmount > 0) ...[
+              const SizedBox(height: 2),
+              Text('🪙 $stakeAmount AC staked',
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 10)),
+            ],
+          ],
+        )),
+
+        // AC delta column
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(
-            pointsChange >= 0 ? '+$pointsChange' : '$pointsChange',
-            style: TextStyle(
-                color: pointsChange >= 0 ? AppColors.correct : AppColors.wrong,
-                fontSize: 15,
-                fontWeight: FontWeight.w800),
-          ),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            const Text('🪙', style: TextStyle(fontSize: 11)),
+            const SizedBox(width: 2),
+            Text(
+              acDelta >= 0 ? '+$acDelta' : '$acDelta',
+              style: TextStyle(
+                color: acDelta > 0
+                    ? AppColors.correct
+                    : acDelta < 0
+                        ? AppColors.wrong
+                        : AppColors.textMuted,
+                fontSize: 15, fontWeight: FontWeight.w800,
+              ),
+            ),
+          ]),
           if (timeStr.isNotEmpty)
             Text(timeStr,
-                style: const TextStyle(
-                    color: AppColors.textMuted, fontSize: 11)),
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
         ]),
       ]),
     );

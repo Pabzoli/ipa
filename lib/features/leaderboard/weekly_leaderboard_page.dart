@@ -7,6 +7,8 @@ import '../../core/widgets/shared_widgets.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
 import '../../core/providers/user_data_provider.dart';
+import '../../features/multiplayer/anime_select_page.dart';
+import '../../features/multiplayer/stake_screen.dart';
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 class WeeklyLeaderboardPage extends StatefulWidget {
@@ -248,7 +250,7 @@ class _CountdownChip extends StatelessWidget {
 }
 
 // ─── Global Tab ───────────────────────────────────────────────────────────────
-class _GlobalTab extends StatelessWidget {
+class _GlobalTab extends StatefulWidget {
   final Stream<Map<String, dynamic>>       prizePoolStream;
   final Stream<List<Map<String, dynamic>>> weeklyLbStream;
   final Duration                           timeLeft;
@@ -262,16 +264,42 @@ class _GlobalTab extends StatelessWidget {
   });
 
   @override
+  State<_GlobalTab> createState() => _GlobalTabState();
+}
+
+class _GlobalTabState extends State<_GlobalTab> {
+  // Fetched once when the tab first builds; refreshes with the stream rebuilds
+  // only after the 5-minute cache expires (handled inside FirestoreService).
+  late Future<int> _totalPlayersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _totalPlayersFuture =
+        FirestoreService.instance.getWeeklyPlayerCount();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    return FutureBuilder<int>(
+      future: _totalPlayersFuture,
+      builder: (context, totalSnap) {
+        final totalPlayers = totalSnap.data ?? 0;
+        return _buildContent(context, totalPlayers);
+      },
+    );
+  }
+
+  Widget _buildContent(BuildContext context, int totalPlayers) {
     return StreamBuilder<Map<String, dynamic>>(
-      stream: prizePoolStream,
+      stream: widget.prizePoolStream,
       builder: (context, poolSnap) {
         final pool       = poolSnap.data ?? {};
         final totalNaira = (pool['totalNaira'] as num?)?.toDouble() ?? 0.0;
         final prizes     = PrizePoolService.calculatePrizes(totalNaira);
 
         return StreamBuilder<List<Map<String, dynamic>>>(
-          stream: weeklyLbStream,
+          stream: widget.weeklyLbStream,
           builder: (context, lbSnap) {
             if (lbSnap.connectionState == ConnectionState.waiting &&
                 poolSnap.connectionState == ConnectionState.waiting) {
@@ -291,6 +319,21 @@ class _GlobalTab extends StatelessWidget {
               }
             }
 
+            // ── Rival detection ─────────────────────────────────────────────
+            // The rival is the entry ranked exactly one position above the
+            // current user.  No rival if:
+            //   • user has 0 weekly pts (not on the board yet)
+            //   • user is already rank 1
+            Map<String, dynamic>? rivalEntry;
+            if (widget.myWeeklyPts > 0 && myRank > 1) {
+              for (final e in entries) {
+                if ((e['rank'] as int?) == myRank - 1) {
+                  rivalEntry = e;
+                  break;
+                }
+              }
+            }
+
             return CustomScrollView(
               slivers: [
                 // Prize pool hero
@@ -299,7 +342,7 @@ class _GlobalTab extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                     child: _PrizePoolHero(
                       totalNaira: totalNaira,
-                      timeLeft:   timeLeft,
+                      timeLeft:   widget.timeLeft,
                     ),
                   ),
                 ),
@@ -319,7 +362,7 @@ class _GlobalTab extends StatelessWidget {
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                       child: _NearMissCard(
                         myRank:     myRank,
-                        myPts:      myWeeklyPts,
+                        myPts:      widget.myWeeklyPts,
                         entries:    entries,
                         totalNaira: totalNaira,
                       ),
@@ -352,11 +395,21 @@ class _GlobalTab extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
-                      (_, i) => _WeeklyRow(
-                        entry:      entries[i],
-                        prize:      prizes[entries[i]['rank']],
-                        totalNaira: totalNaira,
-                      ),
+                      (_, i) {
+                        final e       = entries[i];
+                        final isRival = rivalEntry != null &&
+                            e['uid'] == rivalEntry!['uid'];
+                        return _WeeklyRow(
+                          entry:        e,
+                          prize:        prizes[e['rank']],
+                          totalNaira:   totalNaira,
+                          isRival:      isRival,
+                          totalPlayers: totalPlayers,
+                          onTap: isRival
+                              ? () => _showRivalSheet(context, e)
+                              : null,
+                        );
+                      },
                       childCount: entries.length,
                     ),
                   ),
@@ -960,17 +1013,37 @@ class _NearMissCard extends StatelessWidget {
   }
 }
 
+// ─── Rival bottom-sheet launcher ─────────────────────────────────────────────
+void _showRivalSheet(BuildContext context, Map<String, dynamic> rival) {
+  showModalBottomSheet<void>(
+    context:          context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder:          (_) => _RivalSheet(rival: rival),
+  );
+}
+
 // ─── Weekly Row ───────────────────────────────────────────────────────────────
 class _WeeklyRow extends StatelessWidget {
   final Map<String, dynamic> entry;
   final double?              prize;
   final double               totalNaira;
+  final bool                 isRival;
+  final VoidCallback?        onTap;
+  /// Total number of players with weeklyPoints > 0 this week.
+  /// 0 means not yet loaded — percentile chip is hidden.
+  final int                  totalPlayers;
 
   const _WeeklyRow({
     required this.entry,
     required this.prize,
     required this.totalNaira,
+    this.isRival      = false,
+    this.onTap,
+    this.totalPlayers = 0,
   });
+
+  static const _rivalColour = Color(0xFFFF6B00);
 
   @override
   Widget build(BuildContext context) {
@@ -980,24 +1053,27 @@ class _WeeklyRow extends StatelessWidget {
     final isMe   = entry['isCurrentUser'] == true;
     final inZone = rank <= 5 && totalNaira > 0;
 
-    return Container(
+    final container = Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isMe
-            ? AppColors.primary.withOpacity(0.08)
-            : inZone
-                ? AppColors.correct.withOpacity(0.04)
-                : AppColors.surface,
+        color: isRival
+            ? _rivalColour.withOpacity(0.08)
+            : isMe
+                ? AppColors.primary.withOpacity(0.08)
+                : inZone
+                    ? AppColors.correct.withOpacity(0.04)
+                    : AppColors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isMe
-              ? AppColors.primary.withOpacity(0.4)
-              : inZone
-                  ? AppColors.correct.withOpacity(0.2)
-                  : AppColors.divider,
-          width: isMe ? 1.5 : 1,
+          color: isRival
+              ? _rivalColour.withOpacity(0.45)
+              : isMe
+                  ? AppColors.primary.withOpacity(0.4)
+                  : inZone
+                      ? AppColors.correct.withOpacity(0.2)
+                      : AppColors.divider,
+          width: (isRival || isMe) ? 1.5 : 1,
         ),
       ),
       child: Row(children: [
@@ -1009,7 +1085,11 @@ class _WeeklyRow extends StatelessWidget {
                 ? PrizePoolService.rankEmoji(rank)
                 : '#$rank',
             style: TextStyle(
-              color:      isMe ? AppColors.primary : AppColors.textMuted,
+              color: isRival
+                  ? _rivalColour
+                  : isMe
+                      ? AppColors.primary
+                      : AppColors.textMuted,
               fontSize:   rank <= 3 ? 18 : 13,
               fontWeight: FontWeight.w800,
             ),
@@ -1021,9 +1101,11 @@ class _WeeklyRow extends StatelessWidget {
           width:  36,
           height: 36,
           decoration: BoxDecoration(
-            color: isMe
-                ? AppColors.primary.withOpacity(0.2)
-                : AppColors.surfaceAlt,
+            color: isRival
+                ? _rivalColour.withOpacity(0.18)
+                : isMe
+                    ? AppColors.primary.withOpacity(0.2)
+                    : AppColors.surfaceAlt,
             shape: BoxShape.circle,
           ),
           child: Center(
@@ -1032,9 +1114,11 @@ class _WeeklyRow extends StatelessWidget {
                   ? name.substring(0, 1).toUpperCase()
                   : '?',
               style: TextStyle(
-                color:      isMe
-                    ? AppColors.primary
-                    : AppColors.textSecondary,
+                color: isRival
+                    ? _rivalColour
+                    : isMe
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
                 fontWeight: FontWeight.w800,
                 fontSize:   15,
               ),
@@ -1048,16 +1132,32 @@ class _WeeklyRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                isMe ? '$name (You)' : name,
-                style: TextStyle(
-                  color: isMe
-                      ? AppColors.primary
-                      : AppColors.textPrimary,
-                  fontSize:   14,
-                  fontWeight: isMe ? FontWeight.w700 : FontWeight.w600,
-                ),
-                overflow: TextOverflow.ellipsis,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isRival) ...[
+                    const Text('🔥',
+                        style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: 4),
+                  ],
+                  Flexible(
+                    child: Text(
+                      isMe ? '$name (You)' : name,
+                      style: TextStyle(
+                        color: isRival
+                            ? _rivalColour
+                            : isMe
+                                ? AppColors.primary
+                                : AppColors.textPrimary,
+                        fontSize:   14,
+                        fontWeight: (isRival || isMe)
+                            ? FontWeight.w700
+                            : FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
               Text(
                 '$pts weekly pts',
@@ -1068,9 +1168,40 @@ class _WeeklyRow extends StatelessWidget {
           ),
         ),
 
+        // Rival badge
+        if (isRival)
+          Container(
+            margin: const EdgeInsets.only(left: 6),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 7, vertical: 4),
+            decoration: BoxDecoration(
+              color:        _rivalColour.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: _rivalColour.withOpacity(0.45)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('🔥', style: TextStyle(fontSize: 9)),
+                SizedBox(width: 3),
+                Text(
+                  'RIVAL',
+                  style: TextStyle(
+                    color:         _rivalColour,
+                    fontSize:      9,
+                    fontWeight:    FontWeight.w800,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Prize badge (global tab only — when pool > 0 and rank ≤ 5)
         if (inZone && prize != null && prize! > 0)
           Container(
+            margin: const EdgeInsets.only(left: 6),
             padding: const EdgeInsets.symmetric(
                 horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
@@ -1089,6 +1220,251 @@ class _WeeklyRow extends StatelessWidget {
             ),
           ),
       ]),
+    );
+
+    // ── Percentile chip (current user only, weeklyPoints > 0) ─────────────────
+    // Shown as a small badge directly below the highlighted "You" row.
+    // Only computed when totalPlayers > 0 (data loaded) and pts > 0
+    // (user has competed this week).
+    Widget? percentileChip;
+    if (isMe && pts > 0 && totalPlayers > 0) {
+      // percentile = floor position in the top-X% band.
+      // rank 1/300 → top 1%; rank 30/300 → top 10%; rank 300/300 → top 99%.
+      final rawPct  = (rank / totalPlayers * 100).ceil();
+      final topPct  = (100 - rawPct).clamp(1, 99);
+      percentileChip = _PercentileChip(topPercent: topPct);
+    }
+
+    // Rival row is tappable; all others are plain containers.
+    Widget rowWidget;
+    if (onTap != null) {
+      rowWidget = Material(
+        color:        Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap:        onTap,
+          borderRadius: BorderRadius.circular(14),
+          splashColor:  _rivalColour.withOpacity(0.12),
+          child: container,
+        ),
+      );
+    } else {
+      rowWidget = container;
+    }
+
+    if (percentileChip != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          rowWidget,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: percentileChip,
+          ),
+        ],
+      );
+    }
+    return rowWidget;
+  }
+}
+// ─── Percentile Chip (Stage 19) ───────────────────────────────────────────────
+/// Small badge shown below the current user's highlighted row.
+/// Displays "You are in the top X% this week." clamped to [1, 99] so we
+/// never show "Top 0%" (impossible) or "Top 100%" (hasn't competed).
+class _PercentileChip extends StatelessWidget {
+  final int topPercent;
+  const _PercentileChip({required this.topPercent});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color:        AppColors.primary.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(10),
+        border:       Border.all(
+            color: AppColors.primary.withOpacity(0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.bar_chart_rounded,
+              color: AppColors.primary, size: 13),
+          const SizedBox(width: 5),
+          Text(
+            'You are in the top $topPercent% this week',
+            style: const TextStyle(
+              color:      AppColors.primary,
+              fontSize:   11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Rival Bottom Sheet ───────────────────────────────────────────────────────
+/// Modal bottom sheet shown when the user taps the Rival's row.
+/// Displays the rival's profile at a glance and offers a direct
+/// "Challenge Rival" shortcut that pre-fills opponentUid / opponentUsername
+/// on [AnimeSelectPage] so the challenge is automatically directed at them.
+class _RivalSheet extends StatelessWidget {
+  final Map<String, dynamic> rival;
+  const _RivalSheet({required this.rival});
+
+  static const _rivalColour = Color(0xFFFF6B00);
+
+  @override
+  Widget build(BuildContext context) {
+    final username   = (rival['username']     as String?) ?? 'Anonymous';
+    final university = (rival['university']   as String?) ?? '';
+    final pts        = (rival['weeklyPoints'] as int?)    ?? 0;
+    final uid        = (rival['uid']          as String?) ?? '';
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          24, 20, 24,
+          32 + MediaQuery.of(context).viewInsets.bottom),
+      decoration: const BoxDecoration(
+        color:        AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ── Drag handle ────────────────────────────────────────────────
+          Container(
+            width:  40,
+            height: 4,
+            decoration: BoxDecoration(
+              color:        AppColors.divider,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // ── Flame avatar ───────────────────────────────────────────────
+          Container(
+            width:  72,
+            height: 72,
+            decoration: BoxDecoration(
+              color:  _rivalColour.withOpacity(0.12),
+              shape:  BoxShape.circle,
+              border: Border.all(
+                  color: _rivalColour.withOpacity(0.4), width: 2),
+            ),
+            child: const Center(
+              child: Text('🔥', style: TextStyle(fontSize: 34)),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ── RIVAL badge ────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color:        _rivalColour.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: _rivalColour.withOpacity(0.45)),
+            ),
+            child: const Text(
+              'YOUR RIVAL',
+              style: TextStyle(
+                color:         _rivalColour,
+                fontSize:      11,
+                fontWeight:    FontWeight.w800,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── Username ───────────────────────────────────────────────────
+          Text(
+            username,
+            style: const TextStyle(
+              color:      AppColors.textPrimary,
+              fontSize:   22,
+              fontWeight: FontWeight.w900,
+            ),
+            textAlign: TextAlign.center,
+          ),
+
+          // ── University (if set) ────────────────────────────────────────
+          if (university.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              university,
+              style: const TextStyle(
+                  color: AppColors.textSecondary, fontSize: 14),
+            ),
+          ],
+          const SizedBox(height: 6),
+
+          // ── Weekly points ──────────────────────────────────────────────
+          Text(
+            '$pts weekly pts',
+            style: const TextStyle(
+                color: AppColors.textMuted, fontSize: 13),
+          ),
+          const SizedBox(height: 28),
+
+          // ── Challenge button ───────────────────────────────────────────
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding:         const EdgeInsets.symmetric(vertical: 16),
+                elevation:       0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              onPressed: () {
+                Navigator.pop(context); // close the sheet first
+                // AnimeSelectPage has no opponent params — it uses an
+                // onSelect callback instead.  When the user picks an anime
+                // the callback fires (page has already popped itself), so
+                // we push StakeScreen from the caller's context with the
+                // opponent pre-filled.  The FadeTransition mirrors the
+                // transition AnimeSelectPage itself uses for StakeScreen.
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => AnimeSelectPage(
+                      onSelect: (animeTitle) => Navigator.push(
+                        context,
+                        PageRouteBuilder<void>(
+                          pageBuilder: (_, a, __) => FadeTransition(
+                            opacity: a,
+                            child: StakeScreen(
+                              animeTitle:       animeTitle,
+                              opponentUid:      uid,
+                              opponentUsername: username,
+                            ),
+                          ),
+                          transitionDuration:
+                              const Duration(milliseconds: 300),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: const Text(
+                '⚔️  Challenge Rival',
+                style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

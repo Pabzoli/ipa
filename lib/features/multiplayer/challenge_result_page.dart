@@ -8,64 +8,80 @@ import '../../core/widgets/shared_widgets.dart';
 import '../../core/widgets/coin_earn_animation.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
-import '../../core/services/ad_service.dart';              // ← P-05
+import '../../core/services/ad_service.dart';
 import 'challenge_model.dart';
 
-// ─── Challenge Result — redesigned from scratch ───────────────────────────────
-// What changed:
-// - The result banner now has an animated entrance (scale + fade).
-// - Win state plays a particle confetti animation using CustomPainter.
-// - Scores use a vertical reveal animation (count-up is faked with
-//   AnimatedSwitcher + a staggered delay).
-// - Bet outcome card has a more expressive layout with large point change number.
-// - "Calculating result…" state has a proper animated loading indicator instead
-//   of just a spinner + text.
-// - [P-02] Win awards +15 AC via CoinEarnAnimation overlay (idempotent).
-// - [P-05] Rewarded interstitial fires 500ms after score is revealed (all users).
-//          Regular interstitial fires sequentially for non-Premium on every 3rd quiz.
+// ─── Challenge Result — Revamped ─────────────────────────────────────────────
+// Fixes applied:
+// [FIX-1] Background: Positioned.fill inside a Stack so the heroBg gradient
+//         covers the ENTIRE screen, including below SafeArea. The Scaffold is
+//         now backgroundColor: Colors.transparent so nothing bleeds through.
+// [FIX-2] Full-screen coverage: ConstrainedBox(minHeight: screenHeight) inside
+//         the SingleChildScrollView prevents the dark scaffold from peeking
+//         through when content is shorter than the viewport.
+// [FIX-3] Navigation: onBack now calls Navigator.pop() — one hop back to
+//         MultiplayerHub — instead of popUntil(isFirst) which dumped the user
+//         on the home screen.
+// Design overhaul:
+// - Custom header row with styled back button.
+// - Confetti now renders full-screen via Positioned.fill (IgnorePointer).
+// - Result banner gets a layered glow ring with animated shimmer.
+// - VS card redesigned with large isolated score bubbles.
+// - Stake outcome card uses a coloured icon badge + cleaner layout.
+// - Coin badge is visually separated as its own widget.
+// - CTA button label changed to "Back to Multiplayer".
 class ChallengeResultPage extends StatelessWidget {
   final String challengeId;
   const ChallengeResultPage({super.key, required this.challengeId});
 
   @override
   Widget build(BuildContext context) {
-    final currentUid =
-        FirebaseAuth.instance.currentUser?.uid ?? '';
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     return PopScope(
       canPop: false,
       child: Scaffold(
-        backgroundColor: AppColors.surfaceDim,
-        body: Container(
-          decoration: AppDecorations.heroBg,
-          child: SafeArea(
-            child: StreamBuilder<ChallengeModel?>(
-              stream: FirestoreService.instance
-                  .challengeStream(challengeId),
-              builder: (context, snap) {
-                if (!snap.hasData &&
-                    snap.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(
-                        color: AppColors.primary),
-                  );
-                }
-                final c = snap.data;
-                if (c == null) {
-                  return _NotFound(
-                    onHome: () => Navigator.of(context)
-                        .popUntil((r) => r.isFirst),
-                  );
-                }
-                return _ResultBody(
-                  challenge: c,
-                  currentUid: currentUid,
-                  onHome: () => Navigator.of(context)
-                      .popUntil((r) => r.isFirst),
-                );
-              },
+        // [FIX-1] Transparent so the Positioned.fill background shows everywhere.
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        extendBodyBehindAppBar: true,
+        body: Stack(
+          children: [
+            // ── Full-screen background — no gaps ──────────────────────────
+            Positioned.fill(
+              child: Container(decoration: AppDecorations.heroBg),
             ),
-          ),
+            // ── Safe-area content ─────────────────────────────────────────
+            SafeArea(
+              bottom: true,
+              child: StreamBuilder<ChallengeModel?>(
+                stream:
+                    FirestoreService.instance.challengeStream(challengeId),
+                builder: (context, snap) {
+                  if (!snap.hasData &&
+                      snap.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                          color: AppColors.primary),
+                    );
+                  }
+                  final c = snap.data;
+                  if (c == null) {
+                    return _NotFound(
+                      // [FIX-3] pop → MultiplayerHub
+                      onBack: () => Navigator.of(context).pop(),
+                    );
+                  }
+                  return _ResultBody(
+                    challenge: c,
+                    currentUid: currentUid,
+                    // [FIX-3] pop → MultiplayerHub
+                    onBack: () => Navigator.of(context).pop(),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -76,12 +92,12 @@ class ChallengeResultPage extends StatelessWidget {
 class _ResultBody extends StatefulWidget {
   final ChallengeModel challenge;
   final String currentUid;
-  final VoidCallback onHome;
+  final VoidCallback onBack;
 
   const _ResultBody({
     required this.challenge,
     required this.currentUid,
-    required this.onHome,
+    required this.onBack,
   });
 
   @override
@@ -95,14 +111,19 @@ class _ResultBodyState extends State<_ResultBody>
   late Animation<double> _bannerFade;
   late AnimationController _confettiCtrl;
 
-  /// Guards the +15 AC award so it fires at most once per page session,
-  /// even if the StreamBuilder emits multiple updates for the same doc.
-  bool _winCoinAwarded = false;
+  /// Guards the win-payout animation so it fires at most once per page session.
+  bool _winAnimationShown = false;
+
+  /// Coin balance captured at the moment the win result first arrives.
+  int? _coinsAtResultTime;
+
+  /// Listener registered on [UserDataProvider] to detect the CF payout.
+  VoidCallback? _payoutListener;
+
+  /// Cached provider reference for safe listener removal in dispose().
+  UserDataProvider? _cachedUserDataProvider;
 
   // ── P-05: Ad sequence guard ───────────────────────────────────────────────
-  // Ensures the rewarded interstitial + optional regular interstitial fires
-  // exactly once per result page instance, regardless of how many times
-  // StreamBuilder emits or didUpdateWidget is called.
   bool _adSequenceFired = false;
 
   @override
@@ -116,14 +137,14 @@ class _ResultBodyState extends State<_ResultBody>
     _bannerScale = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(parent: _bannerCtrl, curve: Curves.elasticOut),
     );
-    _bannerFade = CurvedAnimation(parent: _bannerCtrl, curve: Curves.easeOut);
+    _bannerFade =
+        CurvedAnimation(parent: _bannerCtrl, curve: Curves.easeOut);
 
     _confettiCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3000),
     );
 
-    // Delay slightly so StreamBuilder has settled.
     if (widget.challenge.isCompleted && widget.challenge.outcome != null) {
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted) {
@@ -131,13 +152,10 @@ class _ResultBodyState extends State<_ResultBody>
           if (widget.challenge.didCurrentUserWin(widget.currentUid)) {
             _confettiCtrl.forward();
           }
-          // Award win coins (first-time only).
-          _tryAwardWinCoins();
+          _listenForPayoutAndAnimate();
         }
       });
 
-      // ── P-05: Ad sequence fires 500ms after result is shown ───────────────
-      // 300ms after the banner starts animating in (200ms + 300ms = 500ms total).
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) _runAdSequence();
       });
@@ -147,90 +165,57 @@ class _ResultBodyState extends State<_ResultBody>
   @override
   void didUpdateWidget(_ResultBody old) {
     super.didUpdateWidget(old);
-    // Trigger when the result first arrives via the live Firestore stream.
     if (!old.challenge.isCompleted && widget.challenge.isCompleted) {
       _bannerCtrl.forward();
       if (widget.challenge.didCurrentUserWin(widget.currentUid)) {
         _confettiCtrl.forward();
       }
-      // Award win coins when result arrives live.
-      _tryAwardWinCoins();
+      _listenForPayoutAndAnimate();
 
-      // ── P-05: Ad sequence — 500ms after the result becomes visible ────────
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) _runAdSequence();
       });
     }
   }
 
-  /// Awards +15 AC for a win result, exactly once per page instance.
-  /// Silently no-ops on draw, loss, or if already awarded.
-  Future<void> _tryAwardWinCoins() async {
-    if (_winCoinAwarded) return;
+  void _listenForPayoutAndAnimate() {
+    if (_winAnimationShown) return;
     if (!widget.challenge.isCompleted) return;
     if (!widget.challenge.didCurrentUserWin(widget.currentUid)) return;
 
-    _winCoinAwarded = true; // set immediately to prevent double-fire
+    final userData = context.read<UserDataProvider>();
+    _cachedUserDataProvider = userData;
+    _coinsAtResultTime ??= userData.animeCoins;
 
-    try {
-      await context
-          .read<UserDataProvider>()
-          .updateAnimeCoins(15, 'earn_challenge_win');
+    final int baseline = _coinsAtResultTime!;
+    final int payout =
+        ChallengeModel.payoutWin(widget.challenge.stakeAmount);
 
-      if (!mounted) return;
-      // Show the animation after a short pause so it doesn't compete
-      // with the banner entrance animation.
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted) CoinEarnAnimation.show(context, amount: 15);
-    } catch (e) {
-      debugPrint('[ChallengeResultPage] win coin award error (ignored): $e');
-      // Don't reset _winCoinAwarded — if the write failed, a retry on the
-      // same session could double-award. Surface it only in debug logs.
+    void onBalanceChange() {
+      if (!mounted || _winAnimationShown) return;
+      if (userData.animeCoins > baseline) {
+        _winAnimationShown = true;
+        setState(() {});
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (mounted) CoinEarnAnimation.show(context, amount: payout);
+        });
+        userData.removeListener(_payoutListener!);
+        _payoutListener = null;
+      }
     }
+
+    _payoutListener = onBalanceChange;
+    userData.addListener(_payoutListener!);
   }
 
-  // ── P-05: Ad sequence ─────────────────────────────────────────────────────
-  /// Runs the full result-screen ad sequence exactly once per page instance.
-  ///
-  /// Step 1 — increment the in-memory session quiz counter.
-  /// Step 2 — show rewarded interstitial (all users, including Premium).
-  ///           If the user watches the full ad: award +5 AC + animation.
-  ///           If the user skips: no penalty, continue normally.
-  /// Step 3 — once the rewarded interstitial is fully dismissed, show the
-  ///           regular interstitial if this is the 3rd session quiz and the
-  ///           user is not Premium. Never overlaps with Step 2.
   Future<void> _runAdSequence() async {
-    if (_adSequenceFired) return; // strictly once per page instance
+    if (_adSequenceFired) return;
     _adSequenceFired = true;
-
     if (!mounted) return;
     final userData = context.read<UserDataProvider>();
-
-    // Step 1: update the session count BEFORE the interstitial check so
-    // showInterstitialIfDue sees the incremented value.
     userData.incrementSessionQuizCount();
-
-    // Step 2: rewarded interstitial — fires for all users, including Premium.
-    await AdService.instance.showRewardedInterstitial(
-      context,
-      onRewarded: () {
-        if (!mounted) return;
-        // Award +5 AC (fire-and-forget; Firestore transaction is atomic).
-        userData.updateAnimeCoins(5, 'earn_rewarded_interstitial').catchError((e) {
-          debugPrint('[ChallengeResultPage] rewarded interstitial coin award error: $e');
-        });
-        // Show coin animation overlay.
-        CoinEarnAnimation.show(context, amount: 5);
-      },
-    );
-
-    // Step 3: regular interstitial — non-Premium, every 3rd session quiz.
-    // Runs only after the rewarded interstitial Future resolves, so the
-    // two ads are always sequential, never simultaneous.
-    if (!mounted) return;
-    AdService.instance.showInterstitialIfDue(
-      isPremium:        userData.premiumActive,
-      sessionQuizCount: userData.sessionQuizCount,
+    await AdService.instance.recordResultAndMaybeShowInterstitial(
+      isPremium: userData.premiumActive,
     );
   }
 
@@ -238,7 +223,67 @@ class _ResultBodyState extends State<_ResultBody>
   void dispose() {
     _bannerCtrl.dispose();
     _confettiCtrl.dispose();
+    if (_payoutListener != null) {
+      _cachedUserDataProvider?.removeListener(_payoutListener!);
+      _payoutListener = null;
+    }
     super.dispose();
+  }
+
+  // ── Header ─────────────────────────────────────────────────────────────────
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+      child: Row(
+        children: [
+          // Back to Multiplayer button
+          GestureDetector(
+            onTap: widget.onBack,
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surface.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.divider),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: AppColors.textMuted,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Multiplayer',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Spacer(),
+          Text(
+            'Result',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const Spacer(),
+          // Invisible spacer to balance the back button
+          const SizedBox(width: 90),
+        ],
+      ),
+    );
   }
 
   @override
@@ -248,105 +293,103 @@ class _ResultBodyState extends State<_ResultBody>
     final iWon = c.didCurrentUserWin(widget.currentUid);
     final isDraw = c.isDraw;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Calculating state ────────────────────────────────────────
-          if (!isResolved) ...[
-            const _CalculatingState(),
-            const SizedBox(height: 32),
-          ],
+    // [FIX-2] Constrain to at least the screen height so the background
+    // never peeks through when content is shorter than the viewport.
+    final screenHeight = MediaQuery.of(context).size.height;
 
-          // ── Result banner ────────────────────────────────────────────
-          if (isResolved)
-            Stack(
-              alignment: Alignment.topCenter,
-              children: [
-                // Confetti (win only)
-                if (iWon)
-                  AnimatedBuilder(
-                    animation: _confettiCtrl,
-                    builder: (_, __) => CustomPaint(
-                      size: const Size(double.infinity, 200),
-                      painter: _ConfettiPainter(
-                          progress: _confettiCtrl.value),
-                    ),
-                  ),
-
-                // Banner
-                ScaleTransition(
-                  scale: _bannerScale,
-                  child: FadeTransition(
-                    opacity: _bannerFade,
-                    child: _ResultBanner(
-                      iWon: iWon,
-                      isDraw: isDraw,
-                      betAmount: c.betAmount,
-                    ),
-                  ),
+    return Stack(
+      children: [
+        // ── Full-screen confetti (win only) ──────────────────────────────
+        // IgnorePointer so confetti never blocks taps on cards / buttons.
+        if (isResolved && iWon)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _confettiCtrl,
+                builder: (_, __) => CustomPaint(
+                  painter:
+                      _ConfettiPainter(progress: _confettiCtrl.value),
                 ),
-              ],
+              ),
             ),
-
-          const SizedBox(height: 28),
-
-          // ── VS card ──────────────────────────────────────────────────
-          _VsCard(
-            challenge: c,
-            currentUid: widget.currentUid,
-            isResolved: isResolved,
           ),
 
-          const SizedBox(height: 16),
-
-          // ── Bet outcome card ─────────────────────────────────────────
-          if (isResolved)
-            _BetOutcomeCard(
-              iWon: iWon,
-              isDraw: isDraw,
-              betAmount: c.betAmount,
-            ),
-
-          // ── Win coins badge ──────────────────────────────────────────
-          if (isResolved && iWon && _winCoinAwarded) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFBBF24).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                    color: const Color(0xFFFBBF24).withOpacity(0.35)),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+        // ── Scrollable content ───────────────────────────────────────────
+        SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: screenHeight),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 48),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('🪙', style: TextStyle(fontSize: 18)),
-                  SizedBox(width: 8),
-                  Text(
-                    '+15 coins for winning!',
-                    style: TextStyle(
-                      color:      Color(0xFFFBBF24),
-                      fontSize:   14,
-                      fontWeight: FontWeight.w700,
+                  // ── Header row ───────────────────────────────────────
+                  _buildHeader(),
+                  const SizedBox(height: 28),
+
+                  // ── Calculating state ────────────────────────────────
+                  if (!isResolved) ...[
+                    const _CalculatingState(),
+                    const SizedBox(height: 28),
+                  ],
+
+                  // ── Result banner ────────────────────────────────────
+                  if (isResolved) ...[
+                    ScaleTransition(
+                      scale: _bannerScale,
+                      child: FadeTransition(
+                        opacity: _bannerFade,
+                        child: _ResultBanner(
+                          iWon: iWon,
+                          isDraw: isDraw,
+                          stakeAmount: c.stakeAmount,
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 32),
+                  ],
+
+                  // ── VS score card ────────────────────────────────────
+                  _VsCard(
+                    challenge: c,
+                    currentUid: widget.currentUid,
+                    isResolved: isResolved,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Stake outcome card ───────────────────────────────
+                  if (isResolved) ...[
+                    _StakeOutcomeCard(
+                      iWon: iWon,
+                      isDraw: isDraw,
+                      stakeAmount: c.stakeAmount,
+                    ),
+                  ],
+
+                  // ── Win coins badge ──────────────────────────────────
+                  if (isResolved && iWon && _winAnimationShown) ...[
+                    const SizedBox(height: 12),
+                    _CoinBadge(
+                        amount:
+                            ChallengeModel.payoutWin(c.stakeAmount)),
+                  ],
+
+                  const Spacer(),
+                  const SizedBox(height: 32),
+
+                  // ── CTA — back to MultiplayerHub ─────────────────────
+                  GradientButton(
+                    label: 'Back to Multiplayer',
+                    icon: Icons.sports_esports_rounded,
+                    onTap: widget.onBack,
                   ),
                 ],
               ),
             ),
-          ],
-
-          const SizedBox(height: 32),
-
-          GradientButton(
-            label: 'Go Home',
-            icon: Icons.home_rounded,
-            onTap: widget.onHome,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -381,14 +424,15 @@ class _CalculatingStateState extends State<_CalculatingState>
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(24),
+        color: AppColors.surface.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(28),
         border: Border.all(color: AppColors.divider),
       ),
       child: Column(
         children: [
+          // Animated dots
           AnimatedBuilder(
             animation: _dotCtrl,
             builder: (_, __) {
@@ -397,32 +441,46 @@ class _CalculatingStateState extends State<_CalculatingState>
                 children: List.generate(3, (i) {
                   final t = (_dotCtrl.value * 3 - i).clamp(0.0, 1.0);
                   final opacity = (math.sin(t * math.pi)).clamp(0.3, 1.0);
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.primary.withOpacity(opacity),
+                  final scale = 0.7 + (opacity - 0.3) * 0.43;
+                  return Transform.scale(
+                    scale: scale,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 5),
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.primary.withOpacity(opacity),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primary.withOpacity(
+                                opacity * 0.4),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 }),
               );
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           const Text(
             'Calculating result…',
             style: TextStyle(
               color: AppColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 4),
-          const Text(
+          const SizedBox(height: 6),
+          Text(
             'This happens automatically — sit tight!',
-            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            style: TextStyle(
+              color: AppColors.textMuted.withOpacity(0.8),
+              fontSize: 13,
+            ),
             textAlign: TextAlign.center,
           ),
         ],
@@ -435,12 +493,12 @@ class _CalculatingStateState extends State<_CalculatingState>
 class _ResultBanner extends StatelessWidget {
   final bool iWon;
   final bool isDraw;
-  final int betAmount;
+  final int stakeAmount;
 
   const _ResultBanner({
     required this.iWon,
     required this.isDraw,
-    required this.betAmount,
+    required this.stakeAmount,
   });
 
   @override
@@ -452,27 +510,60 @@ class _ResultBanner extends StatelessWidget {
             : AppColors.wrong;
     final emoji = iWon ? '🏆' : isDraw ? '🤝' : '😔';
     final title = iWon ? 'You Won!' : isDraw ? "It's a Draw!" : 'You Lost';
+    final subtitle = iWon
+        ? 'Outstanding performance!'
+        : isDraw
+            ? 'Evenly matched!'
+            : 'Better luck next time!';
 
     return Column(
       children: [
-        Container(
-          width: 96,
-          height: 96,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                color.withOpacity(0.3),
-                color.withOpacity(0.05),
-              ],
+        // ── Glow ring + emoji ──────────────────────────────────────────
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            // Outer glow ring
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    color.withOpacity(0.25),
+                    color.withOpacity(0.0),
+                  ],
+                ),
+              ),
             ),
-            border: Border.all(color: color.withOpacity(0.6), width: 2),
-          ),
-          child: Center(
-            child: Text(emoji, style: const TextStyle(fontSize: 44)),
-          ),
+            // Inner circle with border
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withOpacity(0.1),
+                border: Border.all(color: color.withOpacity(0.5), width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withOpacity(0.3),
+                    blurRadius: 24,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  emoji,
+                  style: const TextStyle(fontSize: 46),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
+
+        // ── Title ──────────────────────────────────────────────────────
         ShaderMask(
           shaderCallback: (r) => LinearGradient(
             colors: iWon
@@ -485,9 +576,30 @@ class _ResultBanner extends StatelessWidget {
             title,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 36,
+              fontSize: 40,
               fontWeight: FontWeight.w900,
-              letterSpacing: -1,
+              letterSpacing: -1.5,
+              height: 1,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // ── Subtitle chip ──────────────────────────────────────────────
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withOpacity(0.25)),
+          ),
+          child: Text(
+            subtitle,
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -511,7 +623,7 @@ class _VsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Row(
         children: [
           Expanded(
@@ -519,28 +631,42 @@ class _VsCard extends StatelessWidget {
               name: challenge.creatorUsername,
               score: challenge.creatorScore,
               isCurrentUser: currentUid == challenge.creatorUid,
-              isWinner:
-                  isResolved && challenge.outcome == 'creator_wins',
+              isWinner: isResolved && challenge.outcome == 'creator_wins',
               alignRight: false,
             ),
           ),
-          // VS pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                  color: AppColors.primary.withOpacity(0.3)),
-            ),
-            child: const Text(
-              'VS',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
-                letterSpacing: 2,
-              ),
+          // ── VS pill ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primary.withOpacity(0.2),
+                        AppColors.primary.withOpacity(0.05),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                        color: AppColors.primary.withOpacity(0.35)),
+                  ),
+                  child: const Text(
+                    'VS',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                      letterSpacing: 3,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -575,66 +701,103 @@ class _PlayerColumn extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: alignRight
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          if (isWinner) ...[
-            Text(
-              '👑',
-              textAlign: alignRight ? TextAlign.right : TextAlign.left,
-              style: const TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 4),
-          ],
+  Widget build(BuildContext context) {
+    final scoreColor =
+        isWinner ? AppColors.correct : AppColors.textPrimary;
+
+    return Column(
+      crossAxisAlignment: alignRight
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        // Crown
+        if (isWinner) ...[
           Text(
+            '👑',
+            textAlign: alignRight ? TextAlign.right : TextAlign.left,
+            style: const TextStyle(fontSize: 18),
+          ),
+          const SizedBox(height: 4),
+        ],
+
+        // Player name chip
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: isCurrentUser
+                ? AppColors.primary.withOpacity(0.12)
+                : AppColors.surface.withOpacity(0.4),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isCurrentUser
+                  ? AppColors.primary.withOpacity(0.3)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Text(
             isCurrentUser ? 'You' : name,
             style: TextStyle(
               color: isCurrentUser
                   ? AppColors.primary
                   : AppColors.textMuted,
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 6),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 500),
-            child: Text(
-              score != null ? '$score' : '…',
-              key: ValueKey(score),
-              style: TextStyle(
-                color: isWinner ? AppColors.correct : AppColors.textPrimary,
-                fontSize: 40,
-                fontWeight: FontWeight.w900,
-                height: 1,
-              ),
-            ),
-          ),
-          Text(
-            '/ 10',
+        ),
+        const SizedBox(height: 10),
+
+        // Big score number
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 500),
+          child: Text(
+            score != null ? '$score' : '…',
+            key: ValueKey(score),
+            textAlign:
+                alignRight ? TextAlign.right : TextAlign.left,
             style: TextStyle(
-              color: AppColors.textMuted.withOpacity(0.6),
-              fontSize: 12,
+              color: scoreColor,
+              fontSize: 52,
+              fontWeight: FontWeight.w900,
+              height: 1,
+              shadows: isWinner
+                  ? [
+                      Shadow(
+                          color: AppColors.correct.withOpacity(0.4),
+                          blurRadius: 12)
+                    ]
+                  : null,
             ),
           ),
-        ],
-      );
+        ),
+        Text(
+          '/ 10',
+          textAlign: alignRight ? TextAlign.right : TextAlign.left,
+          style: TextStyle(
+            color: AppColors.textMuted.withOpacity(0.5),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-// ── Bet outcome card ───────────────────────────────────────────────────────────
-class _BetOutcomeCard extends StatelessWidget {
+// ── Stake outcome card ─────────────────────────────────────────────────────────
+class _StakeOutcomeCard extends StatelessWidget {
   final bool iWon;
   final bool isDraw;
-  final int betAmount;
+  final int stakeAmount;
 
-  const _BetOutcomeCard({
+  const _StakeOutcomeCard({
     required this.iWon,
     required this.isDraw,
-    required this.betAmount,
+    required this.stakeAmount,
   });
 
   @override
@@ -646,27 +809,51 @@ class _BetOutcomeCard extends StatelessWidget {
             : AppColors.wrong;
 
     final sign = iWon ? '+' : isDraw ? '±' : '-';
-    final points = iWon ? betAmount * 2 : betAmount;
+    final points = iWon
+        ? ChallengeModel.payoutWin(stakeAmount)
+        : isDraw
+            ? ChallengeModel.payoutDraw(stakeAmount)
+            : stakeAmount;
     final title = iWon
-        ? 'Points earned'
+        ? 'Points Earned'
         : isDraw
-            ? 'Points refunded'
-            : 'Points lost';
+            ? 'Points Refunded'
+            : 'Points Lost';
     final sub = iWon
-        ? 'You got both bets! 🎉'
+        ? 'You won both stakes! 🎉'
         : isDraw
-            ? 'Your bet was returned'
-            : "Your opponent takes the pot";
+            ? 'Stake returned minus 5% house fee'
+            : 'Your opponent takes the pot';
+
+    final iconData = iWon
+        ? Icons.emoji_events_rounded
+        : isDraw
+            ? Icons.handshake_rounded
+            : Icons.sentiment_dissatisfied_rounded;
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: color.withOpacity(0.25), width: 1.5),
       ),
       child: Row(
         children: [
+          // Icon badge
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withOpacity(0.3)),
+            ),
+            child: Icon(iconData, color: color, size: 24),
+          ),
+          const SizedBox(width: 14),
+
+          // Labels
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -674,18 +861,18 @@ class _BetOutcomeCard extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    color: color.withOpacity(0.8),
+                    color: color,
                     fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   sub,
                   style: const TextStyle(
                     color: AppColors.textMuted,
-                    fontSize: 13,
+                    fontSize: 12,
                     height: 1.3,
                   ),
                 ),
@@ -693,14 +880,54 @@ class _BetOutcomeCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // Big point delta
+
+          // Big delta number
           Text(
             '$sign$points',
             style: TextStyle(
               color: color,
-              fontSize: 36,
+              fontSize: 34,
               fontWeight: FontWeight.w900,
               letterSpacing: -1,
+              shadows: [
+                Shadow(
+                    color: color.withOpacity(0.35), blurRadius: 10),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Coin badge ─────────────────────────────────────────────────────────────────
+class _CoinBadge extends StatelessWidget {
+  final int amount;
+  const _CoinBadge({required this.amount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBBF24).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+            color: const Color(0xFFFBBF24).withOpacity(0.35), width: 1.5),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('🪙', style: TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
+          Text(
+            '+$amount AC coins deposited!',
+            style: const TextStyle(
+              color: Color(0xFFFBBF24),
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
             ),
           ),
         ],
@@ -712,16 +939,17 @@ class _BetOutcomeCard extends StatelessWidget {
 // ── Confetti painter (win only) ────────────────────────────────────────────────
 class _ConfettiPainter extends CustomPainter {
   final double progress;
-  static final _rand = math.Random(42); // fixed seed = consistent shapes
+  static final _rand = math.Random(42);
   static final _particles = List.generate(
-    40,
+    50,
     (i) => _Particle(
       x: _rand.nextDouble(),
-      startY: -0.1 - _rand.nextDouble() * 0.3,
-      speed: 0.4 + _rand.nextDouble() * 0.6,
-      size: 4 + _rand.nextDouble() * 6,
+      startY: -0.05 - _rand.nextDouble() * 0.4,
+      speed: 0.35 + _rand.nextDouble() * 0.65,
+      size: 4 + _rand.nextDouble() * 7,
       color: _colors[i % _colors.length],
       rotation: _rand.nextDouble() * math.pi * 2,
+      isCircle: i % 4 == 0,
     ),
   );
 
@@ -732,6 +960,7 @@ class _ConfettiPainter extends CustomPainter {
     Color(0xFFFBBF24),
     Color(0xFFF472B6),
     Color(0xFFA78BFA),
+    Color(0xFFFF6B6B),
   ];
 
   const _ConfettiPainter({required this.progress});
@@ -743,15 +972,25 @@ class _ConfettiPainter extends CustomPainter {
       if (y < 0 || y > 1.1) continue;
       final x = p.x * size.width;
       final py = y * size.height;
-      final opacity = (1.0 - y).clamp(0.0, 1.0);
+      final opacity = (1.0 - y * 0.8).clamp(0.0, 1.0);
+      final paint = Paint()
+        ..color = p.color.withOpacity(opacity * 0.9);
 
       canvas.save();
       canvas.translate(x, py);
-      canvas.rotate(p.rotation + progress * math.pi * 2);
-      canvas.drawRect(
-        Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.5),
-        Paint()..color = p.color.withOpacity(opacity * 0.85),
-      );
+      canvas.rotate(p.rotation + progress * math.pi * 3);
+
+      if (p.isCircle) {
+        canvas.drawCircle(Offset.zero, p.size * 0.4, paint);
+      } else {
+        canvas.drawRect(
+          Rect.fromCenter(
+              center: Offset.zero,
+              width: p.size,
+              height: p.size * 0.45),
+          paint,
+        );
+      }
       canvas.restore();
     }
   }
@@ -767,6 +1006,8 @@ class _Particle {
   final double size;
   final Color color;
   final double rotation;
+  final bool isCircle;
+
   const _Particle({
     required this.x,
     required this.startY,
@@ -774,13 +1015,14 @@ class _Particle {
     required this.size,
     required this.color,
     required this.rotation,
+    required this.isCircle,
   });
 }
 
 // ── Not found ──────────────────────────────────────────────────────────────────
 class _NotFound extends StatelessWidget {
-  final VoidCallback onHome;
-  const _NotFound({required this.onHome});
+  final VoidCallback onBack;
+  const _NotFound({required this.onBack});
 
   @override
   Widget build(BuildContext context) => Center(
@@ -789,28 +1031,38 @@ class _NotFound extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('🔍', style: TextStyle(fontSize: 56)),
-              const SizedBox(height: 16),
+              Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  color: AppColors.surface.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.divider),
+                ),
+                child:
+                    const Center(child: Text('🔍', style: TextStyle(fontSize: 36))),
+              ),
+              const SizedBox(height: 20),
               const Text(
                 'Challenge not found',
                 style: TextStyle(
                   color: AppColors.textPrimary,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               const Text(
                 'It may have been deleted or already expired.',
-                style: TextStyle(
-                    color: AppColors.textMuted, fontSize: 13),
+                style:
+                    TextStyle(color: AppColors.textMuted, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
               GradientButton(
-                label: 'Go Home',
-                icon: Icons.home_rounded,
-                onTap: onHome,
+                label: 'Back to Multiplayer',
+                icon: Icons.sports_esports_rounded,
+                onTap: onBack,
               ),
             ],
           ),

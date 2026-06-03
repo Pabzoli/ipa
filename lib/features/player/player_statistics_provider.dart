@@ -5,10 +5,10 @@ import '../../core/services/firestore_service.dart';
 class PlayerStatistics {
   int gamesWon;
   int gamesLost;
-  int gamesDraw;   // ← NEW
-  int hseStaked;
-  int hseWon;
-  int hseLost;
+  int gamesDraw;
+  int hseStaked;   // highest single stake in one match (AC)
+  int hseWon;      // highest single match AC won
+  int hseLost;     // highest single match AC lost
   int gamesPlayed;
 
   PlayerStatistics({
@@ -31,14 +31,16 @@ class PlayerStatistics {
     'gamesPlayed': gamesPlayed,
   };
 
+  /// FIX: use (as num?)?.toInt() so that Firestore doubles never cause a
+  /// "type 'double' is not a subtype of type 'int'" cast error.
   factory PlayerStatistics.fromMap(Map<String, dynamic> m) => PlayerStatistics(
-    gamesWon:    (m['gamesWon']    as int?) ?? 0,
-    gamesLost:   (m['gamesLost']   as int?) ?? 0,
-    gamesDraw:   (m['gamesDraw']   as int?) ?? 0,
-    hseStaked:   (m['hseStaked']   as int?) ?? 0,
-    hseWon:      (m['hseWon']      as int?) ?? 0,
-    hseLost:     (m['hseLost']     as int?) ?? 0,
-    gamesPlayed: (m['gamesPlayed'] as int?) ?? 0,
+    gamesWon:    (m['gamesWon']    as num?)?.toInt() ?? 0,
+    gamesLost:   (m['gamesLost']   as num?)?.toInt() ?? 0,
+    gamesDraw:   (m['gamesDraw']   as num?)?.toInt() ?? 0,
+    hseStaked:   (m['hseStaked']   as num?)?.toInt() ?? 0,
+    hseWon:      (m['hseWon']      as num?)?.toInt() ?? 0,
+    hseLost:     (m['hseLost']     as num?)?.toInt() ?? 0,
+    gamesPlayed: (m['gamesPlayed'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -48,12 +50,17 @@ class PlayerStatisticsProvider extends ChangeNotifier {
 
   PlayerStatistics get playerStatistics => _stats;
 
-  // Achievements
-  bool get won50Games      => _stats.gamesWon    >= 50;
-  bool get lost50Games     => _stats.gamesLost   >= 50;
-  bool get played100Games  => _stats.gamesPlayed >= 100;
-  bool get won5000Score    => _stats.hseWon      >= 5000;
-  bool get lost2500Score   => _stats.hseLost     >= 2500;
+  // ── Achievement flags (updated for AC economy) ────────────────────────────
+  /// Win 50 games
+  bool get won50Games     => _stats.gamesWon    >= 50;
+  /// Lose 50 games
+  bool get lost50Games    => _stats.gamesLost   >= 50;
+  /// Play 100 games
+  bool get played100Games => _stats.gamesPlayed >= 100;
+  /// Stake 500+ AC in a single match (requires index.js fix: track stake not betAmount)
+  bool get staked500AC    => _stats.hseStaked   >= 500;
+  /// Win 1,000+ AC in a single match (floor(stake * 0.8) ≥ 1000 → stake ≥ 1250 AC)
+  bool get won1000AC      => _stats.hseWon      >= 1000;
 
   /// Loads stats from Firestore. Call once after login (e.g. from HomePage.initState).
   Future<void> init() async {

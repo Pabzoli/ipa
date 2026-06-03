@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_functions/cloud_functions.dart'; // Added for Cloud Function integration
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
@@ -10,13 +13,17 @@ import '../quiz/questions_page.dart';
 import 'challenge_model.dart';
 
 // ─── Join Challenge page — redesigned from scratch ────────────────────────────
-// What changed:
-// - OTP-style 6-box code input replaces a plain TextField. Each box is its own
-//   character, auto-advances on input, auto-retreats on backspace.
-// - Challenge details slide in from below using AnimatedSwitcher instead of
-//   just appearing.
-// - Inline error banners replaced the raw SnackBar for errors.
-// - Loading state is a skeleton card instead of a spinner + text combo.
+//
+// Stage 08 changes:
+//   - Balance check uses animeCoins instead of totalScore (pts).
+//   - All "pts" labels updated to "AC".
+//   - Stake details card shows AC and an AC-based affordability check.
+//   - Friendly CF error messages added (mirrors StakeScreen).
+//   - The Cloud Function joinChallenge already deducts stakeAmount server-side;
+//     the client check here is purely a UX guard to surface the error early.
+//
+// NOTE: UserDataProvider must expose int get animeCoins.
+// ──────────────────────────────────────────────────────────────────────────────
 class JoinChallengePage extends StatefulWidget {
   const JoinChallengePage({super.key});
 
@@ -26,8 +33,8 @@ class JoinChallengePage extends StatefulWidget {
 
 class _JoinChallengePageState extends State<JoinChallengePage> {
   static const _len = 6;
+  static const int _kMaxJoinsPerDay = 3;
 
-  // One controller + focus node per box
   final List<TextEditingController> _ctrls =
       List.generate(_len, (_) => TextEditingController());
   final List<FocusNode> _nodes =
@@ -38,14 +45,27 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   bool _joining = false;
   String? _error;
 
+  // ── Daily join-limit tracking ─────────────────────────────────────────────
+  StreamSubscription<int>? _joinCountSub;
+  int _joinsToday = 0;
+
+  bool get _atDailyLimit => _joinsToday >= _kMaxJoinsPerDay;
+
+  @override
+  void initState() {
+    super.initState();
+    _joinCountSub = FirestoreService.instance
+        .challengesJoinedTodayStream()
+        .listen((count) {
+      if (mounted) setState(() => _joinsToday = count);
+    });
+  }
+
   @override
   void dispose() {
-    for (final c in _ctrls) {
-      c.dispose();
-    }
-    for (final n in _nodes) {
-      n.dispose();
-    }
+    _joinCountSub?.cancel();
+    for (final c in _ctrls) c.dispose();
+    for (final n in _nodes) n.dispose();
     super.dispose();
   }
 
@@ -54,15 +74,12 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
 
   bool get _codeComplete => _code.length == _len;
 
-  // Called after every character change in a box
   void _onBoxChanged(int i, String val) {
     if (val.isEmpty) return;
-    // Auto-advance to next box
     if (i < _len - 1) {
       _nodes[i + 1].requestFocus();
     } else {
       _nodes[i].unfocus();
-      // Auto-lookup when last char entered
       if (_codeComplete) _lookUp();
     }
     setState(() {
@@ -71,7 +88,6 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
     });
   }
 
-  // Backspace: move to previous box
   void _onBoxKey(int i, RawKeyEvent event) {
     if (event is RawKeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace &&
@@ -83,7 +99,6 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
     }
   }
 
-  // Paste handler — fills all boxes from clipboard
   Future<void> _pasteCode() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final raw = (data?.text ?? '')
@@ -101,9 +116,7 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   }
 
   void _clearCode() {
-    for (final c in _ctrls) {
-      c.clear();
-    }
+    for (final c in _ctrls) c.clear();
     setState(() {
       _found = null;
       _error = null;
@@ -171,13 +184,36 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
     }
   }
 
+  // Maps CF error codes to user-facing messages (same pattern as StakeScreen).
+  String _friendlyError(String raw) {
+    final s = raw.replaceFirst('Exception: ', '');
+    return switch (s) {
+      'insufficient_coins'            => 'Not enough AC for this stake',
+      'daily_challenge_limit_reached' => 'Daily limit reached — max 3 challenges joined per day',
+      'too_many_active_challenges'    => 'You already have 2 active challenges running',
+      'challenge_not_waiting'         => 'This challenge is no longer available',
+      'cannot_join_own_challenge'     => "That's your own challenge!",
+      _                               => s,
+    };
+  }
+
   Future<void> _accept() async {
     if (_found == null || _joining) return;
 
-    final balance = context.read<UserDataProvider>().score;
-    if (balance < _found!.betAmount) {
+    // Proactive daily-limit guard — same information the CF will reject with,
+    // but surfaces it before the network round-trip.
+    if (_atDailyLimit) {
       setState(() => _error =
-          'Need ${_found!.betAmount} pts — you have $balance');
+          'Daily limit reached — max $_kMaxJoinsPerDay challenges joined per day');
+      return;
+    }
+
+    // Client-side AC balance guard — prevents a network round-trip the user
+    // knows will fail. The actual deduction happens server-side in joinChallenge.
+    final balance = context.read<UserDataProvider>().animeCoins;
+    if (balance < _found!.stakeAmount) {
+      setState(() => _error =
+          'Need ${_found!.stakeAmount} AC — you have $balance AC');
       return;
     }
 
@@ -187,7 +223,11 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
     });
 
     try {
-      await FirestoreService.instance.joinChallenge(_found!.challengeId);
+      // Routed through the Cloud Function backend to ensure safe state changes & validations
+      await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('joinChallenge')
+          .call({'challengeId': _found!.challengeId});
+          
       if (!mounted) return;
 
       Navigator.pushReplacement(
@@ -205,18 +245,25 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
           transitionDuration: const Duration(milliseconds: 400),
         ),
       );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _joining = false;
+        _error = _friendlyError(e.message ?? '');
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _joining = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = e.toString();
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final balance = context.watch<UserDataProvider>().score;
+    // Stage 08: use animeCoins (AC) instead of totalScore (pts).
+    final balance = context.watch<UserDataProvider>().animeCoins;
     final busy = _looking || _joining;
 
     return Scaffold(
@@ -234,7 +281,8 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                     IconButton(
                       icon: const Icon(Icons.arrow_back_ios_new_rounded,
                           color: AppColors.textPrimary, size: 20),
-                      onPressed: busy ? null : () => Navigator.pop(context),
+                      onPressed:
+                          busy ? null : () => Navigator.pop(context),
                     ),
                     const Expanded(
                       child: Text(
@@ -247,7 +295,6 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                         ),
                       ),
                     ),
-                    // Paste button — hugely convenient on mobile
                     TextButton.icon(
                       onPressed: busy ? null : _pasteCode,
                       icon: const Icon(Icons.paste_rounded,
@@ -289,7 +336,16 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                         ),
                       ),
 
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 14),
+
+                      // ── Daily join counter ────────────────────────────
+                      _DailyLimitChip(
+                        joinsToday: _joinsToday,
+                        maxJoins:   _kMaxJoinsPerDay,
+                        atLimit:    _atDailyLimit,
+                      ),
+
+                      const SizedBox(height: 18),
 
                       // ── OTP boxes ────────────────────────────────────
                       _CodeBoxes(
@@ -325,7 +381,8 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                             ? _ErrorBanner(
                                 key: ValueKey(_error),
                                 message: _error!)
-                            : const SizedBox.shrink(key: ValueKey('none')),
+                            : const SizedBox.shrink(
+                                key: ValueKey('none')),
                       ),
 
                       // ── Loading state ────────────────────────────────
@@ -337,13 +394,16 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                       // ── Challenge details ────────────────────────────
                       AnimatedSwitcher(
                         duration: const Duration(milliseconds: 350),
-                        transitionBuilder: (child, anim) => SlideTransition(
+                        transitionBuilder: (child, anim) =>
+                            SlideTransition(
                           position: Tween(
                             begin: const Offset(0, 0.15),
                             end: Offset.zero,
                           ).animate(CurvedAnimation(
-                              parent: anim, curve: Curves.easeOut)),
-                          child: FadeTransition(opacity: anim, child: child),
+                              parent: anim,
+                              curve: Curves.easeOut)),
+                          child: FadeTransition(
+                              opacity: anim, child: child),
                         ),
                         child: _found != null
                             ? Column(
@@ -360,15 +420,19 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                                   GradientButton(
                                     label: _joining
                                         ? 'Joining…'
-                                        : 'Accept & Play ⚡',
-                                    icon: _joining
+                                        : _atDailyLimit
+                                            ? 'Daily limit reached'
+                                            : 'Accept & Play ⚡',
+                                    icon: _joining || _atDailyLimit
                                         ? null
                                         : Icons.flash_on_rounded,
-                                    onTap: _joining ? null : _accept,
+                                    onTap: _joining || _atDailyLimit
+                                        ? null
+                                        : _accept,
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    '${_found!.betAmount} pts will be deducted from your balance',
+                                    '${_found!.stakeAmount} AC will be deducted from your balance',
                                     style: const TextStyle(
                                       color: AppColors.textMuted,
                                       fontSize: 11,
@@ -377,7 +441,8 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
                                   ),
                                 ],
                               )
-                            : const SizedBox.shrink(key: ValueKey('empty')),
+                            : const SizedBox.shrink(
+                                key: ValueKey('empty')),
                       ),
                     ],
                   ),
@@ -392,9 +457,6 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
 }
 
 // ── OTP-style 6-box code input ─────────────────────────────────────────────────
-// Why: This pattern is ubiquitous for codes and feels native on mobile.
-// Each box gets a single character, the caret auto-moves, and the visual
-// grouping (3+3 with a dash) helps readability.
 class _CodeBoxes extends StatelessWidget {
   final List<TextEditingController> ctrls;
   final List<FocusNode> nodes;
@@ -418,14 +480,17 @@ class _CodeBoxes extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         // First 3 boxes
-        ...List.generate(3, (i) => _CodeBox(
-              ctrl: ctrls[i],
-              node: nodes[i],
-              enabled: !busy,
-              hasError: hasError,
-              onChanged: (v) => onChanged(i, v),
-              onKey: (e) => onKey(i, e),
-            )),
+        ...List.generate(
+          3,
+          (i) => _CodeBox(
+            ctrl: ctrls[i],
+            node: nodes[i],
+            enabled: !busy,
+            hasError: hasError,
+            onChanged: (v) => onChanged(i, v),
+            onKey: (e) => onKey(i, e),
+          ),
+        ),
         // Dash separator
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 6),
@@ -516,13 +581,16 @@ class _CodeBox extends StatelessWidget {
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
-                color: hasError ? AppColors.wrong : AppColors.primary,
+                color: hasError
+                    ? AppColors.wrong
+                    : AppColors.primary,
                 width: 2,
               ),
             ),
             disabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: AppColors.divider.withOpacity(0.5)),
+              borderSide: BorderSide(
+                  color: AppColors.divider.withOpacity(0.5)),
             ),
           ),
           onChanged: onChanged,
@@ -600,6 +668,7 @@ class _LookingUp extends StatelessWidget {
 }
 
 // ── Challenge details card ─────────────────────────────────────────────────────
+// Stage 08: Shows AC amounts and the payout preview inline.
 class _ChallengeDetailsCard extends StatelessWidget {
   final ChallengeModel challenge;
   final int userBalance;
@@ -617,7 +686,10 @@ class _ChallengeDetailsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canAfford = userBalance >= challenge.betAmount;
+    final stake = challenge.stakeAmount;
+    final canAfford = userBalance >= stake;
+    final winAmount  = ChallengeModel.payoutWin(stake);
+    final drawAmount = ChallengeModel.payoutDraw(stake);
 
     return Container(
       decoration: BoxDecoration(
@@ -683,13 +755,11 @@ class _ChallengeDetailsCard extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                _Row(
-                    label: 'Anime',
-                    value: challenge.animeTitle),
+                _Row(label: 'Anime', value: challenge.animeTitle),
                 const SizedBox(height: 10),
                 _Row(
-                  label: 'Bet',
-                  value: '${challenge.betAmount} pts',
+                  label: 'Stake',
+                  value: '$stake AC',
                   valueColor:
                       canAfford ? AppColors.correct : AppColors.wrong,
                 ),
@@ -703,6 +773,30 @@ class _ChallengeDetailsCard extends StatelessWidget {
                   label: 'Expires',
                   value: _formatRemaining(challenge.timeRemaining),
                 ),
+
+                // Payout preview rows
+                const SizedBox(height: 12),
+                const Divider(color: AppColors.divider, height: 1),
+                const SizedBox(height: 12),
+                _Row(
+                  label: '🏆 Win',
+                  value: '+$winAmount AC',
+                  valueColor: AppColors.correct,
+                ),
+                const SizedBox(height: 6),
+                _Row(
+                  label: '🤝 Draw',
+                  value: '+$drawAmount AC',
+                  valueColor: AppColors.secondary,
+                ),
+                const SizedBox(height: 6),
+                _Row(
+                  label: '💸 Lose',
+                  value: '0 AC',
+                  valueColor: AppColors.wrong,
+                ),
+
+                // Insufficient balance warning
                 if (!canAfford) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -718,7 +812,7 @@ class _ChallengeDetailsCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'You need ${challenge.betAmount} pts. You have $userBalance.',
+                            'You need $stake AC. You have $userBalance AC.',
                             style: const TextStyle(
                                 color: AppColors.wrong,
                                 fontSize: 12,
@@ -738,11 +832,83 @@ class _ChallengeDetailsCard extends StatelessWidget {
   }
 }
 
+// ── Daily join-limit chip ──────────────────────────────────────────────────────
+//
+// Mirrors the "X of 3 challenges remaining today" chip on StakeScreen.
+// Reads [joinsToday] from the live [challengesJoinedTodayStream] and renders:
+//   • Green pill  → 0 used  ("3 of 3 joins remaining today")
+//   • Amber pill  → 1–2 used
+//   • Red pill    → limit reached ("Daily limit reached")
+class _DailyLimitChip extends StatelessWidget {
+  final int  joinsToday;
+  final int  maxJoins;
+  final bool atLimit;
+
+  const _DailyLimitChip({
+    required this.joinsToday,
+    required this.maxJoins,
+    required this.atLimit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = (maxJoins - joinsToday).clamp(0, maxJoins);
+
+    final Color bgColor;
+    final Color textColor;
+    final IconData icon;
+    final String label;
+
+    if (atLimit) {
+      bgColor   = AppColors.wrong.withOpacity(0.12);
+      textColor = AppColors.wrong;
+      icon      = Icons.block_rounded;
+      label     = 'Daily limit reached — resets tomorrow';
+    } else if (remaining == maxJoins) {
+      bgColor   = AppColors.correct.withOpacity(0.10);
+      textColor = AppColors.correct;
+      icon      = Icons.check_circle_outline_rounded;
+      label     = '$remaining of $maxJoins joins remaining today';
+    } else {
+      bgColor   = AppColors.secondary.withOpacity(0.12);
+      textColor = AppColors.secondary;
+      icon      = Icons.timelapse_rounded;
+      label     = '$remaining of $maxJoins joins remaining today';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: textColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color:      textColor,
+              fontSize:   12,
+              fontWeight: FontWeight.w600,
+              height:     1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Row extends StatelessWidget {
   final String label;
   final String value;
   final Color? valueColor;
-  const _Row({required this.label, required this.value, this.valueColor});
+  const _Row(
+      {required this.label, required this.value, this.valueColor});
 
   @override
   Widget build(BuildContext context) => Row(

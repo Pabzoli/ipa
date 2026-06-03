@@ -107,6 +107,16 @@ class FirestoreService {
   DocumentReference<Map<String, dynamic>> get _userDoc =>
       _db.collection('users').doc(_uid);
 
+  // ─── WAT date helper ──────────────────────────────────────────────────────
+
+  /// Returns today's date in WAT (UTC+1) as 'YYYY-MM-DD'.
+  static String _watDateString() {
+    final wat = DateTime.now().toUtc().add(const Duration(hours: 1));
+    final m   = wat.month.toString().padLeft(2, '0');
+    final d   = wat.day.toString().padLeft(2, '0');
+    return '${wat.year}-$m-$d';
+  }
+
   // ─── Score ──────────────────────────────────────────────────────────────────
 
   Stream<int> scoreStream() {
@@ -142,7 +152,7 @@ class FirestoreService {
   /// [type] must match the coinTransactions schema:
   ///   'earn_daily' | 'earn_quiz' | 'earn_ad' | 'earn_referral' |
   ///   'spend_hint' | 'spend_cooldown' | 'spend_unlock' |
-  ///   'spend_shield' | 'spend_timer' | 'iap'
+  ///   'spend_shield' | 'spend_timer' | 'spend_retry' | 'iap'
   ///
   /// Throws [InsufficientCoinsException] if the resulting balance would be < 0.
   Future<void> updateAnimeCoins(int delta, String type) async {
@@ -230,8 +240,6 @@ class FirestoreService {
 
   /// Adds [animeCoins: 0] to docs that predate the field.
   /// No-ops on accounts that already have it.
-  /// Call from UserDataProvider._startFirestoreStreams() alongside the other
-  /// patch calls so every existing user is healed on their next sign-in.
   Future<void> ensureAnimeCoinField() async {
     if (_uid == null) return;
     try {
@@ -247,11 +255,8 @@ class FirestoreService {
   }
 
   // ─── Streak Shield stream + write ─────────────────────────────────────────
-  // FIX: These two methods were missing, causing a compile error because
-  // UserDataProvider calls them. Added here.
 
   /// Live stream of users/{uid}.streakShieldActive.
-  /// Emits false if the field is absent (safe default).
   Stream<bool> streakShieldStream() {
     if (_uid == null) return Stream.value(false);
     return _userDoc.snapshots().map(
@@ -260,7 +265,6 @@ class FirestoreService {
   }
 
   /// Writes [value] to users/{uid}.streakShieldActive.
-  /// Pass `true` to activate, `false` to consume (deactivate) the shield.
   Future<void> setStreakShieldActive(bool value) async {
     if (_uid == null) return;
     await _userDoc.update({'streakShieldActive': value});
@@ -269,25 +273,12 @@ class FirestoreService {
   // ─── Daily Ad Watched stream (P-04) ──────────────────────────────────────
 
   /// Live stream of how many rewarded ads the signed-in user has watched today.
-  ///
-  /// Emits 0 when:
-  ///   • [lastAdWatchDate] is absent (new account / first open).
-  ///   • [lastAdWatchDate] is from a prior WAT day — the UI resets immediately
-  ///     without needing a server write, matching the Cloud Function's logic.
-  ///   • The user is not authenticated.
-  ///
-  /// [dailyAdWatched] and [lastAdWatchDate] are written ONLY by the
-  /// [recordAdWatch] Cloud Function — never by the client directly.
-  /// Firestore rules enforce this at the document level.
   Stream<int> dailyAdWatchedStream() {
     if (_uid == null) return Stream.value(0);
     return _userDoc.snapshots().map((snap) {
       final data = snap.data();
       if (data == null) return 0;
 
-      // ── WAT midnight reset check ─────────────────────────────────────────
-      // WAT = UTC+1. If the stored date is from a prior WAT day, return 0 so
-      // the cap display resets at midnight without waiting for the next CF call.
       final lastWatchTs = data['lastAdWatchDate'] as Timestamp?;
       if (lastWatchTs == null) return 0;
 
@@ -297,14 +288,11 @@ class FirestoreService {
                       lastWAT.month == nowWAT.month &&
                       lastWAT.day   == nowWAT.day;
 
-      if (!sameDay) return 0; // new WAT day → show fresh count
+      if (!sameDay) return 0;
       return (data['dailyAdWatched'] as int?) ?? 0;
     });
   }
 
-  /// Adds [dailyAdWatched: 0] and [lastAdWatchDate: null] to docs that
-  /// predate P-04. No-ops on accounts that already have the fields.
-  /// Call alongside the other ensure* patches in UserDataProvider.
   Future<void> ensureDailyAdWatchedFields() async {
     if (_uid == null) return;
     try {
@@ -328,15 +316,6 @@ class FirestoreService {
   // ─── Premium Active stream (P-05) ────────────────────────────────────────
 
   /// Live stream of users/{uid}.premiumActive.
-  ///
-  /// Emits `false` when:
-  ///   • The field is absent (pre-P-05 accounts / free users).
-  ///   • The user is not authenticated.
-  ///
-  /// Written server-side only by the purchase-verification Cloud Function
-  /// (Google Play Billing). Firestore rules block all client writes to this
-  /// field. Used by [UserDataProvider.premiumActive] to gate regular
-  /// interstitial ads on result screens.
   Stream<bool> premiumActiveStream() {
     if (_uid == null) return Stream.value(false);
     return _userDoc.snapshots().map(
@@ -344,8 +323,139 @@ class FirestoreService {
     );
   }
 
+  // ─── Challenges Created Today stream ─────────────────────────────────────
+
+  Stream<int> challengesCreatedTodayStream() {
+    if (_uid == null) return Stream.value(0);
+    return _userDoc.snapshots().map((snap) {
+      final data = snap.data();
+      if (data == null) return 0;
+
+      // CF writes challengesCreatedDate as a 'YYYY-MM-DD' String (WAT).
+      final dateStr = data['challengesCreatedDate'] as String?;
+      if (dateStr == null || dateStr != _watDateString()) return 0;
+      return (data['challengesCreatedToday'] as int?) ?? 0;
+    });
+  }
+
+  Future<void> ensureChallengesCreatedTodayField() async {
+    if (_uid == null) return;
+    try {
+      final snap = await _userDoc.get();
+      final data = snap.data();
+      if (data == null) return;
+
+      final updates = <String, dynamic>{};
+      if (!data.containsKey('challengesCreatedToday')) {
+        updates['challengesCreatedToday'] = 0;
+      }
+      if (!data.containsKey('challengesCreatedDate')) {
+        updates['challengesCreatedDate'] = null;
+      }
+      if (updates.isNotEmpty) await _userDoc.update(updates);
+    } catch (e) {
+      debugPrint(
+        '[FirestoreService] ensureChallengesCreatedTodayField error (ignored): $e',
+      );
+    }
+  }
+
+  // ─── Challenges Joined Today stream ──────────────────────────────────────
+
+  /// Live stream emitting how many challenges the signed-in user has joined
+  /// during the current WAT day.  Resets to 0 at the start of each new day
+  /// (when [challengesJoinedDate] no longer matches today's WAT date string).
+  ///
+  /// Mirrors [challengesCreatedTodayStream] — the CF writes
+  /// [challengesJoinedDate] as a 'YYYY-MM-DD' WAT string and increments
+  /// [challengesJoinedToday] atomically on each successful join.
+  Stream<int> challengesJoinedTodayStream() {
+    if (_uid == null) return Stream.value(0);
+    return _userDoc.snapshots().map((snap) {
+      final data = snap.data();
+      if (data == null) return 0;
+
+      // CF writes challengesJoinedDate as a 'YYYY-MM-DD' String (WAT).
+      final dateStr = data['challengesJoinedDate'] as String?;
+      if (dateStr == null || dateStr != _watDateString()) return 0;
+      return (data['challengesJoinedToday'] as int?) ?? 0;
+    });
+  }
+
+  // ─── Quick Match token streams ────────────────────────────────────────────
+
+  Stream<int> qmTokensStream() {
+    if (_uid == null) return Stream.value(0);
+    return _userDoc.snapshots().map(
+      (s) => (s.data()?['qmTokens'] as int?) ?? 0,
+    );
+  }
+
+  Stream<bool> qmAdTokenUsedStream() {
+    if (_uid == null) return Stream.value(false);
+    return _userDoc.snapshots().map(
+      (s) => (s.data()?['qmAdTokenUsed'] as bool?) ?? false,
+    );
+  }
+
+  // ─── Daily Challenge ──────────────────────────────────────────────────────
+  //
+  // Implements the "once per WAT day, 1.5× WP multiplier" feature.
+  //
+  // Firestore fields on users/{uid}:
+  //   dailyChallengeDate : String?  — WAT date 'YYYY-MM-DD' of last use
+  //   dailyChallengeUsed : bool     — whether used on [dailyChallengeDate]
+  //
+  // The client writes these fields directly after a successful CF submission.
+  // The actual 1.5× multiplier is applied server-side in submitQuizAnswers CF
+  // when the isDailyChallenge flag is present and true.
+
+  /// Live stream emitting `true` when the signed-in user has already consumed
+  /// their Daily Challenge for today (WAT), `false` otherwise.
+  ///
+  /// Emits `false` when:
+  ///   • [dailyChallengeDate] is absent (new account / first open).
+  ///   • [dailyChallengeDate] differs from today in WAT (new day — auto-reset).
+  ///   • [dailyChallengeUsed] is false.
+  ///   • The user is not authenticated.
+  Stream<bool> dailyChallengeUsedTodayStream() {
+    if (_uid == null) return Stream.value(false);
+    return _userDoc.snapshots().map((snap) {
+      final data = snap.data();
+      if (data == null) return false;
+      final dateStr = data['dailyChallengeDate'] as String?;
+      if (dateStr == null) return false;
+      if (dateStr != _watDateString()) return false; // new WAT day → not used
+      return (data['dailyChallengeUsed'] as bool?) ?? false;
+    });
+  }
+
+  /// Returns `true` if the signed-in user has NOT yet used their Daily
+  /// Challenge today (WAT). Safe to call before the stream has emitted.
+  ///
+  /// Returns `true` for brand-new accounts and at the start of every new WAT day.
+  Future<bool> isDailyChallengeAvailable() async {
+    if (_uid == null) return false;
+    final snap    = await _userDoc.get();
+    final data    = snap.data();
+    if (data == null) return true; // brand-new account
+    final dateStr = data['dailyChallengeDate'] as String?;
+    if (dateStr == null) return true;
+    if (dateStr != _watDateString()) return true; // new WAT day
+    return !((data['dailyChallengeUsed'] as bool?) ?? false);
+  }
+
+  /// No-op — retained so callers compile without changes.
+  ///
+  /// Both [dailyChallengeDate] and [dailyChallengeUsed] are blacklisted from
+  /// direct client writes in Firestore security rules, so the previous
+  /// implementation fired a guaranteed-to-fail write on every app launch for
+  /// pre-DC accounts. Those fields are now populated by the [submitQuizAnswers]
+  /// CF on the user's first Daily Challenge submission. The stream already
+  /// handles absent fields correctly (returns false / "not used").
+  Future<void> ensureDailyChallengeFields() async {}
+
   // ─── Early Anime Unlock ────────────────────────────────────────────────────
-  // FIX: New method required by Surface 4 in home_page.dart.
 
   /// Appends [animeTitle] to users/{uid}.unlockedAnimes (array-union so it is
   /// idempotent and safe to call more than once).
@@ -371,7 +481,7 @@ class FirestoreService {
     }
 
     return snap.docs
-        .map((doc) => AnimeQuestion.fromMap(doc.data()))
+        .map((doc) => AnimeQuestion.fromDoc(doc))
         .toList();
   }
 
@@ -534,11 +644,112 @@ class FirestoreService {
           'rank':          entry.key + 1,
           'uid':           entry.value.id,
           'username':      (data['username']     as String?) ?? 'Anonymous',
+          'university':    (data['university']   as String?) ?? '',
           'weeklyPoints':  (data['weeklyPoints'] as int?)    ?? 0,
           'isCurrentUser': entry.value.id == _uid,
         };
       }).toList();
     });
+  }
+
+  // ─── Weekly Player Count (Stage 19 — percentile display) ──────────────────
+
+  /// Cached result of [getWeeklyPlayerCount].
+  static int?      _weeklyPlayerCountCache;
+  static DateTime? _weeklyPlayerCountCacheTime;
+
+  /// Returns the number of users who have earned at least 1 weekly point
+  /// this week (i.e. they have competed and should appear on the board).
+  ///
+  /// Uses a Firestore COUNT aggregation — no documents are downloaded.
+  /// The result is cached in a static variable for up to 5 minutes so that
+  /// repeated calls during a single session (e.g. stream rebuilds) never
+  /// fire more than one Firestore read every 5 minutes.
+  Future<int> getWeeklyPlayerCount() async {
+    final now = DateTime.now();
+    if (_weeklyPlayerCountCache != null &&
+        _weeklyPlayerCountCacheTime != null &&
+        now.difference(_weeklyPlayerCountCacheTime!).inMinutes < 5) {
+      return _weeklyPlayerCountCache!;
+    }
+
+    try {
+      final snap = await _db
+          .collection('users')
+          .where('weeklyPoints', isGreaterThan: 0)
+          .count()
+          .get();
+
+      final count = snap.count ?? 0;
+      _weeklyPlayerCountCache     = count;
+      _weeklyPlayerCountCacheTime = now;
+      return count;
+    } catch (e) {
+      debugPrint('[FirestoreService] getWeeklyPlayerCount error: $e');
+      // Return cache even if stale rather than surfacing an error to the UI.
+      return _weeklyPlayerCountCache ?? 0;
+    }
+  }
+
+  /// Returns the leaderboard entry for the user ranked exactly one position
+  /// above the current user — their "Rival" — or `null` if:
+  ///   • the user is not authenticated
+  ///   • the user has 0 weeklyPoints (not on the board yet)
+  ///   • the user is already rank 1
+  ///   • the user is outside the visible top-100 window
+  ///
+  /// Implementation notes:
+  ///   1. A COUNT aggregation cheaply tells us how many users have strictly
+  ///      more weeklyPoints than the current user (`countAbove`).
+  ///   2. The rival sits at position `countAbove` in the desc-ordered list,
+  ///      so we fetch exactly `countAbove` docs and take the last one.
+  ///   3. We cap at 99 — a user outside the top-100 leaderboard widget has
+  ///      no visible rival row to tap, so there is nothing to tag.
+  Future<Map<String, dynamic>?> getRivalForUser() async {
+    if (_uid == null) return null;
+
+    // 1. Read current user's weekly points.
+    final mySnap = await _userDoc.get();
+    final myPts  = (mySnap.data()?['weeklyPoints'] as int?) ?? 0;
+
+    // Not on the board yet.
+    if (myPts == 0) return null;
+
+    // 2. Count users with strictly higher points.
+    final countSnap = await _db
+        .collection('users')
+        .where('weeklyPoints', isGreaterThan: myPts)
+        .count()
+        .get();
+
+    final countAbove = countSnap.count ?? 0;
+
+    // Already rank 1 — no one to rival.
+    if (countAbove == 0) return null;
+
+    // Outside the visible top-100 — no rival shown in the leaderboard widget.
+    if (countAbove >= 100) return null;
+
+    // 3. Fetch the top `countAbove` users; the last document is the rival
+    //    (the person ranked immediately above the current user).
+    final snap = await _db
+        .collection('users')
+        .orderBy('weeklyPoints', descending: true)
+        .limit(countAbove)
+        .get();
+
+    if (snap.docs.isEmpty) return null;
+
+    final rivalDoc  = snap.docs.last;
+    final rivalData = rivalDoc.data();
+
+    return {
+      'uid':          rivalDoc.id,
+      'username':     (rivalData['username']     as String?) ?? 'Anonymous',
+      'university':   (rivalData['university']   as String?) ?? '',
+      'weeklyPoints': (rivalData['weeklyPoints'] as int?)    ?? 0,
+      'rank':         countAbove, // their rank equals countAbove
+    };
   }
 
   // ─── Campus Leaderboard ──────────────────────────────────────────────────────
@@ -745,51 +956,28 @@ class FirestoreService {
     return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
   }
 
+  /// ⚠️ DO NOT USE — BYPASSES ALL CLOUD FUNCTIONS VALIDATION
+  ///
+  /// This method is DEAD CODE and only exists for backwards compatibility.
+  /// It does NOT:
+  ///   - Deduct coins from the creator
+  ///   - Check daily challenge creation limits
+  ///   - Validate the active-challenge cap
+  ///   - Trigger any CF-side payouts/refunds
+  ///
+  /// All challenge creation MUST go through Cloud Functions instead.
+  /// This method will throw [Exception] to prevent accidental misuse.
+  @Deprecated('Use Cloud Functions instead — never call this directly')
   Future<ChallengeCreationResult> createChallenge({
     required String animeTitle,
-    required int    betAmount,
+    required int    stakeAmount,
+    String?         opponentUid,
+    String?         opponentUsername,
   }) async {
-    if (_uid == null) throw Exception('Not authenticated');
-    final username    = await getUsername();
-    final questionIds = await _pickRandomQuestionIds(animeTitle, 10);
-    if (questionIds.length < 10) {
-      throw Exception(
-        'Not enough questions for "$animeTitle" yet. Need at least 10.',
-      );
-    }
-
-    String code;
-    bool   exists;
-    do {
-      code  = _generateChallengeCode();
-      final snap = await _challenges.doc(code).get();
-      exists = snap.exists;
-    } while (exists);
-
-    final now       = DateTime.now();
-    final expiresAt = now.add(const Duration(hours: 24));
-
-    final batch = _db.batch();
-    batch.set(_challenges.doc(code), {
-      'challengeId':      code,
-      'creatorUid':       _uid,
-      'creatorUsername':  username,
-      'opponentUid':      null,
-      'opponentUsername': null,
-      'betAmount':        betAmount,
-      'animeTitle':       animeTitle,
-      'questionIds':      questionIds,
-      'creatorScore':     null,
-      'opponentScore':    null,
-      'status':           'waiting',
-      'createdAt':        Timestamp.fromDate(now),
-      'expiresAt':        Timestamp.fromDate(expiresAt),
-      'outcome':          null,
-    });
-    batch.update(_userDoc, {'totalScore': FieldValue.increment(-betAmount)});
-    await batch.commit();
-
-    return ChallengeCreationResult(challengeId: code, questionIds: questionIds);
+    throw Exception(
+      'createChallenge() is DEAD CODE and bypasses all CF validation. '
+      'Use Cloud Functions createChallenge instead.',
+    );
   }
 
   Stream<ChallengeModel?> challengeStream(String challengeId) {
@@ -806,48 +994,24 @@ class FirestoreService {
     return snap.exists ? ChallengeModel.fromDoc(snap) : null;
   }
 
+  /// ⚠️ DO NOT USE — BYPASSES ALL CLOUD FUNCTIONS VALIDATION
+  ///
+  /// This method is DEAD CODE and only exists for backwards compatibility.
+  /// It does NOT:
+  ///   - Deduct coins from the opponent
+  ///   - Check opponent's daily challenge join limits
+  ///   - Validate the active-challenge cap
+  ///   - Trigger any CF-side coin locking or escrow
+  ///   - Execute payout logic on completion
+  ///
+  /// All challenge joins MUST go through Cloud Functions instead.
+  /// This method will throw [Exception] to prevent accidental misuse.
+  @Deprecated('Use Cloud Functions instead — never call this directly')
   Future<void> joinChallenge(String challengeId) async {
-    if (_uid == null) throw Exception('Not authenticated');
-    final username = await getUsername();
-    await _db.runTransaction((tx) async {
-      final ref  = _challenges.doc(challengeId);
-      final snap = await tx.get(ref);
-      if (!snap.exists) throw Exception('Challenge not found.');
-
-      final data      = snap.data()!;
-      final status    = data['status'] as String;
-      final betAmount = (data['betAmount'] as num).toInt();
-      final expiresAt = (data['expiresAt'] as Timestamp).toDate();
-
-      if (data['creatorUid'] == _uid) {
-        throw Exception("You can't join your own challenge.");
-      }
-      if (status != 'waiting') {
-        throw Exception('This challenge is no longer available.');
-      }
-      if (DateTime.now().isAfter(expiresAt)) {
-        throw Exception('This challenge has expired.');
-      }
-
-      final userRef  = _db.collection('users').doc(_uid);
-      final userSnap = await tx.get(userRef);
-      final balance  = (userSnap.data()?['totalScore'] as num?)?.toInt() ?? 0;
-
-      if (balance < betAmount) {
-        throw Exception(
-          'You need at least $betAmount pts to accept this challenge.',
-        );
-      }
-
-      tx.update(ref, {
-        'opponentUid':      _uid,
-        'opponentUsername': username,
-        'status':           'opponent_joined',
-      });
-      tx.update(userRef, {
-        'totalScore': FieldValue.increment(-betAmount),
-      });
-    });
+    throw Exception(
+      'joinChallenge() is DEAD CODE and bypasses all CF validation. '
+      'Use Cloud Functions joinChallenge instead.',
+    );
   }
 
   Future<void> submitCreatorScore(String challengeId, int score) async {
