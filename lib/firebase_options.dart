@@ -54,7 +54,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyC9E0pfoXBS5VM4FwUM9ZMlU0V2ensJmFo',
-    appId: '1:342531348832:android:07a8c184f69401d8982605',
+    appId: '1:342531348832:android:ec0914db53d19873982605',
     messagingSenderId: '342531348832',
     projectId: 'anime-quiz-1ab1b',
     storageBucket: 'anime-quiz-1ab1b.firebasestorage.app',

@@ -1,18 +1,14 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
-import '../../core/widgets/coin_balance_widget.dart';
 import '../../core/widgets/coin_earn_animation.dart';
+import '../../core/widgets/shop_link_note.dart';
+import '../../core/theme/app_theme.dart';
 
-/// EarnCoinsScreen — P-04
-///
-/// Lets users watch rewarded video ads to earn +15 Anime Coins.
-/// Cap: 10 ads/day (enforced server-side by recordAdWatch Cloud Function).
-/// Cooldown: 90 seconds between ads (enforced client-side by AdService).
-///
-/// Reward: Anime Coins ONLY. No mention of prize pool or naira anywhere.
 class EarnCoinsScreen extends StatefulWidget {
   const EarnCoinsScreen({super.key});
 
@@ -21,14 +17,10 @@ class EarnCoinsScreen extends StatefulWidget {
 }
 
 class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
-  // ── Timers ────────────────────────────────────────────────────────────────
-  Timer? _cooldownTimer;    // ticks every second to refresh the countdown UI
-  Timer? _midnightTimer;    // fires at WAT midnight to reset the daily display
-
+  Timer? _cooldownTimer;
+  Timer? _midnightTimer;
   int _cooldownSecsLeft = 0;
-
-  // ── Ad state ──────────────────────────────────────────────────────────────
-  bool _adLoading = false;  // spinner while ad is being fetched/shown
+  bool _adLoading = false;
 
   @override
   void initState() {
@@ -45,8 +37,6 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
     super.dispose();
   }
 
-  // ── Timers ────────────────────────────────────────────────────────────────
-
   void _startCooldownTimer() {
     _cooldownTimer?.cancel();
     _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -55,8 +45,6 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
     });
   }
 
-  /// Schedules a single setState at WAT midnight so the "X / 10 watched"
-  /// progress bar resets visually without the user leaving and returning.
   void _scheduleMidnightRefresh() {
     final nowWAT    = DateTime.now().toUtc().add(const Duration(hours: 1));
     final midnight  = DateTime(nowWAT.year, nowWAT.month, nowWAT.day + 1);
@@ -66,15 +54,12 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
     });
   }
 
-  // ── Button tap ────────────────────────────────────────────────────────────
-
   Future<void> _onWatchAdTapped() async {
     final provider = context.read<UserDataProvider>();
 
     if (provider.adsRemainingToday <= 0) return;
     if (_cooldownSecsLeft > 0) return;
 
-    // Ad not yet loaded — show spinner and poll briefly before giving up.
     if (!AdService.instance.isRewardedAdReady) {
       setState(() => _adLoading = true);
       AdService.instance.loadRewardedAd();
@@ -98,8 +83,11 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
       onComplete: (int coinsAwarded) {
         if (!mounted) return;
         setState(() => _cooldownSecsLeft = 30);
-        // CoinEarnAnimation is an Overlay utility — call show(), don't instantiate.
-        CoinEarnAnimation.show(context, amount: coinsAwarded);
+        try {
+          CoinEarnAnimation.show(context, amount: coinsAwarded);
+        } catch (e) {
+          debugPrint('[Ad] animation skipped: $e');
+        }
       },
     );
 
@@ -110,8 +98,6 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -121,12 +107,6 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
-  }
-
-  String _formatMmSs(int secs) {
-    final m = (secs ~/ 60).toString().padLeft(2, '0');
-    final s = (secs % 60).toString().padLeft(2, '0');
-    return '$m:$s';
   }
 
   String _midnightCountdown() {
@@ -141,8 +121,6 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
         '${s.toString().padLeft(2, '0')}';
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final provider   = context.watch<UserDataProvider>();
@@ -151,166 +129,110 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
     final remaining  = provider.adsRemainingToday;
     final dailyLimit = remaining <= 0;
     final onCooldown = _cooldownSecsLeft > 0;
-    final cs         = Theme.of(context).colorScheme;
 
     final bool buttonEnabled = !dailyLimit && !onCooldown && !_adLoading;
 
     return Scaffold(
-      backgroundColor: cs.surface,
-      appBar: AppBar(
-        title: const Text(
-          'Earn Coins',
-          style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: CoinBalanceWidget(),
-          ),
-        ],
-      ),
+      backgroundColor: AppColors.surfaceDim,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 16),
+        child: Column(
+          children: [
+            // ── Header ───────────────────────────────────────────────
+            Padding(
+              padding: EdgeInsets.fromLTRB(8.r, 10.r, 16.r, 8.r),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed:
+                        _adLoading ? null : () => Navigator.pop(context),
+                    icon: Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: AppColors.textPrimary,
+                      size: 19.r,
+                    ),
+                    splashRadius: 22,
+                  ),
+                  SizedBox(width: 2.w),
+                  Expanded(
+                    child: Text(
+                      'Earn Coins',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 26.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.5,
+                        height: 1.05,
+                      ),
+                    ),
+                  ),
+                  _HeaderCoinPill(animeCoins: ac),
+                ],
+              ),
+            ),
 
-              // ── Balance hero card ────────────────────────────────────────
-              _BalanceCard(animeCoins: ac),
+            // ── Body ─────────────────────────────────────────────────
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 32.r),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Hero: Watch Ad card ──────────────────────────
+                    _WatchAdHero(
+                      enabled:      buttonEnabled,
+                      loading:      _adLoading,
+                      dailyLimit:   dailyLimit,
+                      onCooldown:   onCooldown,
+                      cooldownSecs: _cooldownSecsLeft,
+                      watched:      watched,
+                      dailyCap:     10,
+                      resetsIn:     _midnightCountdown(),
+                      onTap:        _onWatchAdTapped,
+                    ),
 
-              const SizedBox(height: 40),
+                    SizedBox(height: 28.h),
 
-              // ── How-it-works blurb ───────────────────────────────────────
-              Text(
-                'Watch short ads to earn Anime Coins.\n'
-                'Use coins for hints, cooldown skips, and more.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 14,
-                  color: cs.onSurface.withOpacity(0.65),
-                  height: 1.5,
+                    // ── Coin Packs (website shop) ────────────────────
+                    const _CoinPacksSection(),
+                  ],
                 ),
               ),
-
-              const SizedBox(height: 40),
-
-              // ── Daily progress bar ───────────────────────────────────────
-              _DailyProgressBar(watched: watched, dailyCap: 10),
-              const SizedBox(height: 8),
-              Text(
-                dailyLimit
-                    ? 'Resets in ${_midnightCountdown()}'
-                    : '$watched / 10 watched today',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: dailyLimit
-                      ? cs.error
-                      : cs.onSurface.withOpacity(0.6),
-                ),
-              ),
-
-              const SizedBox(height: 48),
-
-              // ── Watch Ad button ──────────────────────────────────────────
-              _WatchAdButton(
-                enabled:      buttonEnabled,
-                loading:      _adLoading,
-                dailyLimit:   dailyLimit,
-                onCooldown:   onCooldown,
-                cooldownSecs: _cooldownSecsLeft,
-                onTap:        _onWatchAdTapped,
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── Cooldown / daily-limit status label ──────────────────────
-              if (dailyLimit)
-                _StatusLabel(
-                  icon:  Icons.bedtime_outlined,
-                  color: cs.error,
-                  text:  "You've watched all 10 ads today. Come back tomorrow!",
-                )
-              else if (onCooldown)
-                _StatusLabel(
-                  icon:  Icons.timer_outlined,
-                  color: cs.primary,
-                  text:  'Next ad available in ${_formatMmSs(_cooldownSecsLeft)}',
-                ),
-
-              const SizedBox(height: 48),
-
-              // ── Info tip cards ───────────────────────────────────────────
-              const _EarnTipRow(),
-
-              const SizedBox(height: 32),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ─── Sub-widgets ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.animeCoins});
+// ═══════════════════════════════════════════════════════════════════════════
+// Header coin pill — compact, matches the coin-balance chip used elsewhere
+// ═══════════════════════════════════════════════════════════════════════════
+class _HeaderCoinPill extends StatelessWidget {
   final int animeCoins;
+  const _HeaderCoinPill({required this.animeCoins});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+      padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [cs.primaryContainer, cs.primary.withOpacity(0.85)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color:  cs.primary.withOpacity(0.35),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: AppColors.accent.withOpacity(0.13),
+        borderRadius: BorderRadius.circular(20.r),
+        border: Border.all(color: AppColors.accent.withOpacity(0.32)),
       ),
-      child: Column(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('🪙', style: TextStyle(fontSize: 40)),
-          const SizedBox(height: 8),
+          Text('🪙', style: TextStyle(fontSize: 12.sp)),
+          SizedBox(width: 5.w),
           Text(
-            animeCoins.toString(),
+            '$animeCoins',
             style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize:   48,
+              color: AppColors.accent,
+              fontSize: 13.sp,
               fontWeight: FontWeight.w900,
-              color:      cs.onPrimary,
-              height:     1.0,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Anime Coins',
-            style: TextStyle(
-              fontFamily:  'Nunito',
-              fontSize:    14,
-              fontWeight:  FontWeight.w700,
-              color:       cs.onPrimary.withOpacity(0.8),
-              letterSpacing: 1.2,
+              letterSpacing: -0.2,
             ),
           ),
         ],
@@ -319,200 +241,488 @@ class _BalanceCard extends StatelessWidget {
   }
 }
 
-class _DailyProgressBar extends StatelessWidget {
-  const _DailyProgressBar({required this.watched, required this.dailyCap});
-  final int watched;
-  final int dailyCap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs       = Theme.of(context).colorScheme;
-    final progress = (watched / dailyCap).clamp(0.0, 1.0);
-    final full     = watched >= dailyCap;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: LinearProgressIndicator(
-        value:           progress,
-        minHeight:       10,
-        backgroundColor: cs.surfaceVariant,
-        color:           full ? cs.error : cs.primary,
-      ),
-    );
-  }
-}
-
-class _WatchAdButton extends StatelessWidget {
-  const _WatchAdButton({
-    required this.enabled,
-    required this.loading,
-    required this.dailyLimit,
-    required this.onCooldown,
-    required this.cooldownSecs,
-    required this.onTap,
-  });
-
+// ═══════════════════════════════════════════════════════════════════════════
+// Hero: Watch Ad card
+// ═══════════════════════════════════════════════════════════════════════════
+class _WatchAdHero extends StatelessWidget {
   final bool         enabled;
   final bool         loading;
   final bool         dailyLimit;
   final bool         onCooldown;
   final int          cooldownSecs;
+  final int          watched;
+  final int          dailyCap;
+  final String       resetsIn;
   final VoidCallback onTap;
+
+  const _WatchAdHero({
+    required this.enabled,
+    required this.loading,
+    required this.dailyLimit,
+    required this.onCooldown,
+    required this.cooldownSecs,
+    required this.watched,
+    required this.dailyCap,
+    required this.resetsIn,
+    required this.onTap,
+  });
+
+  String get _buttonLabel {
+    if (loading) return 'Loading ad…';
+    if (dailyLimit) return 'Come back tomorrow 🌙';
+    if (onCooldown) {
+      final m = (cooldownSecs ~/ 60).toString().padLeft(2, '0');
+      final s = (cooldownSecs % 60).toString().padLeft(2, '0');
+      return 'Next ad in $m:$s';
+    }
+    return 'Watch Ad — Earn +15 🪙';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final progress = (watched / dailyCap).clamp(0.0, 1.0);
+    final full     = watched >= dailyCap;
 
-    String label;
-    if (loading) {
-      label = 'Loading ad…';
-    } else if (dailyLimit) {
-      label = 'Come back tomorrow 🌙';
-    } else if (onCooldown) {
-      final m = (cooldownSecs ~/ 60).toString().padLeft(2, '0');
-      final s = (cooldownSecs % 60).toString().padLeft(2, '0');
-      label = 'Next ad in $m:$s';
-    } else {
-      label = 'Watch Ad — Earn +15 🪙';
-    }
+    // Visual state of the card
+    final bool isReady = enabled || loading;
+    final Color accent  = dailyLimit
+        ? AppColors.textMuted
+        : (isReady ? AppColors.primary : AppColors.textMuted);
+    final Color borderColor = isReady && !dailyLimit && !onCooldown
+        ? AppColors.primary.withOpacity(0.35)
+        : AppColors.divider;
 
-    return SizedBox(
-      width:  double.infinity,
-      height: 60,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: enabled
-              ? LinearGradient(
-                  colors: [cs.primary, cs.primary.withOpacity(0.75)],
-                )
-              : null,
-          color: enabled ? null : cs.surfaceVariant,
-          boxShadow: enabled
-              ? [
-                  BoxShadow(
-                    color:      cs.primary.withOpacity(0.40),
-                    blurRadius: 14,
-                    offset:     const Offset(0, 4),
-                  ),
-                ]
-              : [],
+    return Container(
+      padding: EdgeInsets.all(16.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20.r),
+        border: Border.all(
+          color: borderColor,
+          width: isReady && !dailyLimit && !onCooldown ? 1.5 : 1,
         ),
-        child: Material(
-          color:        Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: enabled ? onTap : null,
-            child: Center(
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Top row: icon tile + title / subtitle ────────────────
+          Row(
+            children: [
+              Container(
+                width: 56.r,
+                height: 56.r,
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(16.r),
+                  border: Border.all(color: accent.withOpacity(0.32)),
+                ),
+                child: Center(
+                  child: Text('📺', style: TextStyle(fontSize: 24.sp)),
+                ),
+              ),
+              SizedBox(width: 14.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      dailyLimit ? 'No ads left today' : 'Watch an ad',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                        height: 1.15,
+                      ),
+                    ),
+                    SizedBox(height: 4.h),
+                    Text(
+                      dailyLimit
+                          ? "You've watched all $dailyCap ads today"
+                          : '+15 AC per view · 30s cooldown',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 12.sp,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 18.h),
+
+          // ── Divider ──────────────────────────────────────────────
+          Container(height: 1, color: AppColors.divider),
+          SizedBox(height: 14.h),
+
+          // ── Daily progress ───────────────────────────────────────
+          Row(
+            children: [
+              Text(
+                'DAILY PROGRESS',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 9.sp,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.9,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$watched / $dailyCap',
+                style: TextStyle(
+                  color: full ? AppColors.wrong : AppColors.textPrimary,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8.h),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6.r),
+            child: LinearProgressIndicator(
+              value:           progress,
+              minHeight:       8,
+              backgroundColor: AppColors.divider,
+              color:           full ? AppColors.wrong : AppColors.primary,
+            ),
+          ),
+          SizedBox(height: 18.h),
+
+          // ── Action button ────────────────────────────────────────
+          SizedBox(
+            width:  double.infinity,
+            height: 52.h,
+            child: ElevatedButton(
+              onPressed: enabled ? onTap : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    enabled ? AppColors.primary : AppColors.surfaceAlt,
+                foregroundColor:
+                    enabled ? Colors.white : AppColors.textMuted,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14.r),
+                ),
+                elevation: 0,
+              ),
               child: loading
                   ? SizedBox(
-                      width:  24,
-                      height: 24,
-                      child: CircularProgressIndicator(
+                      width:  22.w,
+                      height: 22.h,
+                      child: const CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(cs.onPrimary),
+                        color: Colors.white,
                       ),
                     )
                   : Text(
-                      label,
+                      _buttonLabel,
                       style: TextStyle(
                         fontFamily: 'Nunito',
-                        fontSize:   17,
-                        fontWeight: FontWeight.w800,
-                        color: enabled
-                            ? cs.onPrimary
-                            : cs.onSurface.withOpacity(0.45),
+                        fontSize:   15.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.1,
                       ),
                     ),
             ),
           ),
-        ),
+
+          // ── Footer: reset countdown when daily limit hit ─────────
+          if (dailyLimit) ...[
+            SizedBox(height: 12.h),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.schedule_rounded,
+                    size: 12.r, color: AppColors.textMuted),
+                SizedBox(width: 5.w),
+                Text(
+                  'Resets in $resetsIn',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
 }
 
-class _StatusLabel extends StatelessWidget {
-  const _StatusLabel({
-    required this.icon,
-    required this.color,
-    required this.text,
-  });
+// ═══════════════════════════════════════════════════════════════════════════
+// Coin Packs (website shop)
+// ═══════════════════════════════════════════════════════════════════════════
+({int ac, String bonus, bool badge, String price, String blurb}) _coinPackMeta(
+    String id) {
+  switch (id) {
+    case 'animequiz_coins_300':
+      return (
+        ac: 300,
+        bonus: '',
+        badge: false,
+        price: '₦500',
+        blurb: 'Fast top-up for hints, cooldown skips and a few small stakes.',
+      );
+    case 'animequiz_coins_1100':
+      return (
+        ac: 990,
+        bonus: 'Includes a 10% bonus',
+        badge: false,
+        price: '₦1,500',
+        blurb:
+            '990 AC with a 10% bonus — a solid session of boss battles and '
+            'rival rematches.',
+      );
+    case 'animequiz_coins_3600':
+      return (
+        ac: 2880,
+        bonus: 'Includes a 20% bonus',
+        badge: true,
+        price: '₦4,000',
+        blurb:
+            'Best value — 20% bonus plus the 🏆 Champion badge. A week of '
+            'battling in one shot.',
+      );
+    default:
+      return (
+        ac: 0,
+        bonus: '',
+        badge: false,
+        price: '—',
+        blurb: '',
+      );
+  }
+}
 
-  final IconData icon;
-  final Color    color;
-  final String   text;
+class _CoinPacksSection extends StatelessWidget {
+  const _CoinPacksSection();
+
+  static const List<String> _kShopPackIds = [
+    'animequiz_coins_300',
+    'animequiz_coins_1100',
+    'animequiz_coins_3600',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    // Coin packs are sold on the website shop only (Play Billing policy:
+    // no external-payment path may be reachable from the Play-distributed
+    // Android app). On non-web platforms this section renders nothing.
+    if (!kIsWeb) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 6),
-        Flexible(
+        // ── Section header ───────────────────────────────────────
+        Row(
+          children: [
+            Container(
+              width: 28.r,
+              height: 28.r,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(9.r),
+              ),
+              child: Icon(
+                Icons.shopping_bag_rounded,
+                color: AppColors.accent,
+                size: 15.r,
+              ),
+            ),
+            SizedBox(width: 10.w),
+            Text(
+              'Coin packs',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 4.h),
+        Padding(
+          padding: EdgeInsets.only(left: 38.r),
           child: Text(
-            text,
-            textAlign: TextAlign.center,
+            'Top up from the shop on our website',
             style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize:   13,
+              color: AppColors.textMuted,
+              fontSize: 12.sp,
               fontWeight: FontWeight.w600,
-              color:      color,
+              height: 1.4,
             ),
           ),
         ),
+        SizedBox(height: 14.h),
+
+        // ── Shop link (moved above the packs) ────────────────────
+        const ShopLinkNote(),
+        SizedBox(height: 14.h),
+
+        // ── Pack cards ──────────────────────────────────────────
+        for (final id in _kShopPackIds)
+          _CoinPackCard(meta: _coinPackMeta(id)),
       ],
     );
   }
 }
 
-class _EarnTipRow extends StatelessWidget {
-  const _EarnTipRow();
+class _CoinPackCard extends StatelessWidget {
+  const _CoinPackCard({required this.meta});
+
+  final ({int ac, String bonus, bool badge, String price, String blurb}) meta;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: _TipCard(emoji: '📅', label: 'Up to\n10 per day')),
-        const SizedBox(width: 12),
-        Expanded(child: _TipCard(emoji: '⏱️', label: '30s\ncooldown')),
-        const SizedBox(width: 12),
-        Expanded(child: _TipCard(emoji: '🪙', label: '+15 coins\nper ad')),
-      ],
-    );
-  }
-}
+    final isBest = meta.badge;
+    final accent = isBest ? AppColors.accent : AppColors.primary;
 
-class _TipCard extends StatelessWidget {
-  const _TipCard({required this.emoji, required this.label});
-  final String emoji;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+      width: double.infinity,
+      margin: EdgeInsets.only(bottom: 10.r),
+      padding: EdgeInsets.all(14.r),
       decoration: BoxDecoration(
-        color:        cs.surfaceVariant.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(14),
-        border:       Border.all(color: cs.outlineVariant, width: 1),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(
+          color: isBest ? AppColors.accent.withOpacity(0.40) : AppColors.divider,
+          width: isBest ? 1.5 : 1,
+        ),
       ),
-      child: Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(emoji, style: const TextStyle(fontSize: 22)),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize:   12,
-              fontWeight: FontWeight.w700,
-              color:      cs.onSurface.withOpacity(0.75),
-              height:     1.4,
+          // ── Icon tile ────────────────────────────────────────────
+          Container(
+            width: 42.r,
+            height: 42.r,
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(12.r),
+            ),
+            child: Center(
+              child: Text(
+                isBest ? '👑' : '🪙',
+                style: TextStyle(fontSize: 18.sp),
+              ),
+            ),
+          ),
+          SizedBox(width: 12.w),
+
+          // ── Middle: AC amount + bonus + blurb ────────────────────
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '${meta.ac}',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    SizedBox(width: 4.w),
+                    Text(
+                      'AC',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (isBest) ...[
+                      SizedBox(width: 8.w),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 6.r, vertical: 2.r),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withOpacity(0.16),
+                          borderRadius: BorderRadius.circular(6.r),
+                          border: Border.all(
+                            color: AppColors.accent.withOpacity(0.32),
+                          ),
+                        ),
+                        child: Text(
+                          'BEST VALUE',
+                          style: TextStyle(
+                            color: AppColors.accent,
+                            fontSize: 8.sp,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (meta.bonus.isNotEmpty) ...[
+                  SizedBox(height: 3.h),
+                  Text(
+                    meta.bonus,
+                    style: TextStyle(
+                      color: isBest
+                          ? AppColors.accent
+                          : AppColors.textSecondary,
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                SizedBox(height: 4.h),
+                Text(
+                  meta.blurb,
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 12.w),
+
+          // ── Price pill ───────────────────────────────────────────
+          Container(
+            padding: EdgeInsets.symmetric(
+                horizontal: 10.r, vertical: 6.r),
+            decoration: BoxDecoration(
+              color: isBest
+                  ? AppColors.accent.withOpacity(0.14)
+                  : AppColors.primary.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(10.r),
+              border: Border.all(
+                color: isBest
+                    ? AppColors.accent.withOpacity(0.40)
+                    : AppColors.primary.withOpacity(0.25),
+              ),
+            ),
+            child: Text(
+              meta.price,
+              style: TextStyle(
+                color: isBest ? AppColors.accent : AppColors.primary,
+                fontSize: 12.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.1,
+              ),
             ),
           ),
         ],

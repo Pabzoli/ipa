@@ -22,15 +22,51 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+// Production release signing: reads android/key.properties (gitignored).
+// A missing key.properties falls back to debug signing so local debug/CI
+// builds still work — but a `flutter build appbundle --release` produced
+// without a keystore is NOT for Play distribution.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+
+def loadReleaseSigning = {
+    if (keystorePropertiesFile.exists()
+        && keystorePropertiesFile.canRead()
+        && keystoreProperties['storeFile']
+        && keystoreProperties['storePassword']
+        && keystoreProperties['keyPassword']
+        && keystoreProperties['keyAlias']) {
+        return android.signingConfigs.release
+    }
+    return null
+}
+
 android {
-    namespace "com.example.quiz"
+    namespace "com.animequiz.app"
     compileSdkVersion 36
     ndkVersion flutter.ndkVersion
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
     }
+
+    compileOptions {
+    sourceCompatibility JavaVersion.VERSION_1_8
+    targetCompatibility JavaVersion.VERSION_1_8
+    coreLibraryDesugaringEnabled true
+}
 
     kotlinOptions {
         jvmTarget = '1.8'
@@ -41,19 +77,27 @@ android {
     }
 
     defaultConfig {
-    applicationId "com.example.quiz"
+    applicationId "com.animequiz.app"
     minSdkVersion flutter.minSdkVersion
     targetSdkVersion 35
-    versionCode 1        // ← add this
-    versionName "1.0"    // ← add this
+    // Sourced from the `version: <name>+<build>` field in pubspec.yaml, which
+    // the Flutter Gradle plugin mirrors into local.properties as
+    // flutter.versionCode / flutter.versionName at build time. These two
+    // locals were previously computed and then IGNORED in favour of hardcoded
+    // literals, which meant pubspec could never change the shipped build
+    // number — and the forced-update gate compares versionCode against
+    // app_config/android.minBuild, so that drift would have silently broken
+    // the gate. pubspec.yaml is now the single source of truth.
+    versionCode flutterVersionCode.toInteger()
+    versionName flutterVersionName
     multiDexEnabled true
 }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig signingConfigs.debug
+            // Production signing from android/key.properties. Falls back to
+            // debug signing ONLY when key.properties is absent (local debug).
+            signingConfig loadReleaseSigning() ?: signingConfigs.debug
         }
     }
 }
@@ -63,5 +107,7 @@ flutter {
 }
 
 dependencies {
-    implementation 'androidx.multidex:multidex:2.0.1'   // needed if multiDexEnabled true
+    implementation 'androidx.multidex:multidex:2.0.1'
+
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }

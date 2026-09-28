@@ -1,22 +1,24 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/services/firestore_service.dart';
 import '../../core/theme/app_theme.dart';
+import 'payout_claim_page.dart';
 
 // ─── Private constants ────────────────────────────────────────────────────────
 const int   _kCountdown = 8;
 const Color _kGold      = Color(0xFFFFD700);
-const Color _kSilver    = Color(0xFFD0D0D0);
 const Color _kBronze    = Color(0xFFCD7F32);
 const Color _kWhatsApp  = Color(0xFF25D366);
 const Color _kBg        = Color(0xFF090913);
 
-const List<Color> _rankColors = [_kGold, _kSilver, _kBronze];
+const List<Color> _rankColors = [_kGold, AppColors.silver, _kBronze];
 const List<List<Color>> _rankGradients = [
   [Color(0xFFFFD700), Color(0xFFF5900C)],
   [Color(0xFFDCDCDC), Color(0xFF9A9A9A)],
@@ -318,6 +320,20 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
   @override
   Widget build(BuildContext context) {
     final winners = widget.result.winners.take(5).toList();
+    // Winner-only payout entry: shown strictly for the signed-in user when
+    // they appear in this week's winners. Payout STATE itself is resolved
+    // inside PayoutClaimPage from leaderboardCycles.ranked[] + own
+    // pendingClaim — never from this page's legacy prize_pool data.
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    PrizeWinner? myWin;
+    if (myUid != null) {
+      for (final w in winners) {
+        if (w.uid == myUid) {
+          myWin = w;
+          break;
+        }
+      }
+    }
 
     return Scaffold(
       backgroundColor: _kBg,
@@ -363,20 +379,20 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                     Expanded(
                       child: SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                        padding: EdgeInsets.fromLTRB(20.r, 0.r, 20.r, 0.r),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const SizedBox(height: 4),
+                            SizedBox(height: 4.h),
                             _Header(
                               pulse:     _trophyPulse,
                               weekRange: _weekRange(),
                             ),
-                            const SizedBox(height: 22),
+                            SizedBox(height: 22.h),
                             _PrizePoolBanner(
                               formatted: _fmtNaira(widget.result.totalNaira),
                             ),
-                            const SizedBox(height: 18),
+                            SizedBox(height: 18.h),
                             // Staggered winner cards
                             ...winners.asMap().entries.map(
                               (e) => _WinnerCard(
@@ -387,7 +403,7 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                                 animation: _cardAnim(e.key),
                               ),
                             ),
-                            const SizedBox(height: 26),
+                            SizedBox(height: 26.h),
                             _CtaButton(
                               pulse: _ctaPulse,
                               onTap: () {
@@ -395,9 +411,20 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                                 _dismiss(goToLeaderboard: true);
                               },
                             ),
-                            const SizedBox(height: 12),
+                            // Winner-only: the signed-in user made the list —
+                            // route them to the claim flow for THIS weekId.
+                            // Claim state/amount/paid are resolved there from
+                            // leaderboardCycles + pendingClaim (server-side).
+                            if (myWin != null) ...[
+                              SizedBox(height: 12.h),
+                              _WinnerClaimButton(
+                                weekId: widget.result.weekId,
+                                rank: myWin.rank,
+                              ),
+                            ],
+                            SizedBox(height: 12.h),
                             _ShareButton(onTap: _share),
-                            const SizedBox(height: 40),
+                            SizedBox(height: 40.h),
                           ],
                         ),
                       ),
@@ -434,7 +461,7 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: EdgeInsets.fromLTRB(16.r, 12.r, 16.r, 8.r),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -459,54 +486,56 @@ class _SkipButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color:        Colors.white.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(24),
-          border:       Border.all(color: Colors.white.withValues(alpha: 0.12)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Skip',
-              style: TextStyle(
-                color:      Colors.white.withValues(alpha: 0.7),
-                fontSize:   13,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'Nunito',
+    return Ink(
+      decoration: BoxDecoration(
+        color:        Colors.white.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(AppRadii.full),
+        border:       Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.full),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 9.r),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Skip',
+                style: TextStyle(
+                  color:      Colors.white.withValues(alpha: 0.7),
+                  fontSize:   13.sp,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: AppTypography.fontFamily,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width:  24,
-              height: 24,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value:           countdown / total,
-                    strokeWidth:     2.5,
-                    backgroundColor: Colors.white.withValues(alpha: 0.12),
-                    valueColor: const AlwaysStoppedAnimation(_kGold),
-                  ),
-                  Text(
-                    '$countdown',
-                    style: const TextStyle(
-                      color:      _kGold,
-                      fontSize:   9,
-                      fontWeight: FontWeight.w800,
-                      fontFamily: 'Nunito',
+              SizedBox(width: 8.w),
+              SizedBox(
+                width:  24.w,
+                height: 24.h,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      value:           countdown / total,
+                      strokeWidth:     2.5,
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      valueColor: const AlwaysStoppedAnimation(_kGold),
                     ),
-                  ),
-                ],
+                    Text(
+                      '$countdown',
+                      style: TextStyle(
+                        color:      _kGold,
+                        fontSize:   9.sp,
+                        fontWeight: FontWeight.w800,
+                        fontFamily: AppTypography.fontFamily,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -520,16 +549,19 @@ class _ShareIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color:        _kWhatsApp.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(14),
-          border:       Border.all(color: _kWhatsApp.withValues(alpha: 0.35)),
+    return Ink(
+      decoration: BoxDecoration(
+        color:        _kWhatsApp.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border:       Border.all(color: _kWhatsApp.withValues(alpha: 0.35)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        child: Padding(
+          padding: EdgeInsets.all(10.r),
+          child: Icon(Icons.share_rounded, color: _kWhatsApp, size: 20.r),
         ),
-        child: const Icon(Icons.share_rounded, color: _kWhatsApp, size: 20),
       ),
     );
   }
@@ -554,8 +586,8 @@ class _Header extends StatelessWidget {
             children: [
               // Outer diffuse glow
               Container(
-                width:  130,
-                height: 130,
+                width:  130.w,
+                height: 130.h,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
@@ -568,8 +600,8 @@ class _Header extends StatelessWidget {
               ),
               // Inner ring
               Container(
-                width:  90,
-                height: 90,
+                width:  90.w,
+                height: 90.h,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color:  _kGold.withValues(alpha: 0.07),
@@ -586,47 +618,47 @@ class _Header extends StatelessWidget {
                   ],
                 ),
               ),
-              const Text('🏆', style: TextStyle(fontSize: 54)),
+              Text('🏆', style: TextStyle(fontSize: 54.sp)),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        SizedBox(height: 20.h),
 
-        const Text(
+        Text(
           "Last Week's Champions",
           style: TextStyle(
             color:         _kGold,
-            fontSize:      26,
+            fontSize:      26.sp,
             fontWeight:    FontWeight.w900,
             letterSpacing: -0.5,
             height:        1.1,
-            fontFamily:    'Nunito',
+            fontFamily:    AppTypography.fontFamily,
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
 
         // Week range pill
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 5.r),
           decoration: BoxDecoration(
             color:        Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(20.r),
             border:       Border.all(color: Colors.white.withValues(alpha: 0.10)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.calendar_today_rounded,
-                         color: AppColors.textMuted, size: 11),
-              const SizedBox(width: 5),
+              Icon(Icons.calendar_today_rounded,
+                         color: AppColors.textMuted, size: 11.r),
+              SizedBox(width: 5.w),
               Text(
                 weekRange,
-                style: const TextStyle(
+                style: TextStyle(
                   color:      AppColors.textSecondary,
-                  fontSize:   12,
+                  fontSize:   12.sp,
                   fontWeight: FontWeight.w600,
-                  fontFamily: 'Nunito',
+                  fontFamily: AppTypography.fontFamily,
                 ),
               ),
             ],
@@ -646,7 +678,7 @@ class _PrizePoolBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+      padding: EdgeInsets.symmetric(vertical: 16.r, horizontal: 20.r),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -656,7 +688,7 @@ class _PrizePoolBanner extends StatelessWidget {
           begin: Alignment.topLeft,
           end:   Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20.r),
         border: Border.all(
           color: _kGold.withValues(alpha: 0.32),
           width: 1.5,
@@ -671,30 +703,30 @@ class _PrizePoolBanner extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('💰', style: TextStyle(fontSize: 28)),
-          const SizedBox(width: 14),
+          Text('💰', style: TextStyle(fontSize: 28.sp)),
+          SizedBox(width: 14.w),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 '₦$formatted',
-                style: const TextStyle(
+                style: TextStyle(
                   color:         _kGold,
-                  fontSize:      26,
+                  fontSize:      26.sp,
                   fontWeight:    FontWeight.w900,
                   letterSpacing: -0.5,
                   height:        1.0,
-                  fontFamily:    'Nunito',
+                  fontFamily:    AppTypography.fontFamily,
                 ),
               ),
-              const SizedBox(height: 3),
-              const Text(
+              SizedBox(height: 3.h),
+              Text(
                 'shared with this week\'s champions',
                 style: TextStyle(
                   color:      AppColors.textMuted,
-                  fontSize:   11,
-                  fontFamily: 'Nunito',
+                  fontSize:   11.sp,
+                  fontFamily: AppTypography.fontFamily,
                 ),
               ),
             ],
@@ -748,9 +780,9 @@ class _WinnerCard extends StatelessWidget {
 
   Widget _buildCard() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: EdgeInsets.only(bottom: 10.r),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 14.r),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: _isTop3
@@ -762,7 +794,7 @@ class _WinnerCard extends StatelessWidget {
             begin: Alignment.centerLeft,
             end:   Alignment.centerRight,
           ),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(18.r),
           border: Border.all(
             color: _isTop3
                 ? _rankColor.withValues(alpha: 0.38)
@@ -785,7 +817,7 @@ class _WinnerCard extends StatelessWidget {
               rank:      winner.rank,
               isTop3:    _isTop3,
             ),
-            const SizedBox(width: 14),
+            SizedBox(width: 14.w),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -795,26 +827,26 @@ class _WinnerCard extends StatelessWidget {
                     winner.username,
                     style: TextStyle(
                       color:      _isTop3 ? Colors.white : AppColors.textPrimary,
-                      fontSize:   _isTop3 ? 15 : 14,
+                      fontSize:   _isTop3 ? 15.sp : 14.sp,
                       fontWeight: FontWeight.w800,
-                      fontFamily: 'Nunito',
+                      fontFamily: AppTypography.fontFamily,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 3),
+                  SizedBox(height: 3.h),
                   Row(
                     children: [
-                      const Icon(Icons.school_rounded,
-                                 color: AppColors.textMuted, size: 11),
-                      const SizedBox(width: 4),
+                      Icon(Icons.school_rounded,
+                                 color: AppColors.textMuted, size: 11.r),
+                      SizedBox(width: 4.w),
                       Expanded(
                         child: Text(
                           winner.university,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color:      AppColors.textMuted,
-                            fontSize:   11,
+                            fontSize:   11.sp,
                             fontWeight: FontWeight.w500,
-                            fontFamily: 'Nunito',
+                            fontFamily: AppTypography.fontFamily,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -824,7 +856,7 @@ class _WinnerCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 10),
+            SizedBox(width: 10.w),
             _PrizeBadge(
               listIndex: listIndex,
               isTop3:    _isTop3,
@@ -853,12 +885,12 @@ class _RankIndicator extends StatelessWidget {
     if (isTop3) {
       return Text(
         _medals[listIndex],
-        style: TextStyle(fontSize: listIndex == 0 ? 32 : 26),
+        style: TextStyle(fontSize: listIndex == 0 ? 32.sp : 26.sp),
       );
     }
     return Container(
-      width:  36,
-      height: 36,
+      width:  36.w,
+      height: 36.h,
       decoration: BoxDecoration(
         color:  AppColors.surfaceAlt,
         shape:  BoxShape.circle,
@@ -867,11 +899,11 @@ class _RankIndicator extends StatelessWidget {
       child: Center(
         child: Text(
           '$rank',
-          style: const TextStyle(
+          style: TextStyle(
             color:      AppColors.textSecondary,
-            fontSize:   13,
+            fontSize:   13.sp,
             fontWeight: FontWeight.w700,
-            fontFamily: 'Nunito',
+            fontFamily: AppTypography.fontFamily,
           ),
         ),
       ),
@@ -893,22 +925,22 @@ class _PrizeBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: 11.r, vertical: 6.r),
       decoration: BoxDecoration(
         gradient: isTop3
             ? LinearGradient(colors: _rankGradients[listIndex])
             : null,
         color:        isTop3 ? null : AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(10.r),
         border:       isTop3 ? null : Border.all(color: AppColors.divider),
       ),
       child: Text(
         '₦$formatted',
         style: TextStyle(
           color:      isTop3 ? Colors.black87 : AppColors.textSecondary,
-          fontSize:   13,
+          fontSize:   13.sp,
           fontWeight: FontWeight.w800,
-          fontFamily: 'Nunito',
+          fontFamily: AppTypography.fontFamily,
         ),
       ),
     );
@@ -926,47 +958,115 @@ class _CtaButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return ScaleTransition(
       scale: pulse,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width:   double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [AppColors.primary, Color(0xFFFF6B6B)],
-              begin:  Alignment.centerLeft,
-              end:    Alignment.centerRight,
-            ),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color:      AppColors.primary.withValues(alpha: 0.50),
-                blurRadius: 28,
-                offset:     const Offset(0, 8),
-              ),
-            ],
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppColors.primary, Color(0xFFFF6B6B)],
+            begin:  Alignment.centerLeft,
+            end:    Alignment.centerRight,
           ),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '⚔️  This could be you!',
-                style: TextStyle(
-                  color:         Colors.white,
-                  fontSize:      17,
-                  fontWeight:    FontWeight.w900,
-                  letterSpacing: -0.3,
-                  fontFamily:    'Nunito',
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          boxShadow: [
+            BoxShadow(
+              color:      AppColors.primary.withValues(alpha: 0.50),
+              blurRadius: 28,
+              offset:     const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          child: Container(
+            width:   double.infinity,
+            padding: EdgeInsets.symmetric(vertical: 18.r),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '⚔️  This could be you!',
+                  style: TextStyle(
+                    color:         Colors.white,
+                    fontSize:      17.sp,
+                    fontWeight:    FontWeight.w900,
+                    letterSpacing: -0.3,
+                    fontFamily:    AppTypography.fontFamily,
+                  ),
                 ),
-              ),
-              SizedBox(height: 3),
+                SizedBox(height: 3.h),
+                Text(
+                  'View weekly leaderboard →',
+                  style: TextStyle(
+                    color:      Colors.white70,
+                    fontSize:   12.sp,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: AppTypography.fontFamily,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Winner Claim Button (winner-only) ────────────────────────────────────────
+/// Shown only when the signed-in user is in this week's winners list.
+/// Pushes [PayoutClaimPage] for the announced week; all payout state
+/// (eligibility, amount, approval, paid) is resolved there from
+/// `leaderboardCycles/{weekId}` + own `pendingClaim` — server-authoritative.
+class _WinnerClaimButton extends StatelessWidget {
+  const _WinnerClaimButton({required this.weekId, required this.rank});
+
+  final String weekId;
+  final int rank;
+
+  @override
+  Widget build(BuildContext context) {
+    return Ink(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFD700), Color(0xFFF5900C)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        boxShadow: [
+          BoxShadow(
+            color: _kGold.withValues(alpha: 0.35),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.mediumImpact();
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => PayoutClaimPage(weekId: weekId),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(vertical: 16.r),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.account_balance_wallet_rounded,
+                  color: Colors.black87, size: 19.r),
+              SizedBox(width: 8.w),
               Text(
-                'View weekly leaderboard →',
+                'Claim your Rank #$rank prize →',
                 style: TextStyle(
-                  color:      Colors.white70,
-                  fontSize:   12,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'Nunito',
+                  color: Colors.black87,
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w900,
+                  fontFamily: AppTypography.fontFamily,
                 ),
               ),
             ],
@@ -985,31 +1085,34 @@ class _ShareButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width:   double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        decoration: BoxDecoration(
-          color:        _kWhatsApp.withValues(alpha: 0.09),
-          borderRadius: BorderRadius.circular(18),
-          border:       Border.all(color: _kWhatsApp.withValues(alpha: 0.35)),
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.share_rounded, color: _kWhatsApp, size: 18),
-            SizedBox(width: 8),
-            Text(
-              'Share on WhatsApp',
-              style: TextStyle(
-                color:      _kWhatsApp,
-                fontSize:   15,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'Nunito',
+    return Ink(
+      decoration: BoxDecoration(
+        color:        _kWhatsApp.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border:       Border.all(color: _kWhatsApp.withValues(alpha: 0.35)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        child: Container(
+          width:   double.infinity,
+          padding: EdgeInsets.symmetric(vertical: 15.r),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.share_rounded, color: _kWhatsApp, size: 18.r),
+              SizedBox(width: 8.w),
+              Text(
+                'Share on WhatsApp',
+                style: TextStyle(
+                  color:      _kWhatsApp,
+                  fontSize:   15.sp,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: AppTypography.fontFamily,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

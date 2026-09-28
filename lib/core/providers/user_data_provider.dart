@@ -97,9 +97,6 @@ class UserDataProvider extends ChangeNotifier {
   bool _isOnline                = false;
   bool _connectivityChecked     = false;
 
-  // ── Streak Shield ─────────────────────────────────────────────────────────
-  bool _streakShieldActive      = false;
-
   // ── P-05: Premium status ──────────────────────────────────────────────────
   bool _premiumActive           = false;
 
@@ -113,6 +110,9 @@ class UserDataProvider extends ChangeNotifier {
   int  _qmTokens                = 0;
   bool _qmAdTokenUsed           = false;
 
+  // ── Cooldown Skip Counter ────────────────────────────────────────────────
+  int  _cooldownSkipsToday       = 0;
+
   // ── Daily Challenge state ─────────────────────────────────────────────────
   // Streamed from users/{uid}.dailyChallengeUsed / dailyChallengeDate.
   // True when the user has already consumed their free Daily Challenge today
@@ -121,23 +121,48 @@ class UserDataProvider extends ChangeNotifier {
   // _startDailyChallenge to decide whether to prompt the 40 AC retry payment.
   bool _dailyChallengeUsedToday = false;
 
+  // ── Coin reservation system ──────────────────────────────────────────────
+  final Map<int, int> _pendingCoinReservations = <int, int>{};
+  int _nextCoinReservationId = 0;
+
+  // ── WP (WeebPoints) Fields ──────────────────────────────────────────────────
+  int  _wpStakedToday           = 0;
+  String _wpStakedDate          = '';
+  DateTime? _lastRivalChallenge;
+  String? _lastRivalUid;
+
+  // ── Leaderboard entry eligibility (leaderboard_entry codes) ──────────────
+  String? _leaderboardEntryWeekId;
+
   // ── Initialization Guard ─────────────────────────────────────────────────
   bool _isInitialized           = false;
 
+  // ── Getters ──────────────────────────────────────────────────────────────────
+
   int  get score                    => _score;
-  int  get animeCoins               => _animeCoins;
+  // Anime Coins getters with reservation awareness
+  int get animeCoins => spendableAnimeCoins;
+  int get committedAnimeCoins => _animeCoins;
+  int get pendingAnimeCoins =>
+      _pendingCoinReservations.values.fold(0, (sum, value) => sum + value);
+  int get spendableAnimeCoins {
+    final value = _animeCoins - pendingAnimeCoins;
+    return value < 0 ? 0 : value;
+  }
+  bool canAffordCoins(int amount) => spendableAnimeCoins >= amount;
+
   int  get weeklyPoints             => _weeklyPoints;
   int  get dailyAdWatched           => _dailyAdWatched;
   int  get adsRemainingToday        => (10 - _dailyAdWatched).clamp(0, 10);
   bool get loading                  => _loading;
   bool get isOnline                 => _isOnline;
   bool get connectivityChecked      => _connectivityChecked;
-  bool get streakShieldActive       => _streakShieldActive;
   bool get premiumActive            => _premiumActive;
   int  get challengesCreatedToday   => _challengesCreatedToday;
   int  get sessionQuizCount         => _sessionQuizCount;
   int  get qmTokens                 => _qmTokens;
   bool get qmAdTokenUsed            => _qmAdTokenUsed;
+  int  get cooldownSkipsToday       => _cooldownSkipsToday;
 
   /// Whether the signed-in user has already used their free Daily Challenge
   /// today (WAT timezone). Sourced from users/{uid} via Firestore stream.
@@ -152,18 +177,66 @@ class UserDataProvider extends ChangeNotifier {
   /// 40 AC second-attempt payment.
   bool get dailyChallengeUsedToday  => _dailyChallengeUsedToday;
 
+  // ── WP Getters ───────────────────────────────────────────────────────────────
+
+  int get wpStakedToday => _wpStakedToday;
+  String get wpStakedDate => _wpStakedDate;
+  DateTime? get lastRivalChallenge => _lastRivalChallenge;
+  String? get lastRivalUid => _lastRivalUid;
+
+  // ── Leaderboard entry getters ──────────────────────────────────────────────
+  String? get leaderboardEntryWeekId => _leaderboardEntryWeekId;
+
+  /// Whether the user has an active leaderboard entry for the CURRENT weekly
+  /// cycle. Stored week is intentionally left stale after reset (Decision D);
+  /// this comparison naturally turns false when the Monday boundary advances.
+  bool get isLeaderboardEligible =>
+      _leaderboardEntryWeekId == FirestoreService.currentWeekId();
+
+  /// Checks if the current user can challenge a specific rival.
+  /// 
+  /// Cooldown rules:
+  /// - Different rival: always allowed (no cooldown)
+  /// - Same rival: 12-hour cooldown (6 hours for premium users)
+  bool canChallengeRival(String rivalUid) {
+    if (_lastRivalUid != rivalUid) return true; // different rival, no cooldown
+    if (_lastRivalChallenge == null) return true;
+    final hours = DateTime.now().difference(_lastRivalChallenge!).inHours;
+    final cooldown = _premiumActive ? 6 : 12;
+    return hours >= cooldown;
+  }
+
+  /// Returns the remaining cooldown hours for a specific rival, or 0 if no cooldown.
+  int getRivalCooldownHours(String rivalUid) {
+    if (_lastRivalUid != rivalUid) return 0;
+    if (_lastRivalChallenge == null) return 0;
+    final hours = DateTime.now().difference(_lastRivalChallenge!).inHours;
+    final cooldown = _premiumActive ? 6 : 12;
+    final remaining = cooldown - hours;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  // ── Stream Subscriptions ────────────────────────────────────────────────────
+
   StreamSubscription<List<ConnectivityResult>>? _connectSub;
   StreamSubscription<User?>?                    _authSub;
   StreamSubscription<int>?                      _scoreSub;
   StreamSubscription<int>?                      _animeCoinsSub;
   StreamSubscription<int>?                      _weeklyPointsSub;
-  StreamSubscription<bool>?                     _shieldSub;
   StreamSubscription<int>?                      _dailyAdWatchedSub;
   StreamSubscription<bool>?                     _premiumActiveSub;
   StreamSubscription<int>?                      _challengesCreatedTodaySub;
   StreamSubscription<int>?                      _qmTokensSub;
   StreamSubscription<bool>?                     _qmAdTokenUsedSub;
-  StreamSubscription<bool>?                     _dailyChallengeUsedSub;  // ← DC
+  StreamSubscription<int>?                      _cooldownSkipsTodaySub;
+  StreamSubscription<bool>?                     _dailyChallengeUsedSub;
+  
+  // ── WP Stream Subscriptions ─────────────────────────────────────────────────
+  StreamSubscription<int>?                      _wpStakedTodaySub;
+  StreamSubscription<String>?                   _wpStakedDateSub;
+  StreamSubscription<Timestamp?>?               _lastRivalChallengeSub;
+  StreamSubscription<String?>?                  _lastRivalUidSub;
+  StreamSubscription<String?>?                  _leaderboardEntrySub;
 
   /// Constructor triggers self-initialization instantly when created
   UserDataProvider() {
@@ -252,14 +325,24 @@ class UserDataProvider extends ChangeNotifier {
     _animeCoins              = 0;
     _weeklyPoints            = 0;
     _dailyAdWatched          = 0;
-    _streakShieldActive      = false;
     _premiumActive           = false;
     _challengesCreatedToday  = 0;
     _qmTokens                = 0;
     _qmAdTokenUsed           = false;
-    _dailyChallengeUsedToday = false;  // ← DC: reset on sign-out
-    // _sessionQuizCount is intentionally NOT reset here — it survives
-    // sign-out within the same app session.
+    _cooldownSkipsToday      = 0;
+    _dailyChallengeUsedToday = false;
+    
+    // Reset WP fields
+    _wpStakedToday           = 0;
+    _wpStakedDate            = '';
+    _lastRivalChallenge      = null;
+    _lastRivalUid            = null;
+    _leaderboardEntryWeekId  = null;
+    
+    // Reset coin reservations
+    _pendingCoinReservations.clear();
+    _nextCoinReservationId = 0;
+
     _loading                 = true;
   }
 
@@ -267,13 +350,20 @@ class UserDataProvider extends ChangeNotifier {
     _scoreSub?.cancel();                   _scoreSub                   = null;
     _animeCoinsSub?.cancel();              _animeCoinsSub              = null;
     _weeklyPointsSub?.cancel();            _weeklyPointsSub            = null;
-    _shieldSub?.cancel();                  _shieldSub                  = null;
     _dailyAdWatchedSub?.cancel();          _dailyAdWatchedSub          = null;
     _premiumActiveSub?.cancel();           _premiumActiveSub           = null;
     _challengesCreatedTodaySub?.cancel();  _challengesCreatedTodaySub  = null;
     _qmTokensSub?.cancel();                _qmTokensSub                = null;
     _qmAdTokenUsedSub?.cancel();           _qmAdTokenUsedSub           = null;
-    _dailyChallengeUsedSub?.cancel();      _dailyChallengeUsedSub      = null; // ← DC
+    _cooldownSkipsTodaySub?.cancel();      _cooldownSkipsTodaySub      = null;
+    _dailyChallengeUsedSub?.cancel();      _dailyChallengeUsedSub      = null;
+    
+    // Cancel WP subscriptions
+    _wpStakedTodaySub?.cancel();           _wpStakedTodaySub           = null;
+    _wpStakedDateSub?.cancel();            _wpStakedDateSub            = null;
+    _lastRivalChallengeSub?.cancel();      _lastRivalChallengeSub      = null;
+    _lastRivalUidSub?.cancel();            _lastRivalUidSub            = null;
+    _leaderboardEntrySub?.cancel();        _leaderboardEntrySub        = null;
   }
 
   void _startFirestoreStreams() {
@@ -282,9 +372,6 @@ class UserDataProvider extends ChangeNotifier {
     // One-time migrations — fire-and-forget.
     FirestoreService.instance.runMigrationIfNeeded().catchError((e) {
       debugPrint('[UserDataProvider] migration error (ignored): $e');
-    });
-    FirestoreService.instance.ensureStreakShieldFields().catchError((e) {
-      debugPrint('[UserDataProvider] ensureStreakShieldFields error (ignored): $e');
     });
     FirestoreService.instance.ensureAnimeCoinField().catchError((e) {
       debugPrint('[UserDataProvider] ensureAnimeCoinField error (ignored): $e');
@@ -295,6 +382,10 @@ class UserDataProvider extends ChangeNotifier {
     FirestoreService.instance.ensureChallengesCreatedTodayField().catchError((e) {
       debugPrint('[UserDataProvider] ensureChallengesCreatedTodayField error (ignored): $e');
     });
+    FirestoreService.instance.ensureCooldownSkipsFields().catchError((e) {
+      debugPrint('[UserDataProvider] ensureCooldownSkipsFields error (ignored): $e');
+    });
+
     // ── Score ────────────────────────────────────────────────────────────────
     _scoreSub = FirestoreService.instance.scoreStream().listen(
       (s) {
@@ -327,15 +418,6 @@ class UserDataProvider extends ChangeNotifier {
         _weeklyPoints = wp;
         notifyListeners();
       },
-    );
-
-    // ── Streak Shield ─────────────────────────────────────────────────────────
-    _shieldSub = FirestoreService.instance.streakShieldStream().listen(
-      (active) {
-        _streakShieldActive = active;
-        notifyListeners();
-      },
-      onError: (_) {},
     );
 
     // ── Daily Ad Watched (P-04) ───────────────────────────────────────────────
@@ -396,6 +478,18 @@ class UserDataProvider extends ChangeNotifier {
       },
     );
 
+    // ── Cooldown Skips Today ──────────────────────────────────────────────────
+    _cooldownSkipsTodaySub =
+        FirestoreService.instance.cooldownSkipsTodayStream().listen(
+      (count) {
+        _cooldownSkipsToday = count;
+        notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('[UserDataProvider] cooldownSkipsToday stream error (ignored): $e');
+      },
+    );
+
     // ── Daily Challenge Used Today ────────────────────────────────────────────
     // Watches users/{uid}.dailyChallengeDate + dailyChallengeUsed to keep the
     // DC badge in sync with whether the free attempt has been consumed today
@@ -415,6 +509,63 @@ class UserDataProvider extends ChangeNotifier {
         // safer direction: worst case the user sees the DC button enabled when
         // it has already been used (the CF enforces the actual 1.5× grant, so
         // they won't get a second free bonus).
+      },
+    );
+
+    // ── WP Staked Today ──────────────────────────────────────────────────────
+    _wpStakedTodaySub = FirestoreService.instance.wpStakedTodayStream().listen(
+      (count) {
+        _wpStakedToday = count;
+        notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('[UserDataProvider] wpStakedToday stream error (ignored): $e');
+      },
+    );
+
+    // ── WP Staked Date ──────────────────────────────────────────────────────
+    _wpStakedDateSub = FirestoreService.instance.wpStakedDateStream().listen(
+      (date) {
+        _wpStakedDate = date;
+        notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('[UserDataProvider] wpStakedDate stream error (ignored): $e');
+      },
+    );
+
+    // ── Last Rival Challenge ──────────────────────────────────────────────────
+    _lastRivalChallengeSub = 
+        FirestoreService.instance.lastRivalChallengeStream().listen(
+      (ts) {
+        _lastRivalChallenge = ts?.toDate();
+        notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('[UserDataProvider] lastRivalChallenge stream error (ignored): $e');
+      },
+    );
+
+    // ── Last Rival UID ─────────────────────────────────────────────────────────
+    _lastRivalUidSub = FirestoreService.instance.lastRivalUidStream().listen(
+      (uid) {
+        _lastRivalUid = uid;
+        notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('[UserDataProvider] lastRivalUid stream error (ignored): $e');
+      },
+    );
+
+    // ── Leaderboard Entry Week ───────────────────────────────────────────────
+    _leaderboardEntrySub =
+        FirestoreService.instance.leaderboardEntryStream().listen(
+      (weekId) {
+        _leaderboardEntryWeekId = weekId;
+        notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('[UserDataProvider] leaderboardEntry stream error (ignored): $e');
       },
     );
   }
@@ -441,35 +592,89 @@ class UserDataProvider extends ChangeNotifier {
   Future<void> awardCoins(int amount, String type) =>
       FirestoreService.instance.updateAnimeCoins(amount, type);
 
-  Future<void> spendCoins(int amount, String type) async {
+  // ── Reservation‑based coin spending ────────────────────────────────────────
+
+  int reserveCoins(int amount) {
+    if (!canAffordCoins(amount)) {
+      throw InsufficientCoinsException(
+        required: amount,
+        available: spendableAnimeCoins,
+      );
+    }
+
+    final id = ++_nextCoinReservationId;
+    _pendingCoinReservations[id] = amount;
+    notifyListeners();
+    return id;
+  }
+
+  void rollbackReservedCoinSpend(int reservationId) {
+    if (_pendingCoinReservations.remove(reservationId) != null) {
+      notifyListeners();
+    }
+  }
+
+  Future<int> commitReservedCoinSpend(int reservationId, String type) async {
+    final amount = _pendingCoinReservations[reservationId];
+    if (amount == null) {
+      throw StateError('reservation_not_found');
+    }
+
     try {
       final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('spendCoins')
-          .call<Map<Object?, Object?>>({'amount': amount, 'type': type});
+          .call(<String, dynamic>{
+        'amount': amount,
+        'type': type,
+      });
 
-      final data = Map<String, dynamic>.from(result.data);
+      final data = Map<String, dynamic>.from(result.data as Map);
 
       if (data['success'] != true) {
+        rollbackReservedCoinSpend(reservationId);
+
         if (data['error'] == 'insufficient_coins') {
           throw InsufficientCoinsException(
-            required:  amount,
-            available: _animeCoins,
+            required: amount,
+            available: (data['balance'] as num?)?.toInt() ?? spendableAnimeCoins,
           );
         }
+
         throw Exception('spendCoins failed: ${data['error']}');
       }
 
-      // Sync local cache immediately so the UI doesn't wait for the stream.
+      _pendingCoinReservations.remove(reservationId);
       _animeCoins = (data['newBalance'] as num).toInt();
       notifyListeners();
+      return _animeCoins;
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('[UserDataProvider] spendCoins CF error: ${e.code} ${e.message}');
+      rollbackReservedCoinSpend(reservationId);
+
+      final insufficient = e.code == 'resource-exhausted' ||
+          (e.message ?? '').contains('insufficient_coins');
+
+      if (insufficient) {
+        throw InsufficientCoinsException(
+          required: amount,
+          available: spendableAnimeCoins,
+        );
+      }
+
+      debugPrint(
+        '[UserDataProvider] commitReservedCoinSpend CF error: ${e.code} ${e.message}',
+      );
+      rethrow;
+    } catch (_) {
+      rollbackReservedCoinSpend(reservationId);
       rethrow;
     }
   }
 
-  Future<void> setStreakShieldActive(bool value) =>
-      FirestoreService.instance.setStreakShieldActive(value);
+  /// Simple spend wrapper using the reservation system.
+  Future<void> spendCoins(int amount, String type) async {
+    final reservationId = reserveCoins(amount);
+    await commitReservedCoinSpend(reservationId, type);
+  }
 
   // ── P-05: Session quiz counter ────────────────────────────────────────────
   void incrementSessionQuizCount() {

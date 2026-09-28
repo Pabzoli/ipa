@@ -22,6 +22,7 @@
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -37,18 +38,20 @@ class QuestionCardWidget extends StatelessWidget {
     if (q == null) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg, 20, AppSpacing.lg, AppSpacing.lg),
       child: Container(
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(AppRadii.feature),
           boxShadow: [
             BoxShadow(
-              color:      Colors.black.withOpacity(0.18),
+              color: Colors.black.withValues(alpha: 0.18),
               blurRadius: 32,
               offset:     const Offset(0, 8),
             ),
             BoxShadow(
-              color:        AppColors.primary.withOpacity(0.07),
+              color:
+                  AppColors.primary.withValues(alpha: 0.07),
               blurRadius:   40,
               spreadRadius: -4,
             ),
@@ -59,9 +62,9 @@ class QuestionCardWidget extends StatelessWidget {
           color:     AppColors.surface,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(AppRadii.feature),
             side: BorderSide(
-              color: AppColors.primary.withOpacity(0.18),
+              color: AppColors.primary.withValues(alpha: 0.18),
               width: 1,
             ),
           ),
@@ -82,7 +85,8 @@ class QuestionCardWidget extends StatelessWidget {
                         '${ctrl.qIndex + 1}',
                         key:   ValueKey(ctrl.qIndex),
                         style: TextStyle(
-                          color:      AppColors.primary.withOpacity(0.06),
+                          color:
+                              AppColors.primary.withValues(alpha: 0.06),
                           fontSize:   100,
                           fontWeight: FontWeight.w900,
                           height:     1,
@@ -101,9 +105,9 @@ class QuestionCardWidget extends StatelessWidget {
                       label: q.question,
                       child: Text(
                         q.question,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color:         AppColors.textPrimary,
-                          fontSize:      19,
+                          fontSize:      19.sp,
                           fontWeight:    FontWeight.w700,
                           height:        1.5,
                           letterSpacing: -0.3,
@@ -132,25 +136,26 @@ class _AnimeTitleChip extends StatelessWidget {
     return Semantics(
       label: 'Anime: $title',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: 5),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              AppColors.primary.withOpacity(0.2),
-              AppColors.primary.withOpacity(0.08),
+              AppColors.primary.withValues(alpha: 0.2),
+              AppColors.primary.withValues(alpha: 0.08),
             ],
           ),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadii.sm),
           border: Border.all(
-            color: AppColors.primary.withOpacity(0.35),
+            color: AppColors.primary.withValues(alpha: 0.35),
             width: 1,
           ),
         ),
         child: Text(
           title.toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             color:         AppColors.primary,
-            fontSize:      10,
+            fontSize:      10.sp,
             fontWeight:    FontWeight.w800,
             letterSpacing: 1.8,
           ),

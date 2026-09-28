@@ -1,70 +1,71 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/shared_widgets.dart';
-import '../../core/widgets/coin_earn_animation.dart';      // ← NEW
+import '../../core/widgets/coin_earn_animation.dart';
+import '../../core/widgets/app_button.dart';
 import '../../core/services/firestore_service.dart';
-import '../../core/providers/user_data_provider.dart';    // ← NEW
+import '../../core/providers/user_data_provider.dart';
 import 'auth_service.dart';
 
 // ─── Auth Gate ────────────────────────────────────────────────────────────────
-/// Entry point that listens to auth state and routes accordingly.
-/// If a signed-in user hasn't set their university yet, they are shown a
-/// one-time [_UniversitySetupPage] before reaching [home].
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   final Widget home;
   const AuthGate({super.key, required this.home});
 
   @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  // Fetched once and reused. If this were re-read from
+  // AuthService.instance.authStateChanges inside build(), every rebuild of
+  // AuthGate (e.g. the keyboard opening/closing and nudging MediaQuery,
+  // theme changes, etc.) would hand StreamBuilder a *new* Stream instance.
+  // StreamBuilder treats that as a brand-new subscription, so it briefly
+  // resets to ConnectionState.waiting and re-shows the splash screen before
+  // the new stream reports the current user again — which is exactly what
+  // looks like the app "restarting" when you merely tap into the email
+  // field and the keyboard slides up.
+  late final Stream<User?> _authStream =
+      AuthService.instance.authStateChanges;
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: AuthService.instance.authStateChanges,
+      stream: _authStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const _SplashScreen();
         }
         if (!snapshot.hasData) return const LoginPage();
-        return _UniversityGate(home: home);
+        return _PostLoginGate(home: widget.home);
       },
     );
   }
 }
 
-// ─── University Gate ──────────────────────────────────────────────────────────
-class _UniversityGate extends StatefulWidget {
+// ─── Post-login Gate ──────────────────────────────────────────────────────────
+// No longer blocks on university selection: campus is picked inside the
+// Rankings → My Campus tab. This gate only handles the daily login bonus.
+class _PostLoginGate extends StatefulWidget {
   final Widget home;
-  const _UniversityGate({required this.home});
+  const _PostLoginGate({required this.home});
 
   @override
-  State<_UniversityGate> createState() => _UniversityGateState();
+  State<_PostLoginGate> createState() => _PostLoginGateState();
 }
 
-class _UniversityGateState extends State<_UniversityGate> {
-  bool _checked         = false;
-  bool _needsUniversity = false;
-
+class _PostLoginGateState extends State<_PostLoginGate> {
   int  _pendingBonusCoins   = 0;
   bool _bonusAnimScheduled  = false;
 
   @override
   void initState() {
     super.initState();
-    _checkUniversity();
     _checkDailyLoginBonus();
-  }
-
-  Future<void> _checkUniversity() async {
-    try {
-      final uni = await FirestoreService.instance.getCurrentUserUniversity();
-      if (!mounted) return;
-      setState(() {
-        _checked         = true;
-        _needsUniversity = uni == null;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _checked = true);
-    }
   }
 
   Future<void> _checkDailyLoginBonus() async {
@@ -81,14 +82,6 @@ class _UniversityGateState extends State<_UniversityGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_checked) return const _SplashScreen();
-
-    if (_needsUniversity) {
-      return _UniversitySetupPage(
-        onComplete: () => setState(() => _needsUniversity = false),
-      );
-    }
-
     if (_pendingBonusCoins > 0 && !_bonusAnimScheduled) {
       _bonusAnimScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -118,182 +111,9 @@ class _SplashScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _LogoMark(),
-              const SizedBox(height: 32),
+              SizedBox(height: 32.h),
               const CircularProgressIndicator(color: AppColors.primary),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── University Setup Page ────────────────────────────────────────────────────
-class _UniversitySetupPage extends StatefulWidget {
-  final VoidCallback onComplete;
-  const _UniversitySetupPage({required this.onComplete});
-
-  @override
-  State<_UniversitySetupPage> createState() => _UniversitySetupPageState();
-}
-
-class _UniversitySetupPageState extends State<_UniversitySetupPage>
-    with SingleTickerProviderStateMixin {
-  String? _selected;
-  bool    _loading = false;
-
-  late final AnimationController _fadeCtrl;
-  late final Animation<double>   _fadeAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _fadeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..forward();
-    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
-  }
-
-  @override
-  void dispose() {
-    _fadeCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_selected == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select your university first.')),
-      );
-      return;
-    }
-    setState(() => _loading = true);
-    try {
-      await FirestoreService.instance.updateUniversity(_selected!);
-      widget.onComplete();
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _skip() async {
-    setState(() => _loading = true);
-    try {
-      await FirestoreService.instance.updateUniversity('');
-      widget.onComplete();
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      // FIX: transparent so AnimatedHeroBackground shows edge-to-edge
-      backgroundColor: Colors.transparent,
-      extendBodyBehindAppBar: true,
-      extendBody: true,
-      body: AnimatedHeroBackground(
-        child: FadeTransition(
-          opacity: _fadeAnim,
-          child: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(child: _LogoMark()),
-                  const SizedBox(height: 40),
-                  const Text(
-                    'One quick thing…',
-                    style: TextStyle(
-                      color:      AppColors.textPrimary,
-                      fontSize:   30,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Tell us your university so you can compete on the '
-                    'Campus Leaderboard and see how your school stacks up '
-                    'against rivals across Nigeria.',
-                    style: TextStyle(
-                      color:    AppColors.textSecondary,
-                      fontSize: 15,
-                      height:   1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-
-                  // Campus rivalry preview
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF6C63FF).withOpacity(0.15),
-                          const Color(0xFF3ECFCF).withOpacity(0.10),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                          color: const Color(0xFF6C63FF).withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      children: const [
-                        Text('🎓', style: TextStyle(fontSize: 28)),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'UNILAG leads OAU · 124,500 – 98,200\n'
-                            'Your school could be #1 next week.',
-                            style: TextStyle(
-                              color:    AppColors.textPrimary,
-                              fontSize: 13,
-                              height:   1.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-
-                  GlassCard(
-                    child: _UniversityDropdown(
-                      value:     _selected,
-                      onChanged: (v) => setState(() => _selected = v),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  GradientButton(
-                    label:     'Set My University',
-                    onTap:     _save,
-                    isLoading: _loading,
-                    icon:      Icons.school_rounded,
-                    colors: const [Color(0xFF6C63FF), Color(0xFF3ECFCF)],
-                  ),
-                  const SizedBox(height: 16),
-
-                  Center(
-                    child: TextButton(
-                      onPressed: _loading ? null : _skip,
-                      child: const Text(
-                        'Skip for now',
-                        style: TextStyle(
-                          color:      AppColors.textMuted,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            ),
           ),
         ),
       ),
@@ -388,10 +208,8 @@ class _LoginPageState extends State<LoginPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // FIX 1: Background extends behind status bar and bottom nav bar
       extendBodyBehindAppBar: true,
       extendBody: true,
-      // FIX 2: Transparent so the AnimatedHeroBackground covers everything
       backgroundColor: Colors.transparent,
       body: AnimatedHeroBackground(
         child: FadeTransition(
@@ -459,55 +277,48 @@ class _LoginForm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // FIX 3: SafeArea moved here so the inner content respects device insets
-    // while AnimatedHeroBackground covers the full screen edge-to-edge
     return SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) {
           return SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            // FIX 4: ConstrainedBox + IntrinsicHeight ensures the Column
-            // fills the full viewport height so there are no empty dark gaps
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
               child: IntrinsicHeight(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  padding: EdgeInsets.symmetric(horizontal: 28.r),
                   child: Form(
                     key: formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Flexible top space — centers content vertically
                         const Spacer(flex: 2),
 
-                        // ── Logo ──────────────────────────────────────────
                         Center(child: _LogoMark()),
-                        const SizedBox(height: 40),
+                        SizedBox(height: 40.h),
 
-                        // ── Heading ───────────────────────────────────────
-                        const Text(
+                        Text(
                           'Welcome back',
                           style: TextStyle(
-                            color:         AppColors.textPrimary,
-                            fontSize:      34,
-                            fontWeight:    FontWeight.w900,
+                            color: AppColors.textPrimary,
+                            fontSize: 32.sp,
+                            fontWeight: FontWeight.w900,
                             letterSpacing: -1,
-                            height:        1.1,
+                            height: 1.1,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        const Text(
+                        SizedBox(height: 6.h),
+                        Text(
                           'Sign in to continue your anime journey',
                           style: TextStyle(
-                            color:    AppColors.textSecondary,
-                            fontSize: 15,
-                            height:   1.4,
+                            color: AppColors.textSecondary,
+                            fontSize: 14.sp,
+                            height: 1.4,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        const SizedBox(height: 32),
+                        SizedBox(height: 32.h),
 
-                        // ── Credential card ───────────────────────────────
                         GlassCard(
                           child: Column(
                             children: [
@@ -521,7 +332,7 @@ class _LoginForm extends StatelessWidget {
                                         ? 'Enter a valid email'
                                         : null,
                               ),
-                              const SizedBox(height: 14),
+                              SizedBox(height: 14.h),
                               _AuthField(
                                 controller:  passCtrl,
                                 label:       'Password',
@@ -533,7 +344,7 @@ class _LoginForm extends StatelessWidget {
                                         ? Icons.visibility_outlined
                                         : Icons.visibility_off_outlined,
                                     color: AppColors.textMuted,
-                                    size:  20,
+                                    size:  20.r,
                                   ),
                                   onPressed: onToggleObscure,
                                 ),
@@ -541,21 +352,21 @@ class _LoginForm extends StatelessWidget {
                                     ? 'Password must be at least 6 characters'
                                     : null,
                               ),
-                              const SizedBox(height: 4),
+                              SizedBox(height: 4.h),
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: TextButton(
                                   onPressed: onForgot,
                                   style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 4, vertical: 8),
-                                  ),
-                                  child: const Text(
+                                      padding: EdgeInsets.symmetric(
+                                          horizontal: 4.r, vertical: 8.r),
+                                    ),
+                                  child: Text(
                                     'Forgot password?',
                                     style: TextStyle(
                                       color:      AppColors.secondary,
                                       fontWeight: FontWeight.w600,
-                                      fontSize:   13,
+                                      fontSize:   13.sp,
                                     ),
                                   ),
                                 ),
@@ -564,44 +375,50 @@ class _LoginForm extends StatelessWidget {
                           ),
                         ),
 
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20.h),
 
-                        // ── Sign-in button ────────────────────────────────
-                        GradientButton(
-                          label:     'Sign In',
-                          onTap:     onLogin,
-                          isLoading: loading,
-                          icon:      Icons.login_rounded,
+                        AppButton(
+                          label: 'Sign In',
+                          onPressed: onLogin,
+                          loading: loading,
+                          icon: Icon(Icons.login_rounded, size: 20.r),
+                          variant: AppButtonVariant.gradient,
+                          width: double.infinity,
+                          height: 56.h,
                         ),
 
-                        const SizedBox(height: 28),
+                        SizedBox(height: 28.h),
 
-                        // ── Register link ─────────────────────────────────
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text(
+                            Text(
                               "Don't have an account? ",
                               style: TextStyle(
                                 color:    AppColors.textSecondary,
-                                fontSize: 14,
+                                fontSize: 14.sp,
                               ),
                             ),
-                            GestureDetector(
+                            InkWell(
                               onTap: onRegister,
-                              child: const Text(
-                                'Create one',
-                                style: TextStyle(
-                                  color:      AppColors.primary,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize:   14,
+                              borderRadius:
+                                  BorderRadius.circular(AppRadii.xs),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 4.r, vertical: 2.r),
+                                child: Text(
+                                  'Create one',
+                                  style: TextStyle(
+                                    color:      AppColors.primary,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize:   14.sp,
+                                  ),
                                 ),
                               ),
                             ),
                           ],
                         ),
 
-                        // Flexible bottom space
                         const Spacer(flex: 1),
                       ],
                     ),
@@ -631,6 +448,7 @@ class _RegisterFormState extends State<RegisterForm> {
   final _emailCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
   final _confCtrl  = TextEditingController();
+  final _referralCodeCtrl = TextEditingController();
 
   bool    _obscure            = true;
   bool    _loading            = false;
@@ -642,6 +460,7 @@ class _RegisterFormState extends State<RegisterForm> {
     _emailCtrl.dispose();
     _passCtrl.dispose();
     _confCtrl.dispose();
+    _referralCodeCtrl.dispose();
     super.dispose();
   }
 
@@ -654,6 +473,7 @@ class _RegisterFormState extends State<RegisterForm> {
         password:   _passCtrl.text,
         username:   _nameCtrl.text,
         university: _selectedUniversity,
+        referredBy: _referralCodeCtrl.text,
       );
     } on FirebaseAuthException catch (e) {
       if (mounted) {
@@ -671,13 +491,12 @@ class _RegisterFormState extends State<RegisterForm> {
 
   @override
   Widget build(BuildContext context) {
-    // FIX: Same full-screen approach as _LoginForm
     return SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) {
           return SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+            padding: EdgeInsets.symmetric(horizontal: 28.r, vertical: 16.r),
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
               child: IntrinsicHeight(
@@ -695,28 +514,31 @@ class _RegisterFormState extends State<RegisterForm> {
                             onPressed: widget.onBack,
                             padding: EdgeInsets.zero,
                           ),
-                          const SizedBox(width: 4),
-                          const Text(
+                          SizedBox(width: 4.w),
+                          Text(
                             'Create Account',
                             style: TextStyle(
-                              color:      AppColors.textPrimary,
-                              fontSize:   28,
+                              color: AppColors.textPrimary,
+                              fontSize: 26.sp,
                               fontWeight: FontWeight.w900,
                               letterSpacing: -0.5,
+                              height: 1.05,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      const Padding(
-                        padding: EdgeInsets.only(left: 44),
+                      SizedBox(height: 4.h),
+                      Padding(
+                        padding: EdgeInsets.only(left: 44.r),
                         child: Text(
                           'Join thousands of anime fans',
                           style: TextStyle(
-                              color: AppColors.textSecondary, fontSize: 14),
+                              color: AppColors.textSecondary,
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w600),
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      SizedBox(height: 28.h),
 
                       // ── Form card ─────────────────────────────────────
                       GlassCard(
@@ -731,7 +553,7 @@ class _RegisterFormState extends State<RegisterForm> {
                                       ? 'Username must be at least 3 characters'
                                       : null,
                             ),
-                            const SizedBox(height: 14),
+                            SizedBox(height: 14.h),
                             _AuthField(
                               controller:   _emailCtrl,
                               label:        'Email',
@@ -742,7 +564,7 @@ class _RegisterFormState extends State<RegisterForm> {
                                       ? 'Enter a valid email'
                                       : null,
                             ),
-                            const SizedBox(height: 14),
+                            SizedBox(height: 14.h),
                             _AuthField(
                               controller:  _passCtrl,
                               label:       'Password',
@@ -754,7 +576,7 @@ class _RegisterFormState extends State<RegisterForm> {
                                       ? Icons.visibility_outlined
                                       : Icons.visibility_off_outlined,
                                   color: AppColors.textMuted,
-                                  size:  20,
+                                  size:  20.r,
                                 ),
                                 onPressed: () =>
                                     setState(() => _obscure = !_obscure),
@@ -763,7 +585,7 @@ class _RegisterFormState extends State<RegisterForm> {
                                   ? 'Password must be at least 6 characters'
                                   : null,
                             ),
-                            const SizedBox(height: 14),
+                            SizedBox(height: 14.h),
                             _AuthField(
                               controller:  _confCtrl,
                               label:       'Confirm Password',
@@ -773,64 +595,91 @@ class _RegisterFormState extends State<RegisterForm> {
                                   ? 'Passwords do not match'
                                   : null,
                             ),
-                            const SizedBox(height: 14),
+                            SizedBox(height: 14.h),
 
-                            // ── University dropdown ────────────────────
                             _UniversityDropdown(
                               value:     _selectedUniversity,
                               onChanged: (v) =>
                                   setState(() => _selectedUniversity = v),
                               isRequired: false,
                             ),
+                            SizedBox(height: 14.h),
+
+                            _AuthField(
+                              controller:  _referralCodeCtrl,
+                              label:       'Referral code (optional)',
+                              icon:        Icons.person_add_rounded,
+                              keyboardType: TextInputType.text,
+                            ),
+                            SizedBox(height: 6.h),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Enter a friend\'s code to earn rewards together.',
+                                style: TextStyle(
+                                    color:    AppColors.textMuted,
+                                    fontSize: 11.5.sp),
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8.h),
 
-                      // ── Campus rivalry teaser ─────────────────────────
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        padding: EdgeInsets.symmetric(horizontal: 4.r),
                         child: Row(
-                          children: const [
+                          children: [
                             Icon(Icons.school_outlined,
-                                color: AppColors.textMuted, size: 13),
-                            SizedBox(width: 6),
+                                color: AppColors.textMuted, size: 13.r),
+                            SizedBox(width: 6.w),
                             Expanded(
                               child: Text(
                                 'Optional — lets you compete on the Campus Leaderboard '
                                 'and track your university\'s rivalry.',
                                 style: TextStyle(
                                     color:    AppColors.textMuted,
-                                    fontSize: 11.5),
+                                    fontSize: 11.5.sp),
                               ),
                             ),
                           ],
                         ),
                       ),
 
-                      const SizedBox(height: 20),
+                      SizedBox(height: 20.h),
 
-                      GradientButton(
-                        label:     'Create Account',
-                        onTap:     _register,
-                        isLoading: _loading,
-                        icon:      Icons.person_add_rounded,
-                        colors:    const [Color(0xFF457B9D), Color(0xFF1D3557)],
+                      AppButton(
+                        label: 'Create Account',
+                        onPressed: _register,
+                        loading: _loading,
+                        icon: Icon(Icons.person_add_rounded, size: 20.r),
+                        variant: AppButtonVariant.gradient,
+                        gradientColors: const [
+                          Color(0xFF457B9D),
+                          Color(0xFF1D3557),
+                        ],
+                        width: double.infinity,
+                        height: 56.h,
                       ),
-                      const SizedBox(height: 20),
+                      SizedBox(height: 20.h),
                       Center(
-                        child: GestureDetector(
+                        child: InkWell(
                           onTap: widget.onBack,
-                          child: const Text(
-                            'Already have an account? Sign in',
-                            style: TextStyle(
-                              color:      AppColors.primary,
-                              fontWeight: FontWeight.w600,
+                          borderRadius: BorderRadius.circular(AppRadii.xs),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 4.r, vertical: 2.r),
+                            child: Text(
+                              'Already have an account? Sign in',
+                              style: TextStyle(
+                                color:      AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16.h),
                     ],
                   ),
                 ),
@@ -858,19 +707,19 @@ class _UniversityDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
-      value:         value,
+      initialValue: value,
       isExpanded:    true,
       dropdownColor: AppColors.surface,
-      icon: const Icon(Icons.expand_more_rounded,
-          color: AppColors.textMuted, size: 20),
+      icon: Icon(Icons.expand_more_rounded,
+          color: AppColors.textMuted, size: 20.r),
       decoration: InputDecoration(
         labelText: 'University',
-        prefixIcon: const Icon(Icons.school_outlined,
-            color: AppColors.textMuted, size: 20),
+        prefixIcon: Icon(Icons.school_outlined,
+            color: AppColors.textMuted, size: 20.r),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            EdgeInsets.symmetric(horizontal: 12.r, vertical: 14.r),
       ),
-      style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
+      style: TextStyle(color: AppColors.textPrimary, fontSize: 15.sp),
       hint: const Text(
         'Select your university',
         style: TextStyle(color: AppColors.textMuted),
@@ -919,10 +768,10 @@ class _AuthField extends StatelessWidget {
       obscureText:  obscureText,
       keyboardType: keyboardType,
       validator:    validator,
-      style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
+      style: TextStyle(color: AppColors.textPrimary, fontSize: 15.sp),
       decoration: InputDecoration(
         labelText:  label,
-        prefixIcon: Icon(icon, color: AppColors.textMuted, size: 20),
+        prefixIcon: Icon(icon, color: AppColors.textMuted, size: 20.r),
         suffixIcon: suffixIcon,
       ),
     );
@@ -936,10 +785,9 @@ class _LogoMark extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Outer glow ring
         Container(
-          width:  84,
-          height: 84,
+          width:  84.w,
+          height: 84.h,
           decoration: BoxDecoration(
             gradient: const RadialGradient(
               colors: [
@@ -951,39 +799,40 @@ class _LogoMark extends StatelessWidget {
           ),
           child: Center(
             child: Container(
-              width:  72,
-              height: 72,
+              width:  72.w,
+              height: 72.h,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   colors: [AppColors.primary, Color(0xFFFF6B6B)],
                   begin:  Alignment.topLeft,
                   end:    Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(AppRadii.xl),
                 boxShadow: [
                   BoxShadow(
-                    color:      AppColors.primary.withOpacity(0.45),
+                    color:
+                        AppColors.primary.withValues(alpha: 0.45),
                     blurRadius: 28,
                     spreadRadius: 2,
                     offset:     const Offset(0, 10),
                   ),
                 ],
               ),
-              child: const Icon(Icons.quiz_rounded,
-                  color: Colors.white, size: 36),
+              child: Icon(Icons.quiz_rounded,
+                  color: Colors.white, size: 36.r),
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        SizedBox(height: 14.h),
         ShaderMask(
           shaderCallback: (bounds) => const LinearGradient(
             colors: [AppColors.primary, Color(0xFFFF6B6B)],
           ).createShader(bounds),
-          child: const Text(
+          child: Text(
             'AnimeQuiz',
             style: TextStyle(
-              color:         Colors.white, // masked by shader
-              fontSize:      24,
+              color:         Colors.white,
+              fontSize:      24.sp,
               fontWeight:    FontWeight.w900,
               letterSpacing: 1.5,
             ),

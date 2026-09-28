@@ -24,8 +24,10 @@
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
+import '../theme/app_theme.dart';
 import '../../features/quiz/quiz_controller.dart';
 import 'option_tile.dart';
 
@@ -112,7 +114,7 @@ class _OptionsListWidgetState extends State<OptionsListWidget>
     if (q == null || _fadeList.isEmpty) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
       child: Column(
         children: List.generate(q.options.length, (i) {
           // Guard: if option count somehow differs from animation count.

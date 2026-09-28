@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0d0e14" />
+<title>AnimeQuiz — Power up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #0d0e14;
+    --surface:     #16181f;
+    --surface-2:   #1c1f27;
+    --surface-3:   #23262f;
+    --divider:     rgba(255, 255, 255, 0.06);
+    --divider-2:   rgba(255, 255, 255, 0.10);
+
+    --primary:     #E63946;
+    --primary-hi:  #FF4D5E;
+    --primary-dim: rgba(230, 57, 70, 0.14);
+    --primary-ring:rgba(230, 57, 70, 0.22);
+
+    --sky:         #4EA8DE;
+    --accent:      #FFB300;
+    --accent-hi:   #FFD166;
+    --accent-dim:  rgba(255, 179, 0, 0.12);
+
+    --correct:     #38EF7D;
+    --correct-dim: rgba(56, 239, 125, 0.10);
+    --wrong:       #FF5252;
+
+    --ink:         #FFFFFF;
+    --muted:       #A8AEC2;
+    --muted-2:     #767B92;
+    --muted-3:     #4D5265;
+
+    --radius-xl:   24px;
+    --radius-lg:   18px;
+    --radius-md:   14px;
+    --radius-sm:   10px;
+
+    --font: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+  }
+
+  /* ── Ambient background ─────────────────────────────────────────── */
+  .ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .ambient::before,
+  .ambient::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(140px);
+    opacity: 0.28;
+    will-change: transform;
+  }
+  .ambient::before {
+    width: 640px; height: 640px;
+    top: -240px; left: -180px;
+    background: radial-gradient(circle, #E63946 0%, transparent 65%);
+    animation: drift-a 28s ease-in-out infinite;
+  }
+  .ambient::after {
+    width: 720px; height: 720px;
+    top: -160px; right: -240px;
+    background: radial-gradient(circle, #4EA8DE 0%, transparent 65%);
+    animation: drift-b 34s ease-in-out infinite;
+  }
+  @keyframes drift-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(120px, 80px) scale(1.08); }
+  }
+  @keyframes drift-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-140px, 100px) scale(1.05); }
+  }
+
+  /* ── Shell ─────────────────────────────────────────────────────── */
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 36px 24px 80px;
+  }
+
+  /* ── Top bar ───────────────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 28px;
+    margin-bottom: 56px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+  }
+  .brand-mark {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #E63946, #FF4D5E);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 900;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.22) inset,
+      0 8px 20px rgba(230, 57, 70, 0.4);
+  }
+  .trust-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+    padding: 8px 14px;
+    border-radius: 100px;
+    background: var(--surface);
+    border: 1px solid var(--divider-2);
+  }
+  .trust-pill .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--correct);
+    box-shadow: 0 0 10px var(--correct);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  /* ── Hero ──────────────────────────────────────────────────────── */
+  .hero { margin-bottom: 64px; }
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    margin-bottom: 22px;
+  }
+  .hero-eyebrow::before {
+    content: "";
+    width: 24px;
+    height: 1px;
+    background: var(--muted-3);
+  }
+  .hero h1 {
+    margin: 0 0 22px;
+    font-size: clamp(40px, 8vw, 76px);
+    font-weight: 900;
+    letter-spacing: -2.5px;
+    line-height: 0.98;
+    color: var(--ink);
+  }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, #E63946 0%, #FF4D5E 60%, #FFB300 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero-lede {
+    font-size: clamp(15px, 1.7vw, 17px);
+    color: var(--muted);
+    max-width: 560px;
+    margin: 0;
+    line-height: 1.6;
+    font-weight: 600;
+  }
+  .hero-lede strong {
+    color: var(--ink);
+    font-weight: 800;
+  }
+
+  /* ── Section ───────────────────────────────────────────────────── */
+  .section { margin-bottom: 56px; }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .step-num {
+    width: 28px; height: 28px;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--primary-dim);
+    color: var(--primary-hi);
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid rgba(230, 57, 70, 0.3);
+  }
+  .section-title {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .section-hint {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+
+  /* ── Email field ───────────────────────────────────────────────── */
+  .email-card {
+    padding: 22px 24px 24px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--divider-2);
+  }
+  .email-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    margin-bottom: 12px;
+  }
+  .email-label svg { color: var(--muted-3); }
+
+  .email-input {
+    width: 100%;
+    padding: 16px 18px;
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    border: 1.5px solid var(--divider-2);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.1px;
+    outline: none;
+    transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
+  }
+  .email-input::placeholder { color: var(--muted-3); font-weight: 600; }
+  .email-input:focus {
+    border-color: var(--primary);
+    background: var(--surface-2);
+    box-shadow: 0 0 0 4px var(--primary-ring);
+  }
+  .email-input.invalid {
+    border-color: var(--wrong);
+    box-shadow: 0 0 0 4px rgba(255, 82, 82, 0.15);
+  }
+
+  .email-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--muted-2);
+    line-height: 1.5;
+  }
+  .email-note svg { flex-shrink: 0; color: var(--correct); }
+
+  /* ── Featured product ──────────────────────────────────────────── */
+  .featured {
+    position: relative;
+    padding: 32px 30px 30px;
+    border-radius: var(--radius-xl);
+    background:
+      radial-gradient(ellipse at 90% 10%, rgba(255, 179, 0, 0.10), transparent 55%),
+      linear-gradient(180deg, #1a1c24, #16181f);
+    border: 1.5px solid rgba(255, 179, 0, 0.35);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  /* Giant watermark number */
+  .featured::before {
+    content: "2880";
+    position: absolute;
+    right: -20px;
+    bottom: -60px;
+    font-size: 240px;
+    font-weight: 900;
+    letter-spacing: -14px;
+    line-height: 1;
+    color: rgba(255, 179, 0, 0.035);
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
+  }
+  .featured > * { position: relative; z-index: 1; }
+
+  .featured-ribbon {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    background: linear-gradient(135deg, #FFB300, #FFD166);
+    color: #2a1f00;
+    font-size: 10.5px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    box-shadow: 0 6px 18px rgba(255, 179, 0, 0.32);
+    margin-bottom: 20px;
+  }
+  .featured-title {
+    font-size: clamp(24px, 3.5vw, 32px);
+    font-weight: 900;
+    letter-spacing: -0.6px;
+    line-height: 1.1;
+    margin: 0 0 8px;
+  }
+  .featured-desc {
+    color: var(--muted);
+    font-size: 14.5px;
+    margin: 0 0 26px;
+    max-width: 420px;
+    line-height: 1.55;
+  }
+  .featured-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding-top: 22px;
+    border-top: 1px solid var(--divider);
+  }
+  .featured-price {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .featured-price-note {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--muted-2);
+    margin-top: 6px;
+    letter-spacing: 0;
+  }
+
+  /* ── Product rows ──────────────────────────────────────────────── */
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 18px 20px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--divider-2);
+    transition: transform .2s cubic-bezier(.2, .8, .2, 1),
+                border-color .18s ease,
+                background .18s ease;
+  }
+  .row:hover {
+    transform: translateY(-2px);
+    border-color: var(--row-edge, rgba(255, 255, 255, 0.14));
+    background: var(--surface-2);
+  }
+  .row-icon {
+    width: 46px; height: 46px;
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    border-radius: 13px;
+    font-size: 22px;
+    background: var(--row-bg, var(--primary-dim));
+    border: 1px solid var(--row-edge, rgba(230, 57, 70, 0.28));
+  }
+  .row-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .row-title {
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    margin: 0 0 3px;
+    line-height: 1.15;
+  }
+  .row-desc {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row-price {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: -0.4px;
+    color: var(--ink);
+    flex-shrink: 0;
+    min-width: 80px;
+    text-align: right;
+  }
+
+  /* ── Buy buttons ───────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 22px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: -0.1px;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, #E63946, #FF4D5E);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 10px 22px -10px rgba(230, 57, 70, 0.7);
+    transition: transform .12s ease, filter .18s ease, box-shadow .18s ease;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+    transform: translateX(-160%);
+    transition: transform .8s ease;
+    pointer-events: none;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:hover::before { transform: translateX(160%); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
+  .btn:disabled::before { display: none; }
+
+  .btn-gold {
+    background: linear-gradient(135deg, #FFB300, #FFD166);
+    color: #2a1f00;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.35) inset,
+      0 12px 26px -10px rgba(255, 179, 0, 0.6);
+    padding: 16px 28px;
+    font-size: 15px;
+  }
+
+  .btn-sm {
+    padding: 11px 18px;
+    font-size: 13px;
+    border-radius: 11px;
+  }
+
+  /* ── Message ───────────────────────────────────────────────────── */
+  .msg {
+    margin-top: 24px;
+    padding: 15px 20px;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 800;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity .22s ease, transform .22s ease;
+    pointer-events: none;
+    letter-spacing: -0.1px;
+  }
+  .msg.show { opacity: 1; transform: translateY(0); }
+  .msg.error {
+    color: var(--wrong);
+    background: rgba(255, 82, 82, 0.08);
+    border: 1px solid rgba(255, 82, 82, 0.24);
+  }
+  .msg.info {
+    color: var(--correct);
+    background: var(--correct-dim);
+    border: 1px solid rgba(56, 239, 125, 0.24);
+  }
+
+  /* ── Footer ────────────────────────────────────────────────────── */
+  .footer {
+    margin-top: 64px;
+    padding-top: 28px;
+    border-top: 1px solid var(--divider);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+  .footer-badges {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .footer-badges span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .footer-badges svg { color: var(--correct); }
+
+  /* ── Footer legal links ────────────────────────────────────────── */
+  .footer-links {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .footer-links a {
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 800;
+    text-decoration: none;
+    transition: color .15s ease;
+  }
+  .footer-links a:hover { color: var(--primary-hi); }
+  .footer-copyright { font-size: 12px; color: var(--muted-2); }
+
+  /* ── Responsive ────────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .wrap { padding: 24px 18px 60px; }
+    .topbar { margin-bottom: 36px; }
+    .hero { margin-bottom: 40px; }
+    .section { margin-bottom: 40px; }
+    .featured { padding: 26px 22px 24px; }
+    .featured::before { font-size: 160px; right: -10px; bottom: -40px; }
+    .featured-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+    .btn-gold { width: 100%; }
+    .row {
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 16px;
+    }
+    .row-price {
+      min-width: auto;
+      text-align: left;
+      order: 3;
+      flex-basis: auto;
+      margin-left: auto;
+    }
+    .row .btn { order: 4; flex-basis: 100%; padding: 14px; }
+    .footer {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 14px;
+    }
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient"></div>
+
+<div class="wrap">
+
+  <!-- ── Top bar ── -->
+  <div class="topbar">
+    <div class="brand">
+      <span class="brand-mark">✦</span>
+      <span>AnimeQuiz</span>
+    </div>
+    <span class="trust-pill">
+      <span class="dot"></span>
+      Secured by Flutterwave
+    </span>
+  </div>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-eyebrow">Coins · Premium · Leaderboard</div>
+    <h1>Power <span class="accent">up.</span></h1>
+    <p class="hero-lede">
+      Buy Anime Coins, unlock Premium, or claim your spot on the weekly board.
+      <strong>Your code appears right on this page the moment payment clears — no inbox hunting.</strong>
+    </p>
+  </section>
+
+  <!-- ── Step 1: Email ── -->
+  <section class="section">
+    <div class="section-head">
+      <span class="step-num">1</span>
+      <span class="section-title">Your payment email</span>
+    </div>
+    <div class="email-card">
+      <label class="email-label" for="email">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="5" width="18" height="14" rx="3"/>
+          <path d="M3.5 7.5l8.5 6 8.5-6"/>
+        </svg>
+        Email address
+      </label>
+      <input
+        type="email"
+        id="email"
+        class="email-input"
+        placeholder="you@example.com"
+        autocomplete="email"
+        inputmode="email"
+        spellcheck="false"
+      />
+      <div class="email-note">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"/>
+        </svg>
+        Used only to process your payment. Your code is shown right here — never emailed.
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Step 2: Featured ── -->
+  <section class="section">
+    <div class="section-head">
+      <span class="step-num">2</span>
+      <span class="section-title">Pick your pack</span>
+    </div>
+
+    <!-- Featured card -->
+    <div class="featured">
+      <span class="featured-ribbon">★ Most popular</span>
+      <h2 class="featured-title">2880 Anime Coins</h2>
+      <p class="featured-desc">
+        Our best value pack — includes a 20% bonus and the Champion badge. Enough for weeks of play.
+      </p>
+      <div class="featured-row">
+        <div>
+          <div class="featured-price">₦4,000</div>
+          <span class="featured-price-note">One-time · Code shown on next screen</span>
+        </div>
+        <button class="btn btn-gold" data-id="AQ_AC_3600">Get this pack →</button>
+      </div>
+    </div>
+
+    <!-- Other packs -->
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <!-- ── Message ── -->
+  <div class="msg" id="msg" role="status" aria-live="polite"></div>
+
+  <!-- ── Footer ── -->
+  <div class="footer">
+    <div>
+      <div class="footer-links">
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Service</a>
+        <a href="/refund.html">Refund Policy</a>
+      </div>
+      <div class="footer-copyright">© AnimeQuiz · One-time codes, redeemable in-app</div>
+    </div>
+    <div class="footer-badges">
+      <span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        256-bit TLS encryption
+      </span>
+      <span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        Payments secured by Flutterwave
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Matches FLUTTERWAVE_PRODUCTS in functions/index.js.
+  // Featured (AQ_AC_3600) is rendered as a hero banner above; the rest are rows.
+  const FEATURED = { id: 'AQ_AC_3600' };
+
+  const ROWS = [
+    {
+      id: 'AQ_AC_300',
+      icon: '🪙',
+      title: '300 Anime Coins',
+      desc: 'Starter pack — instant AC for hints and cooldown skips.',
+      price: '₦500',
+      color: '#4EA8DE',
+    },
+    {
+      id: 'AQ_AC_1100',
+      icon: '🪙',
+      title: '990 Anime Coins',
+      desc: 'Includes a 10% bonus — a few solid matches of play.',
+      price: '₦1,500',
+      color: '#7A8FFF',
+    },
+    {
+      id: 'AQ_PREM_31',
+      icon: '👑',
+      title: 'Premium Pass',
+      desc: '31 days — no ads, higher stakes, faster rematches.',
+      price: '₦2,000',
+      color: '#A78BFA',
+      cta: 'Get Premium',
+    },
+    {
+      id: 'AQ_LB_WEEK',
+      icon: '🏆',
+      title: 'Weekly Leaderboard Entry',
+      desc: 'Unlocks your points for this week’s cash-prize board. You still play to rank.',
+      price: '₦500',
+      color: '#38EF7D',
+      cta: 'Buy entry',
+    },
+  ];
+
+  const REQUEST_PAYMENT_URL =
+    'https://us-central1-anime-quiz-1ab1b.cloudfunctions.net/requestPaymentLink';
+
+  const rowsEl = document.getElementById('rows');
+  const msgEl = document.getElementById('msg');
+  const emailEl = document.getElementById('email');
+
+  function msg(text, isError) {
+    if (!text) {
+      msgEl.classList.remove('show', 'error', 'info');
+      msgEl.textContent = '';
+      return;
+    }
+    msgEl.textContent = text;
+    msgEl.className = 'msg show ' + (isError ? 'error' : 'info');
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function renderRows() {
+    rowsEl.innerHTML = '';
+    for (const p of ROWS) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.setProperty('--row-bg', p.color + '22');
+      row.style.setProperty('--row-edge', p.color + '55');
+
+      row.innerHTML =
+        '<div class="row-icon">' + esc(p.icon) + '</div>' +
+        '<div class="row-body">' +
+          '<h3 class="row-title">' + esc(p.title) + '</h3>' +
+          '<p class="row-desc">' + esc(p.desc) + '</p>' +
+        '</div>' +
+        '<div class="row-price">' + esc(p.price) + '</div>' +
+        '<button class="btn btn-sm" data-id="' + esc(p.id) + '">' +
+          esc(p.cta || 'Buy now') +
+        '</button>';
+
+      rowsEl.appendChild(row);
+    }
+  }
+
+  async function onPay(ev) {
+    const btn = ev.target.closest('button[data-id]');
+    if (!btn) return;
+
+    const email = emailEl.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      msg('Please enter a valid email first.', true);
+      emailEl.classList.add('invalid');
+      emailEl.focus();
+      emailEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    emailEl.classList.remove('invalid');
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Opening…';
+    msg('Creating your secure checkout link…');
+
+    try {
+      const resp = await fetch(REQUEST_PAYMENT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: btn.dataset.id, email }),
+      });
+      const json = await resp.json();
+      if (!resp.ok || !json.link) {
+        throw new Error(json.error || 'Unable to create checkout');
+      }
+      msg('');
+      window.location.href = json.link;
+    } catch (err) {
+      msg(err.message, true);
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  document.addEventListener('click', onPay);
+
+  emailEl.addEventListener('input', () => {
+    if (emailEl.classList.contains('invalid') &&
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+      emailEl.classList.remove('invalid');
+      msg('');
+    }
+  });
+
+  renderRows();
+</script>
+</body>
+</html>

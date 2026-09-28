@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
 import '../theme/app_theme.dart';
 
 // ─── Gradient Button ─────────────────────────────────────────────────────────
@@ -33,7 +35,7 @@ class GradientButton extends StatelessWidget {
                 ? [AppColors.textMuted, AppColors.textMuted]
                 : colors,
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(16.r),
           boxShadow: onTap == null
               ? []
               : [
@@ -46,9 +48,9 @@ class GradientButton extends StatelessWidget {
         ),
         child: Center(
           child: isLoading
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
+              ? SizedBox(
+                  width: 22.w,
+                  height: 22.h,
                   child: CircularProgressIndicator(
                     color: Colors.white,
                     strokeWidth: 2.5,
@@ -58,14 +60,14 @@ class GradientButton extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (icon != null) ...[
-                      Icon(icon, color: Colors.white, size: 20),
-                      const SizedBox(width: 8),
+                      Icon(icon, color: Colors.white, size: 20.r),
+                      SizedBox(width: 8.w),
                     ],
                     Text(
                       label,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: 16.sp,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
@@ -97,7 +99,7 @@ class GlassCard extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: AppColors.surface.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20.r),
         border: Border.all(
           color: borderColor ?? AppColors.divider,
           width: 1,
@@ -133,17 +135,17 @@ class StatChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 10.r),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(14.r),
         border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 8),
+          Icon(icon, color: color, size: 18.r),
+          SizedBox(width: 8.w),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -152,15 +154,15 @@ class StatChip extends StatelessWidget {
                 value,
                 style: TextStyle(
                   color: color,
-                  fontSize: 16,
+                  fontSize: 16.sp,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   color: AppColors.textSecondary,
-                  fontSize: 11,
+                  fontSize: 11.sp,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -182,23 +184,23 @@ class ScoreBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20.r),
         border: Border.all(color: AppColors.divider),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: AppColors.accent, size: 16),
-          const SizedBox(width: 6),
+          Icon(icon, color: AppColors.accent, size: 16.r),
+          SizedBox(width: 6.w),
           Text(
             '$score',
-            style: const TextStyle(
+            style: TextStyle(
               color: AppColors.textPrimary,
               fontWeight: FontWeight.w700,
-              fontSize: 14,
+              fontSize: 14.sp,
             ),
           ),
         ],
@@ -220,19 +222,19 @@ class AnimatedHeroBackground extends StatelessWidget {
         children: [
           // Decorative orbs
           Positioned(
-            top: -80,
-            right: -60,
-            child: _Orb(size: 280, color: AppColors.primary.withOpacity(0.15)),
+            top: -80.h,
+            right: -60.w,
+            child: _Orb(size: 280.r, color: AppColors.primary.withOpacity(0.15)),
           ),
           Positioned(
-            bottom: 100,
-            left: -80,
-            child: _Orb(size: 220, color: AppColors.secondary.withOpacity(0.1)),
+            bottom: 100.h,
+            left: -80.w,
+            child: _Orb(size: 220.r, color: AppColors.secondary.withOpacity(0.1)),
           ),
           Positioned(
-            top: 200,
-            left: 60,
-            child: _Orb(size: 100, color: AppColors.accent.withOpacity(0.08)),
+            top: 200.h,
+            left: 60.w,
+            child: _Orb(size: 100.r, color: AppColors.accent.withOpacity(0.08)),
           ),
           child,
         ],
@@ -271,19 +273,19 @@ class SectionHeader extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 4,
-          height: 20,
+          width: 4.w,
+          height: 20.h,
           decoration: BoxDecoration(
             color: AppColors.primary,
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(2.r),
           ),
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: 10.w),
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppColors.textPrimary,
-            fontSize: 18,
+            fontSize: 18.sp,
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -315,8 +317,8 @@ class TimerRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 64,
-      height: 64,
+      width: 64.w,
+      height: 64.h,
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -330,7 +332,7 @@ class TimerRing extends StatelessWidget {
             '$seconds',
             style: TextStyle(
               color: _color,
-              fontSize: 20,
+              fontSize: 20.sp,
               fontWeight: FontWeight.w800,
             ),
           ),

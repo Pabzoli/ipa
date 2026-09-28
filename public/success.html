@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0d0e14" />
+<title>AnimeQuiz — Payment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #0d0e14;
+    --surface:     #16181f;
+    --surface-2:   #1c1f27;
+    --divider:     rgba(255, 255, 255, 0.06);
+    --divider-2:   rgba(255, 255, 255, 0.10);
+
+    --primary:     #E63946;
+    --primary-hi:  #FF4D5E;
+    --primary-dim: rgba(230, 57, 70, 0.14);
+    --primary-ring:rgba(230, 57, 70, 0.22);
+
+    --sky:         #4EA8DE;
+    --accent:      #FFB300;
+    --accent-hi:   #FFD166;
+    --accent-dim:  rgba(255, 179, 0, 0.12);
+
+    --correct:     #38EF7D;
+    --correct-dim: rgba(56, 239, 125, 0.10);
+    --wrong:       #FF5252;
+
+    --ink:         #FFFFFF;
+    --muted:       #A8AEC2;
+    --muted-2:     #767B92;
+    --muted-3:     #4D5265;
+
+    --radius-xl:   24px;
+    --radius-lg:   18px;
+    --radius-md:   14px;
+    --radius-sm:   10px;
+
+    --font: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow-x: hidden;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+  }
+
+  /* ── Ambient ───────────────────────────────────────────────────── */
+  .ambient {
+    position: fixed; inset: 0; z-index: -1; overflow: hidden;
+    background: var(--bg);
+  }
+  .ambient::before,
+  .ambient::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(140px);
+    opacity: 0.26;
+    will-change: transform;
+  }
+  .ambient::before {
+    width: 560px; height: 560px;
+    top: -200px; left: -160px;
+    background: radial-gradient(circle, #E63946 0%, transparent 65%);
+    animation: drift-a 28s ease-in-out infinite;
+  }
+  .ambient::after {
+    width: 640px; height: 640px;
+    top: -140px; right: -220px;
+    background: radial-gradient(circle, #4EA8DE 0%, transparent 65%);
+    animation: drift-b 34s ease-in-out infinite;
+  }
+  @keyframes drift-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(100px, 70px) scale(1.06); }
+  }
+  @keyframes drift-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-120px, 90px) scale(1.04); }
+  }
+
+  /* ── Card ──────────────────────────────────────────────────────── */
+  .card {
+    position: relative;
+    max-width: 540px;
+    width: 100%;
+    padding: 40px 36px 32px;
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    border: 1px solid var(--divider-2);
+    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7);
+    text-align: center;
+    overflow: hidden;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+    pointer-events: none;
+  }
+
+  /* ── Brand chip ────────────────────────────────────────────────── */
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: -0.2px;
+    margin-bottom: 30px;
+  }
+  .brand-mark {
+    width: 30px; height: 30px;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #E63946, #FF4D5E);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 900;
+    box-shadow: 0 6px 16px rgba(230, 57, 70, 0.4);
+  }
+
+  h1 {
+    margin: 0 0 10px;
+    font-size: clamp(24px, 5vw, 32px);
+    font-weight: 900;
+    letter-spacing: -0.8px;
+    line-height: 1.1;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 14.5px;
+    margin: 0 0 30px;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+
+  /* ── Pending spinner ───────────────────────────────────────────── */
+  .spinner {
+    width: 44px; height: 44px;
+    margin: 8px auto 22px;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin .9s linear infinite;
+    box-shadow: 0 0 26px -8px rgba(230, 57, 70, 0.6);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pending-txt {
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 340px;
+    margin: 0 auto;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+
+  /* ── Success check ─────────────────────────────────────────────── */
+  .check {
+    width: 76px; height: 76px;
+    margin: 0 auto 26px;
+    display: grid; place-items: center;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 20%, rgba(56, 239, 125, 0.30), rgba(56, 239, 125, 0.08) 70%);
+    border: 1px solid rgba(56, 239, 125, 0.35);
+    box-shadow:
+      0 0 0 10px rgba(56, 239, 125, 0.04),
+      0 0 50px -10px rgba(56, 239, 125, 0.5);
+    animation: pop .55s cubic-bezier(.2, 1.3, .4, 1) both;
+  }
+  @keyframes pop {
+    0% { transform: scale(0.6); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .check svg { color: var(--correct); }
+  .check svg path {
+    stroke-dasharray: 30;
+    stroke-dashoffset: 30;
+    animation: draw .55s .25s cubic-bezier(.6, 0, .3, 1) forwards;
+  }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+
+  /* ── Code display ──────────────────────────────────────────────── */
+  .prize-tag {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    margin-bottom: 14px;
+  }
+
+  .codebox {
+    position: relative;
+    margin: 0 auto 16px;
+    padding: 26px 22px;
+    border-radius: var(--radius-lg);
+    background: #0a0c12;
+    border: 1.5px solid rgba(255, 179, 0, 0.28);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: clamp(24px, 6vw, 32px);
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-align: center;
+    word-break: break-all;
+    text-shadow: 0 0 30px rgba(255, 179, 0, 0.4);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 14px 40px -14px rgba(255, 179, 0, 0.28);
+    transition: border-color .25s ease, box-shadow .25s ease;
+  }
+  .codebox.copied {
+    border-color: rgba(56, 239, 125, 0.55);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 0 0 4px rgba(56, 239, 125, 0.14),
+      0 14px 40px -14px rgba(56, 239, 125, 0.3);
+  }
+
+  .note {
+    font-size: 12.5px;
+    color: var(--muted-2);
+    margin: 0 0 26px;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────── */
+  .btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 16px 22px;
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: -0.1px;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    text-decoration: none;
+    transition: transform .12s ease, filter .18s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-primary {
+    color: #fff;
+    background: linear-gradient(135deg, #E63946, #FF4D5E);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 14px 30px -12px rgba(230, 57, 70, 0.7);
+  }
+  .btn-primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+    transform: translateX(-160%);
+    transition: transform .8s ease;
+    pointer-events: none;
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-primary:hover::before { transform: translateX(160%); }
+  .btn-primary:active { transform: translateY(1px); }
+  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; filter: none; }
+  .btn-primary:disabled::before { display: none; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+    border: 1.5px solid var(--divider-2);
+  }
+  .btn-ghost:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+    background: var(--surface-2);
+  }
+
+  /* ── Recovery form ─────────────────────────────────────────────── */
+  .recover-intro {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 18px;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+  .email-label {
+    display: block;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    margin-bottom: 10px;
+  }
+  .email-input {
+    width: 100%;
+    padding: 16px 18px;
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    border: 1.5px solid var(--divider-2);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.1px;
+    outline: none;
+    margin-bottom: 12px;
+    transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
+  }
+  .email-input::placeholder { color: var(--muted-3); font-weight: 600; }
+  .email-input:focus {
+    border-color: var(--primary);
+    background: var(--surface-2);
+    box-shadow: 0 0 0 4px var(--primary-ring);
+  }
+  .email-input.invalid {
+    border-color: var(--wrong);
+    box-shadow: 0 0 0 4px rgba(255, 82, 82, 0.15);
+  }
+
+  /* ── Message ───────────────────────────────────────────────────── */
+  .msg {
+    margin-top: 20px;
+    font-size: 13.5px;
+    font-weight: 700;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .msg.show { opacity: 1; transform: translateY(0); }
+  .msg.error { color: var(--wrong); }
+  .msg.info  { color: var(--correct); }
+
+  .hidden { display: none !important; }
+
+  button:focus-visible,
+  input:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 480px) {
+    .card { padding: 30px 22px 26px; border-radius: var(--radius-lg); }
+    .check { width: 66px; height: 66px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient"></div>
+
+<div class="card">
+
+  <div class="brand">
+    <span class="brand-mark">✦</span>
+    <span>AnimeQuiz</span>
+  </div>
+
+  <h1 id="title">Processing…</h1>
+  <p class="sub" id="sub"></p>
+
+  <!-- Pending -->
+  <div id="pending" class="hidden">
+    <div class="spinner"></div>
+    <p class="pending-txt">Confirming your payment — this takes a few seconds.</p>
+  </div>
+
+  <!-- Success -->
+  <div id="codeSection" class="hidden">
+    <div class="check">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 13l4 4L19 7"/>
+      </svg>
+    </div>
+    <h1>Your code is ready.</h1>
+    <p class="sub">Copy it into the app — Profile → Redeem Code.</p>
+
+    <div class="prize-tag">Your AnimeQuiz code</div>
+    <div class="codebox" id="code"></div>
+    <p class="note">Single-use. Don’t share it — anyone with this code can redeem it.</p>
+
+    <button class="btn btn-primary" id="copyBtn">
+      <svg id="copyIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="12" height="12" rx="2.5"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+      <span id="copyLabel">Copy code</span>
+    </button>
+  </div>
+
+  <!-- Recovery -->
+  <div id="recoverSection" class="hidden">
+    <p class="recover-intro">Enter the email you used at checkout to retrieve your code:</p>
+    <label class="email-label" for="email">Email at checkout</label>
+    <input
+      type="email"
+      id="email"
+      class="email-input"
+      placeholder="you@example.com"
+      spellcheck="false"
+      autocomplete="email"
+      inputmode="email"
+    />
+    <button class="btn btn-primary" id="getBtn">Get my code</button>
+  </div>
+
+  <!-- Message -->
+  <div class="msg" id="msg" role="status" aria-live="polite"></div>
+
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const status = params.get('status');
+  const txRef = params.get('tx_ref');
+  const emailParam = params.get('email');
+
+  const GET_CODE_URL =
+    'https://us-central1-anime-quiz-1ab1b.cloudfunctions.net/getPurchasedCode';
+
+  // Auto-retry while the Flutterwave webhook is still in flight. The redirect
+  // back to this page often lands BEFORE the server-to-server webhook has
+  // minted the code, so a single fetch would 404 and dump the user to the
+  // manual form. Poll briefly, then fall back to manual entry.
+  const POLL_INTERVAL_MS = 3000;
+  const MAX_AUTO_ATTEMPTS = 10; // ~30s total
+  let autoCancelled = false;
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  const title = document.getElementById('title');
+  const sub = document.getElementById('sub');
+  const pending = document.getElementById('pending');
+  const codeSection = document.getElementById('codeSection');
+  const codeEl = document.getElementById('code');
+  const copyBtn = document.getElementById('copyBtn');
+  const copyLabel = document.getElementById('copyLabel');
+  const copyIcon = document.getElementById('copyIcon');
+  const recoverSection = document.getElementById('recoverSection');
+  const emailEl = document.getElementById('email');
+  const getBtn = document.getElementById('getBtn');
+  const msgEl = document.getElementById('msg');
+
+  const COPY_ICON =
+    '<rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+  const CHECK_ICON = '<path d="M5 13l4 4L19 7"/>';
+
+  function showMsg(text, isError) {
+    if (!text) {
+      msgEl.classList.remove('show', 'error', 'info');
+      msgEl.textContent = '';
+      return;
+    }
+    msgEl.textContent = text;
+    msgEl.className = 'msg show ' + (isError ? 'error' : 'info');
+  }
+
+  async function fetchOnce(email) {
+    const resp = await fetch(GET_CODE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx_ref: txRef, email }),
+    });
+    const json = await resp.json();
+    if (!resp.ok || !json.code) {
+      throw new Error(json.error || 'Unable to retrieve your code');
+    }
+    return json.code;
+  }
+
+  function showCode(code) {
+    showMsg('');
+    pending.classList.add('hidden');
+    title.classList.add('hidden');
+    sub.classList.add('hidden');
+    codeEl.textContent = code;
+    codeSection.classList.remove('hidden');
+    recoverSection.classList.add('hidden');
+  }
+
+  async function fetchCode(email, auto) {
+    if (auto) {
+      // Auto mode: poll until the webhook mints the code, then fall back
+      // to the manual form only after the retries are exhausted.
+      autoCancelled = false;
+      getBtn.disabled = true;
+      getBtn.textContent = 'Fetching…';
+      emailEl.value = email;
+      recoverSection.classList.add('hidden');
+      pending.classList.remove('hidden');
+      for (let attempt = 1; attempt <= MAX_AUTO_ATTEMPTS; attempt++) {
+        if (autoCancelled) return;
+        showMsg(
+          attempt === 1
+            ? 'Fetching your code…'
+            : `Confirming your payment… (attempt ${attempt}/${MAX_AUTO_ATTEMPTS})`
+        );
+        try {
+          const code = await fetchOnce(email);
+          getBtn.disabled = false;
+          getBtn.textContent = 'Get my code';
+          showCode(code);
+          return;
+        } catch (err) {
+          if (attempt === MAX_AUTO_ATTEMPTS) {
+            getBtn.disabled = false;
+            getBtn.textContent = 'Get my code';
+            pending.classList.add('hidden');
+            recoverSection.classList.remove('hidden');
+            showMsg(
+              'Payment confirmed but your code is taking longer than expected. Enter your email to retrieve it.',
+              false
+            );
+            return;
+          }
+          await sleep(POLL_INTERVAL_MS);
+        }
+      }
+      return;
+    }
+
+    getBtn.disabled = true;
+    getBtn.textContent = 'Fetching…';
+    showMsg('Fetching your code…');
+    try {
+      const code = await fetchOnce(email);
+      getBtn.disabled = false;
+      getBtn.textContent = 'Get my code';
+      showCode(code);
+    } catch (err) {
+      getBtn.disabled = false;
+      getBtn.textContent = 'Get my code';
+      showMsg(err.message, true);
+      emailEl.classList.add('invalid');
+    }
+  }
+
+  function init() {
+    if (!txRef) {
+      title.textContent = 'Payment';
+      sub.textContent = 'No transaction reference found.';
+      return;
+    }
+
+    if (status === 'successful' || status === 'success') {
+      pending.classList.remove('hidden');
+      if (emailParam) {
+        fetchCode(emailParam, true);
+      } else {
+        pending.classList.add('hidden');
+        recoverSection.classList.remove('hidden');
+      }
+    } else if (status === 'failed') {
+      title.textContent = 'Payment failed';
+      sub.textContent = 'Your payment didn’t go through. Try again from the products page.';
+      const back = document.createElement('a');
+      back.className = 'btn btn-ghost';
+      back.href = '/';
+      back.textContent = 'Back to products';
+      back.style.marginTop = '14px';
+      recoverSection.appendChild(back);
+      recoverSection.classList.remove('hidden');
+    } else if (status === 'cancelled') {
+      title.textContent = 'Payment cancelled';
+      sub.textContent = 'You cancelled the payment. No code was generated.';
+    } else {
+      title.textContent = 'Payment received?';
+      sub.textContent = 'If you already paid, fetch your code below.';
+      recoverSection.classList.remove('hidden');
+    }
+  }
+
+  getBtn.addEventListener('click', () => {
+    autoCancelled = true;
+    const email = emailEl.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showMsg('Enter the email you used at checkout.', true);
+      emailEl.classList.add('invalid');
+      return;
+    }
+    emailEl.classList.remove('invalid');
+    fetchCode(email);
+  });
+
+  emailEl.addEventListener('input', () => {
+    if (emailEl.classList.contains('invalid') &&
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+      emailEl.classList.remove('invalid');
+      showMsg('');
+    }
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(codeEl.textContent.trim());
+      codeEl.classList.add('copied');
+      copyLabel.textContent = 'Copied!';
+      copyIcon.innerHTML = CHECK_ICON;
+      setTimeout(() => {
+        codeEl.classList.remove('copied');
+        copyLabel.textContent = 'Copy code';
+        copyIcon.innerHTML = COPY_ICON;
+      }, 1800);
+    } catch (e) {
+      showMsg('Unable to copy — select and copy the code manually.', true);
+    }
+  });
+
+  init();
+</script>
+</body>
+</html>

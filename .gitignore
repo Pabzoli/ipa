@@ -38,7 +38,45 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Local admin scripts (scripts/generate_codes.js): never commit service keys
+scripts/node_modules/
+scripts/.service-account-key-path
+*serviceAccountKey*.json
+# Also cover the hyphenated/underscored spellings: the existing pattern above
+# only matched `serviceAccountKey`, so a key saved as `service-account.json`
+# would have been committable.
+*service-account*.json
+*service_account*.json
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Release APKs are build artifacts, not source. Firebase Hosting deploys from
+# the filesystem, so ignoring them keeps a ~58MB binary out of every clone
+# without affecting `firebase deploy --only hosting`. A verified copy is kept
+# outside the repo; rebuild with `flutter build apk --release` if it is lost.
+public/downloads/*.apk
+
+# Gradle build output. Only android/app/{debug,profile,release} were ignored
+# above, so Gradle's own reports/ tree was getting committed.
+android/app/.gradle/
+android/build/
+android/.gradle/
+
+# Firebase CLI local caches
+.firebase/hosting.*.cache
+
+# Stray emulator/build logs from debugging sessions
+emu_err.txt
+emu_out.txt
+proj.err
+proj.txt
+
+# lib/passwords.txt holds live-looking values (CVV, expiry, PIN, OTP, and
+# generate_codes.js output). It was already committed in the initial commit,
+# so treat every value in it as compromised and rotate it. Untracked here so
+# it cannot be re-committed; purging it from history needs a separate rewrite
+# (filter-repo/BFG), and the working file is intentionally kept on disk.
+/lib/passwords.txt

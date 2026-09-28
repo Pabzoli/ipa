@@ -3,20 +3,30 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/providers/user_data_provider.dart';
 import 'core/services/ad_service.dart';
+import 'core/services/app_update_service.dart';
 import 'core/services/firestore_service.dart';
+import 'core/services/notification_service.dart';
+import 'core/widgets/update_required_screen.dart';
 import 'features/auth/login_page.dart';
 import 'features/home/home_page.dart';
+import 'features/leaderboard/weekly_leaderboard_page.dart';
 import 'features/player/player_statistics_provider.dart';
 import 'features/prizes/winner_announcement_page.dart';
 import 'firebase_options.dart';
 
 /// SharedPreferences key tracking which weekId the user has already seen.
 const _kAnnouncementKey = 'lastSeenAnnouncementWeekId';
+
+/// Global navigator key for minimal FCM tap navigation (Phase 3).
+/// Used ONLY by NotificationService to push the claim/result screen on
+/// notification taps. All other navigation stays exactly as it was.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +37,12 @@ void main() async {
   ]);
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Resolve our own build number/platform BEFORE anything can transact, and
+  // register the foreground-resume re-check. Both are needed before runApp so
+  // the gate is live on the very first frame rather than a moment later.
+  await AppUpdateService.instance.init();
+  AppUpdateService.instance.attachLifecycleGate();
 
   // AdMob must be initialised after Firebase.
   await MobileAds.instance.initialize();
@@ -41,47 +57,92 @@ void main() async {
   );
 
   runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
-        ChangeNotifierProvider(create: (_) => UserDataProvider()..init()),
-      ],
-      child: const AnimeQuizApp(),
+    ScreenUtilInit(
+      designSize: const Size(390, 844),
+      minTextAdapt: true,
+      builder: (context, child) {
+        return MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
+            ChangeNotifierProvider(create: (_) => UserDataProvider()..init()),
+          ],
+          child: const AnimeQuizApp(),
+        );
+      },
     ),
   );
 }
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
-class AnimeQuizApp extends StatelessWidget {
+class AnimeQuizApp extends StatefulWidget {
   const AnimeQuizApp({super.key});
 
   @override
+  State<AnimeQuizApp> createState() => _AnimeQuizAppState();
+}
+
+class _AnimeQuizAppState extends State<AnimeQuizApp> {
+  @override
+  void initState() {
+    super.initState();
+    // First gate read, forced past the resume throttle. Deferred to the first
+    // frame so the splash renders immediately and the Firestore round-trip
+    // never delays startup.
+    //
+    // Deliberately fires here rather than in _AppShell: this runs BEFORE
+    // authentication, so an outdated install is walled over the login screen
+    // instead of being allowed to sign in first. check() fails open, so a slow
+    // or failed read leaves the app fully usable.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppUpdateService.instance.check(force: true);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'AnimeQuiz',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
+      child: MaterialApp(
+        title: 'AnimeQuiz',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.dark,
+        navigatorKey: appNavigatorKey,
 
       // ── AuthGate is permanent — never recreated ───────────────────────────
       // _AnnouncementGate sits inside it so it only runs post-authentication.
-      // The offline overlay is applied via builder below, which wraps the
-      // navigator OUTPUT rather than the navigator itself. This means the
-      // Navigator stack is never torn down on connectivity changes, which
-      // was the root cause of all previous screen freezes.
+      // The offline and update overlays are applied via builder below, which
+      // wraps the navigator OUTPUT rather than the navigator itself. This
+      // means the Navigator stack is never torn down on connectivity or
+      // version changes, which was the root cause of all previous screen
+      // freezes.
       home: AuthGate(home: const _AnnouncementGate()),
 
-      // ── Offline/loading overlay sits ABOVE the navigator ──────────────────
+      // ── Offline / update / loading overlay sits ABOVE the navigator ───────
       // We never replace child — we either show it or cover it so gesture
       // recognisers on the existing stack are never destroyed.
       builder: (context, child) {
-        return Consumer<UserDataProvider>(
-          builder: (context, userData, _) {
-            if (!userData.connectivityChecked) return const _SplashScreen();
-            if (!userData.isOnline)            return const _OfflineWall();
-            return child!;
+        return ListenableBuilder(
+          listenable: AppUpdateService.instance,
+          builder: (context, _) {
+            return Consumer<UserDataProvider>(
+              builder: (context, userData, _) {
+                if (!userData.connectivityChecked) return const _SplashScreen();
+                if (!userData.isOnline)            return const _OfflineWall();
+                // Outdated Android build: hard wall, no dismiss affordance.
+                // Ordered below the offline wall on purpose — the update check
+                // needs the network, and offline is the more actionable
+                // message, so it keeps priority.
+                final update = AppUpdateService.instance.state;
+                if (update.updateRequired) {
+                  return UpdateRequiredScreen(state: update);
+                }
+                return child!;
+              },
+            );
           },
         );
       },
+    ),
     );
   }
 }
@@ -129,11 +190,22 @@ class _AnnouncementGateState extends State<_AnnouncementGate> {
       return;
     }
 
+    // BUG FIX: Save weekId to SharedPreferences BEFORE showing announcement.
+    // Previously, the save happened AFTER showing the page, which meant:
+    // 1. If app crashes before save completes, user sees announcement again
+    // 2. If user dismisses quickly and app closes before save, same issue
+    // Now marking as seen FIRST, then showing announcement (user can re-view
+    // leaderboard via leaderboard button even after dismissing announcement).
     await prefs.setString(_kAnnouncementKey, result.weekId);
 
     if (!mounted) return;
 
-    await Navigator.of(context).push<String?>(
+    // FIX: the announcement CTA pops with 'leaderboard' (see
+    // WinnerAnnouncementPage._dismiss), but the return value was previously
+    // discarded so the tap did nothing. Capture it and honour it below —
+    // post-frame so _AppShell has built before we push on top of it.
+    String? outcome;
+    outcome = await Navigator.of(context).push<String?>(
       PageRouteBuilder(
         pageBuilder:        (_, __, ___) => WinnerAnnouncementPage(result: result),
         transitionsBuilder: (_, anim, __, child) =>
@@ -142,6 +214,20 @@ class _AnnouncementGateState extends State<_AnnouncementGate> {
         fullscreenDialog:   true,
       ),
     );
+
+    _markReady();
+
+    if (outcome == 'leaderboard' && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const WeeklyLeaderboardPage(),
+          ),
+        );
+      });
+    }
+    return;
   } catch (_) {
     // Any error → skip silently, never block the user from home.
   }
@@ -179,6 +265,12 @@ class _AppShellState extends State<_AppShell> with WidgetsBindingObserver {
     // Cold-open: show an app open ad after the first frame so the shell has
     // settled and the UserDataProvider has finished its initial fetch.
     WidgetsBinding.instance.addPostFrameCallback((_) => _tryShowAppOpenAd());
+    // Phase 3 minimal FCM: permission/token registration + tap navigation.
+    // _AppShell only exists post-authentication, so the token is saved for
+    // the signed-in user. Best-effort — failures never block the shell.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.init(navigatorKey: appNavigatorKey);
+    });
   }
 
   @override
@@ -258,41 +350,57 @@ class _SplashContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('🎌', style: TextStyle(fontSize: 72)),
-        SizedBox(height: 20),
-        Text(
-          'AnimeQuiz',
-          style: TextStyle(
-            color:         AppColors.textPrimary,
-            fontSize:      32,
-            fontWeight:    FontWeight.w900,
-            letterSpacing: -1.0,
-            fontFamily:    'Nunito',
-          ),
-        ),
-        SizedBox(height: 6),
-        Text(
-          'Test your anime knowledge',
-          style: TextStyle(
-            color:      AppColors.textMuted,
-            fontSize:   14,
-            fontWeight: FontWeight.w500,
-            fontFamily: 'Nunito',
-          ),
-        ),
-        SizedBox(height: 44),
-        SizedBox(
-          width:  22,
-          height: 22,
-          child: CircularProgressIndicator(
-            color:       AppColors.primary,
-            strokeWidth: 2.5,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isTablet = constraints.maxWidth > 600;
+        final iconSize = isTablet ? 96.0 : 72.0;
+        final titleSize = isTablet ? 40.0 : 32.0;
+        final subtitleSize = isTablet ? 16.0 : 14.0;
+        final spacingUnit = isTablet ? 1.2 : 1.0;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('🎌', style: TextStyle(fontSize: iconSize)),
+            SizedBox(height: 20 * spacingUnit),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'AnimeQuiz',
+                style: TextStyle(
+                  color:         AppColors.textPrimary,
+                  fontSize:      titleSize,
+                  fontWeight:    FontWeight.w900,
+                  letterSpacing: -1.0,
+                  fontFamily:    'Nunito',
+                ),
+              ),
+            ),
+            SizedBox(height: 6 * spacingUnit),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'Test your anime knowledge',
+                style: TextStyle(
+                  color:      AppColors.textMuted,
+                  fontSize:   subtitleSize,
+                  fontWeight: FontWeight.w500,
+                  fontFamily: 'Nunito',
+                ),
+              ),
+            ),
+            SizedBox(height: 44 * spacingUnit),
+            SizedBox(
+              width:  22,
+              height: 22,
+              child: CircularProgressIndicator(
+                color:       AppColors.primary,
+                strokeWidth: 2.5,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -313,70 +421,86 @@ class _OfflineWall extends StatelessWidget {
           child: SafeArea(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Icon with layered glow rings
-                    Container(
-                      width:  100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color:  AppColors.wrong.withValues(alpha: 0.10),
-                        shape:  BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.wrong.withValues(alpha: 0.28),
-                          width: 2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color:      AppColors.wrong.withValues(alpha: 0.12),
-                            blurRadius: 24,
-                            spreadRadius: 2,
+                padding: EdgeInsets.symmetric(horizontal: 24.r),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isTablet = constraints.maxWidth > 600;
+                    final iconSize = isTablet ? 120.0 : 100.0;
+                    final iconInnerSize = isTablet ? 58.0 : 48.0;
+                    final titleSize = isTablet ? 28.0 : 24.0;
+                    final subtitleSize = isTablet ? 17.0 : 15.0;
+                    final mutedSize = isTablet ? 15.0 : 13.0;
+                    final spacingUnit = isTablet ? 1.1 : 1.0;
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Icon with layered glow rings
+                        Container(
+                          width:  iconSize,
+                          height: iconSize,
+                          decoration: BoxDecoration(
+                            color:  AppColors.wrong.withValues(alpha: 0.10),
+                            shape:  BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.wrong.withValues(alpha: 0.28),
+                              width: 2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color:      AppColors.wrong.withValues(alpha: 0.12),
+                                blurRadius: 24,
+                                spreadRadius: 2,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.wifi_off_rounded,
-                        color: AppColors.wrong,
-                        size:  48,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    const Text(
-                      'No Internet Connection',
-                      style: TextStyle(
-                        color:         AppColors.textPrimary,
-                        fontSize:      24,
-                        fontWeight:    FontWeight.w900,
-                        letterSpacing: -0.3,
-                        fontFamily:    'Nunito',
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'AnimeQuiz requires an internet connection.\nPlease reconnect to continue.',
-                      style: TextStyle(
-                        color:      AppColors.textSecondary,
-                        fontSize:   15,
-                        height:     1.6,
-                        fontFamily: 'Nunito',
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 40),
-                    const _PulsingDot(),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Waiting for connection…',
-                      style: TextStyle(
-                        color:      AppColors.textMuted,
-                        fontSize:   13,
-                        fontFamily: 'Nunito',
-                      ),
-                    ),
-                  ],
+                          child: Icon(
+                            Icons.wifi_off_rounded,
+                            color: AppColors.wrong,
+                            size:  iconInnerSize,
+                          ),
+                        ),
+                        SizedBox(height: 32 * spacingUnit),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'No Internet Connection',
+                            style: TextStyle(
+                              color:         AppColors.textPrimary,
+                              fontSize:      titleSize,
+                              fontWeight:    FontWeight.w900,
+                              letterSpacing: -0.3,
+                              fontFamily:    'Nunito',
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 12 * spacingUnit),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            'AnimeQuiz requires an internet connection.\nPlease reconnect to continue.',
+                            style: TextStyle(
+                              color:      AppColors.textSecondary,
+                              fontSize:   subtitleSize,
+                              height:     1.6,
+                              fontFamily: 'Nunito',
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 40 * spacingUnit),
+                        const _PulsingDot(),
+                        SizedBox(height: 12 * spacingUnit),
+                        Text(
+                          'Waiting for connection…',
+                          style: TextStyle(
+                            color:      AppColors.textMuted,
+                            fontSize:   mutedSize,
+                            fontFamily: 'Nunito',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),

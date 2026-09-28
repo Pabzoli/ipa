@@ -1,56 +1,42 @@
 // lib/features/quiz/solo_summary_page.dart
-import 'dart:io';
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/shared_widgets.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_chip.dart';
+import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/app_page_route.dart';
 import '../../core/widgets/coin_earn_animation.dart';
-import '../../core/widgets/insufficient_coins_sheet.dart';
-import '../../core/services/firestore_service.dart';       // for InsufficientCoinsException
+import '../../core/services/firestore_service.dart';
 import '../../core/services/ad_service.dart';
 import '../../core/providers/user_data_provider.dart';
 import 'questions_page.dart';
-import 'share_card_widget.dart';
+import 'quiz_controller.dart' show kGauntletTiers;
 
-/// Cost to reset the daily cooldown and replay immediately (spend_retry).
+// Solo cooldown-retry (non-Gauntlet) flat cost. Kept for the legacy
+// "Try Again 40 AC" replay that clears local cooldown locks only.
 const int _kRetryCost = 40;
 
 class SoloSummaryPage extends StatefulWidget {
-  final int          correctCount;
-  final int          totalQuestions;
+  final int correctCount;
+  final int totalQuestions;
   final List<String> selectedTitles;
-
-  /// Coins that were just earned for completing this quiz.
-  /// Returned by the submitQuizAnswers CF (or the fallback path) and passed
-  /// from [QuestionsPage] so the animation and badge need no extra round-trip.
   final int coinsEarned;
-
-  /// Weekly points awarded for this quiz session.
-  /// Returned by the submitQuizAnswers CF as [totalWP] (already includes the
-  /// 1.5× DC multiplier when applicable, or estimated as correctCount × 10
-  /// on the fallback path) and passed from [QuestionsPage].
   final int wpEarned;
 
-  /// Whether this result came from a Daily Challenge session.
-  ///
-  /// When true, a prominent "⚡ Daily Challenge — 1.5× WP Applied" banner is
-  /// shown on the result card to explain the boosted [wpEarned] figure.
-  /// Passed from [QuestionsPage] via [controller.isDailyChallenge].
-  final bool isDailyChallenge;                             // ← DC
-
-  /// Called after a successful 40 AC retry payment clears the SharedPreferences
-  /// cooldown entries, so the caller (HomePage) can also remove the titles from
-  /// its in-memory [_locks] map and immediately re-enable them in the UI.
-  ///
-  /// Null-safe — passing null is valid (e.g. when navigating from a retry quiz
-  /// that has no parent HomePageState to notify).
+  /// Coins granted from crossed achievement tiers (`achievementAC` from the
+  /// CF). Rendered with a distinct trophy/purple UI from base [coinsEarned]
+  /// and logged as a separate `earn_achievement` ledger entry server-side.
+  final int achievementCoins;
+  final bool isDailyChallenge;
+  final bool isGauntlet;
+  final int gauntletStreak;
+  final List<int> gauntletPerQuestionWP;
   final VoidCallback? onRetryLockCleared;
 
   const SoloSummaryPage({
@@ -58,10 +44,14 @@ class SoloSummaryPage extends StatefulWidget {
     required this.correctCount,
     required this.totalQuestions,
     required this.selectedTitles,
-    this.coinsEarned      = 0,
-    this.wpEarned         = 0,
-    this.isDailyChallenge = false,                         // ← DC
-    this.onRetryLockCleared,                               // ← lock fix
+    this.coinsEarned = 0,
+    this.wpEarned = 0,
+    this.achievementCoins = 0,
+    this.isDailyChallenge = false,
+    this.isGauntlet = false,
+    this.gauntletStreak = 0,
+    this.gauntletPerQuestionWP = const [],
+    this.onRetryLockCleared,
   });
 
   @override
@@ -71,57 +61,66 @@ class SoloSummaryPage extends StatefulWidget {
 class _SoloSummaryPageState extends State<SoloSummaryPage>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double>   _scaleAnim;
-  late Animation<double>   _fadeAnim;
+  late Animation<double> _fadeAnim;
+  late Animation<double> _slideAnim;
+  late Animation<double> _medallionScale;
 
   bool _navigating = false;
-  bool _isSharing  = false;
 
   @override
   void initState() {
     super.initState();
+
     _ctrl = AnimationController(
-      vsync:    this,
-      duration: const Duration(milliseconds: 600),
+      vsync: this,
+      duration: const Duration(milliseconds: 550),
     )..forward();
-    _scaleAnim = CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut);
-    _fadeAnim  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
+
+    _fadeAnim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _slideAnim = Tween<double>(begin: 18, end: 0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
+    );
+    _medallionScale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.6, end: 1.08), weight: 60),
+      TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 40),
+    ]).animate(CurvedAnimation(
+        parent: _ctrl,
+        curve: const Interval(0.1, 0.75, curve: Curves.easeOut)));
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-
-      // ── 1. Coin earn animation for quiz completion reward ─────────────────
-      // Fires at 400 ms so the score UI has settled before the overlay appears.
       if (widget.coinsEarned > 0) {
-        Future.delayed(const Duration(milliseconds: 400), () {
-          if (mounted) CoinEarnAnimation.show(context, amount: widget.coinsEarned);
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted)
+            CoinEarnAnimation.show(context, amount: widget.coinsEarned);
         });
       }
-
-      // ── 2. P-05 Ad sequence ───────────────────────────────────────────────
-      // Increment the session counter first, then fire the ad chain.
-      // This is intentionally not awaited at the top level — the ad sequence
-      // runs independently of the UI (which has already rendered the results).
+      // Achievement coins get their own distinct (purple/trophy) animation so
+      // they are visually separable from base quiz earnings. Staggered after
+      // the base animation when both fire.
+      if (widget.achievementCoins > 0) {
+        Future.delayed(
+          Duration(milliseconds: widget.coinsEarned > 0 ? 1700 : 500),
+          () {
+            if (mounted) {
+              CoinEarnAnimation.showAchievement(
+                context,
+                amount: widget.achievementCoins,
+              );
+            }
+          },
+        );
+      }
       _runAdSequence();
     });
   }
 
-  /// Runs the result-screen ad sequence.
-  ///
-  /// Increments the session quiz count (for any non-ad consumers), waits
-  /// 500 ms so the player sees their score, then delegates the interstitial
-  /// frequency/cooldown/cap decision entirely to AdService.
   Future<void> _runAdSequence() async {
     if (!mounted) return;
-
     final userData = context.read<UserDataProvider>();
-
     userData.incrementSessionQuizCount();
-
-    // Let the player see their result before any ad.
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
-
     await AdService.instance.recordResultAndMaybeShowInterstitial(
       isPremium: userData.premiumActive,
     );
@@ -141,409 +140,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     return _Tier.keepPracticing;
   }
 
-  // ── Share ──────────────────────────────────────────────────────────────────
-
-  Future<void> _shareResult() async {
-    if (_isSharing) return;
-    setState(() => _isSharing = true);
-
-    try {
-      final fbUser   = FirebaseAuth.instance.currentUser;
-      final username = (fbUser?.displayName?.isNotEmpty == true)
-          ? fbUser!.displayName!
-          : fbUser?.email?.split('@').first ?? 'Player';
-
-      final userData = context.read<UserDataProvider>();
-
-      final bytes = await ScreenshotController().captureFromWidget(
-        Theme(
-          data: AppTheme.dark,
-          child: Directionality(
-            textDirection: TextDirection.ltr,
-            child: ShareCardWidget(
-              correctCount:   widget.correctCount,
-              totalQuestions: widget.totalQuestions,
-              selectedTitles: widget.selectedTitles,
-              username:       username,
-              tierEmoji:      _tier.emoji,
-              tierTitle:      _tier.title,
-              tierColor:      _tier.color,
-              weeklyPoints:   userData.weeklyPoints,
-              totalScore:     userData.weeklyPoints, // mirrors WP; remove once ShareCardWidget.totalScore is made optional
-            ),
-          ),
-        ),
-        context:    context,
-        delay:      const Duration(milliseconds: 300),
-        pixelRatio: 3.0,
-        targetSize: const Size(ShareCardWidget.kWidth, ShareCardWidget.kHeight),
-      );
-
-      final dir  = await getTemporaryDirectory();
-      final file = File(
-        '${dir.path}/animequiz_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await file.writeAsBytes(bytes);
-
-      if (!mounted) return;
-
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: '🎌 I scored ${widget.correctCount}/${widget.totalQuestions}'
-            ' on AnimeQuiz!\nCan you beat me?',
-      );
-    } catch (e, st) {
-      debugPrint('[ShareResult] error: $e\n$st');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Couldn\'t generate share card — please try again.')),
-      );
-    } finally {
-      if (mounted) setState(() => _isSharing = false);
-    }
-  }
-
-  // ── Build ──────────────────────────────────────────────────────────────────
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (_) => _goHome(),
-      child: Scaffold(
-        backgroundColor: AppColors.surfaceDim,
-        body: Container(
-          decoration: AppDecorations.heroBg,
-          child: SafeArea(
-            child: FadeTransition(
-              opacity: _fadeAnim,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 32),
-
-                    // ── Result emoji + title ───────────────────────────────
-                    ScaleTransition(
-                      scale: _scaleAnim,
-                      child: Column(
-                        children: [
-                          Text(_tier.emoji,
-                              style: const TextStyle(fontSize: 72)),
-                          const SizedBox(height: 16),
-                          Text(
-                            _tier.title,
-                            style: const TextStyle(
-                              color:      AppColors.textPrimary,
-                              fontSize:   28,
-                              fontWeight: FontWeight.w900,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _tier.subtitle,
-                            style: const TextStyle(
-                              color:    AppColors.textSecondary,
-                              fontSize: 14,
-                              height:   1.5,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // ── ⚡ Daily Challenge banner (shown only when active) ──
-                    // Appears above the score card so it's the first thing the
-                    // user reads after the tier emoji.
-                    if (widget.isDailyChallenge) ...[
-                      Container(
-                        width:   double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 13),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              const Color(0xFFF59E0B).withOpacity(0.18),
-                              const Color(0xFFFF6B00).withOpacity(0.12),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                              color: const Color(0xFFF59E0B).withOpacity(0.55)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('⚡',
-                                style: TextStyle(fontSize: 20)),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'Daily Challenge',
-                              style: TextStyle(
-                                color:      Color(0xFFF59E0B),
-                                fontSize:   14,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '·  1.5× WP applied',
-                              style: TextStyle(
-                                color:      const Color(0xFFF59E0B)
-                                    .withOpacity(0.80),
-                                fontSize:   13,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // ── Score card ─────────────────────────────────────────
-                    GlassCard(
-                      borderColor: _tier.color.withOpacity(0.4),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment:  MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                '${widget.correctCount}',
-                                style: TextStyle(
-                                  color:      _tier.color,
-                                  fontSize:   64,
-                                  fontWeight: FontWeight.w900,
-                                  height:     1,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Text(
-                                  ' / ${widget.totalQuestions}',
-                                  style: const TextStyle(
-                                    color:      AppColors.textSecondary,
-                                    fontSize:   24,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          const Text('correct answers',
-                              style: TextStyle(
-                                  color:    AppColors.textMuted,
-                                  fontSize: 13)),
-                          const SizedBox(height: 20),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: LinearProgressIndicator(
-                              value:           widget.correctCount /
-                                               widget.totalQuestions,
-                              backgroundColor: AppColors.divider,
-                              valueColor: AlwaysStoppedAnimation(_tier.color),
-                              minHeight:  10,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // ── Coins earned badge (shown when > 0) ──────────
-                          if (widget.coinsEarned > 0) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFBBF24).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                    color: const Color(0xFFFBBF24)
-                                        .withOpacity(0.35)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Text('🪙',
-                                      style: TextStyle(fontSize: 18)),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '+${widget.coinsEarned} coins earned!',
-                                    style: const TextStyle(
-                                      color:      Color(0xFFFBBF24),
-                                      fontSize:   14,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          // ── Weekly points earned badge (shown when > 0) ──
-                          // wpEarned is the server-validated total returned by
-                          // the submitQuizAnswers CF (or correctCount × 10 on
-                          // the fallback path). When isDailyChallenge is true,
-                          // this value already includes the 1.5× multiplier
-                          // applied by the CF. Sky-blue distinguishes it from
-                          // the accent-purple score badge and gold coins badge.
-                          if (widget.wpEarned > 0) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF38BDF8).withOpacity(0.10),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                    color: const Color(0xFF38BDF8)
-                                        .withOpacity(0.35)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.leaderboard_rounded,
-                                    color: Color(0xFF38BDF8),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '+${widget.wpEarned} weekly pts earned!'
-                                    '${widget.isDailyChallenge ? '  ⚡' : ''}',
-                                    style: const TextStyle(
-                                      color:      Color(0xFF38BDF8),
-                                      fontSize:   14,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // ── Hint nudge ─────────────────────────────────────────
-                    if (widget.correctCount < 5)
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color:        AppColors.surface,
-                          borderRadius: BorderRadius.circular(14),
-                          border:       Border.all(color: AppColors.divider),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.info_outline_rounded,
-                                color: AppColors.textMuted, size: 20),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Struggling? Use hints next round to '
-                                'eliminate wrong answers.',
-                                style: TextStyle(
-                                  color:    AppColors.textSecondary,
-                                  fontSize: 13,
-                                  height:   1.4,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    const SizedBox(height: 32),
-
-                    // ── Actions ────────────────────────────────────────────
-
-                    // ── SPEND SURFACE 3: Try Again (40 AC) ────────────────
-                    // Only shown for regular quizzes. Daily Challenge is
-                    // strictly 1 attempt per day — no retry is offered.
-                    if (!widget.isDailyChallenge) ...[
-                      GestureDetector(
-                        onTap: _tryAgainWithCoins,
-                        child: Container(
-                          width:  double.infinity,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: AppColors.accent.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                                color: AppColors.accent.withOpacity(0.40)),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text('🔄', style: TextStyle(fontSize: 16)),
-                              SizedBox(width: 8),
-                              Text(
-                                'Try Again  —  40🪙',
-                                style: TextStyle(
-                                  color:      AppColors.accent,
-                                  fontSize:   14,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // ── Share Result ───────────────────────────────────────
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      child: _isSharing
-                          ? _ShareLoadingIndicator(
-                              key: const ValueKey('loading'))
-                          : _ShareButton(
-                              key:   const ValueKey('share'),
-                              onTap: _shareResult,
-                            ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _goHome,
-                        icon: const Icon(Icons.home_rounded,
-                            color: AppColors.textSecondary, size: 18),
-                        label: const Text('Back to Home',
-                            style:
-                                TextStyle(color: AppColors.textSecondary)),
-                        style: OutlinedButton.styleFrom(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
-                          side: const BorderSide(color: AppColors.divider),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Handlers ───────────────────────────────────────────────────────────────
+  double get _accuracy => widget.correctCount / widget.totalQuestions;
 
   void _goHome() {
     if (_navigating) return;
@@ -551,59 +148,37 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     Navigator.of(context).pop();
   }
 
-  // ── SPEND SURFACE 3: Try Again with cooldown reset (40 AC) ────────────────
-  //
-  // Cooldowns are stored in SharedPreferences (not Firestore) by HomePage,
-  // using each anime title as the key. Removing the key here is enough to
-  // clear the lock — HomePage re-reads prefs on its next initState call.
-  //
-  // This retry is NOT a Daily Challenge session — it is purely a cooldown
-  // reset. The new quiz will launch with isDailyChallenge: false.
   Future<void> _tryAgainWithCoins() async {
     if (_navigating) return;
 
-    final userData = context.read<UserDataProvider>();
+    if (widget.isGauntlet) return;
 
-    // Balance check before showing the dialog.
+    final userData = context.read<UserDataProvider>();
     if (userData.animeCoins < _kRetryCost) {
-      if (mounted) await showInsufficientCoinsSheet(context, needed: _kRetryCost);
+      if (mounted)
+        await showInsufficientCoinsSheet(context, needed: _kRetryCost);
       return;
     }
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text(
-          'Try Again?',
-          style: TextStyle(
-            color:      AppColors.textPrimary,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        content: const Text(
-          'Spend 40🪙 to reset today\'s cooldown and replay the '
-          'same anime immediately?',
-          style: TextStyle(
-            color:    AppColors.textSecondary,
-            fontSize: 14,
-            height:   1.5,
-          ),
+    final confirmed = await showAppDialog<bool>(
+      context,
+      builder: (ctx) => AppDialog(
+        title: 'Try Again?',
+        contentWidget: Text(
+          'Spend 40🪙 to reset today\'s cooldown and replay the same anime immediately?',
+          style: AppTypography.bodyMedium,
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+          AppButton(
+            label: 'Cancel',
+            variant: AppButtonVariant.text,
+            onPressed: () => Navigator.pop(ctx, false),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              '🔄 Try Again  −40🪙',
-              style: TextStyle(
-                color:      AppColors.accent,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+          AppButton(
+            label: '🔄 Try Again  −40🪙',
+            variant: AppButtonVariant.text,
+            color: AppColors.accent,
+            onPressed: () => Navigator.pop(ctx, true),
           ),
         ],
       ),
@@ -612,45 +187,30 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     if (confirmed != true || !mounted) return;
 
     try {
-      // 1. Deduct coins (throws InsufficientCoinsException on race condition).
       await userData.spendCoins(_kRetryCost, 'spend_retry');
 
-      // 2. Clear the SharedPreferences cooldown entry for every title played.
-      //    Keys are namespaced by UID (matching home_page's _prefKey helper).
-      final uid   = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       final prefs = await SharedPreferences.getInstance();
       for (final title in widget.selectedTitles) {
         await prefs.remove(uid.isEmpty ? title : '${uid}_$title');
       }
-
-      // 3. Notify the HomePage to clear its in-memory _locks map for these
-      //    titles. Without this the tiles stay visually locked for the rest
-      //    of the session even though the user just paid to unlock them.
       widget.onRetryLockCleared?.call();
 
       if (!mounted) return;
-
-      // 4. Navigate directly into a fresh quiz — no DC, no interstitial on
-      //    paid retry.
       _navigating = true;
       Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (_, a, __) => FadeTransition(
-            opacity: a,
-            child: QuestionsPage(
-              selectedTitles:     widget.selectedTitles,
-              isDailyChallenge:   false,                   // ← explicit: not DC
-              onRetryLockCleared: widget.onRetryLockCleared, // ← carry forward
-            ),
+        AppPageRoute(
+          builder: (_) => QuestionsPage(
+            selectedTitles: widget.selectedTitles,
+            isDailyChallenge: false,
+            onRetryLockCleared: widget.onRetryLockCleared,
           ),
-          transitionDuration: const Duration(milliseconds: 400),
         ),
       );
     } on InsufficientCoinsException {
-      // Balance dropped between the pre-check and the Firestore transaction.
-      if (mounted) await showInsufficientCoinsSheet(context, needed: _kRetryCost);
+      if (mounted)
+        await showInsufficientCoinsSheet(context, needed: _kRetryCost);
     } catch (e) {
-      // Network error, prefs failure, etc. — do NOT show "not enough coins".
       debugPrint('[SoloSummaryPage] _tryAgainWithCoins error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -660,107 +220,667 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       }
     }
   }
-}
-
-// ── Share button widgets ───────────────────────────────────────────────────
-
-class _ShareButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _ShareButton({super.key, required this.onTap});
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width:  double.infinity,
-          height: 52,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF5B2D8E), Color(0xFF7B4FBB)],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color:      const Color(0xFF7B4FBB).withOpacity(0.35),
-                blurRadius: 16,
-                offset:     const Offset(0, 4),
+  Widget build(BuildContext context) {
+    final tier = _tier;
+    final pct = (_accuracy * 100).round();
+    final currentCoins = context.watch<UserDataProvider>().animeCoins;
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (_, __) => _goHome(),
+      child: Scaffold(
+        backgroundColor: AppColors.surfaceDim,
+        body: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnim,
+            child: AnimatedBuilder(
+              animation: _slideAnim,
+              builder: (_, child) => Transform.translate(
+                offset: Offset(0, _slideAnim.value),
+                child: child,
               ),
-            ],
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 32.r),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Header ────────────────────────────────────────
+                    _HeaderRow(coins: currentCoins),
+                    SizedBox(height: 20.h),
+
+                    // ── Result hero ───────────────────────────────────
+                    ScaleTransition(
+                      scale: _medallionScale,
+                      child: _ResultHero(
+                        tier: tier,
+                        correct: widget.correctCount,
+                        total: widget.totalQuestions,
+                      ),
+                    ),
+                    SizedBox(height: 20.h),
+
+                    // ── Stats ─────────────────────────────────────────
+                    _StatsCard(
+                      tier: tier,
+                      accuracy: _accuracy,
+                      pct: pct,
+                      coinsEarned: widget.coinsEarned,
+                      wpEarned: widget.wpEarned,
+                      achievementCoins: widget.achievementCoins,
+                      isGauntlet: widget.isGauntlet,
+                      isDailyChallenge: widget.isDailyChallenge,
+                      titles: widget.selectedTitles,
+                    ),
+
+                    // ── Achievement bonus (distinct UI) ───────────────
+                    if (widget.achievementCoins > 0) ...[
+                      SizedBox(height: 12.h),
+                      const _AchievementBonusBanner(),
+                    ],
+
+                    // ── Gauntlet panel ────────────────────────────────
+                    if (widget.isGauntlet) ...[
+                      SizedBox(height: 12.h),
+                      _GauntletResultPanel(
+                        streak: widget.gauntletStreak,
+                        perQuestionWP: widget.gauntletPerQuestionWP,
+                      ),
+                    ],
+
+                    // ── Hint ──────────────────────────────────────────
+                    if (widget.correctCount < 5) ...[
+                      SizedBox(height: 12.h),
+                      const _HintCard(),
+                    ],
+
+                    SizedBox(height: 24.h),
+
+                    // ── Actions ───────────────────────────────────────
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54.h,
+                      child: AppButton(
+                        label: 'Back to Home',
+                        icon: Icon(Icons.home_rounded,
+                            color: Colors.white, size: 18.r),
+                        variant: AppButtonVariant.primary,
+                        size: AppButtonSize.large,
+                        height: 54.h,
+                        onPressed: _goHome,
+                      ),
+                    ),
+                    if (!widget.isDailyChallenge && !widget.isGauntlet) ...[
+                      SizedBox(height: 10.h),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44.h,
+                        child: AppButton(
+                          label: 'Try Again  —  40🪙',
+                          icon: Text('🔄', style: TextStyle(fontSize: 13.sp)),
+                          variant: AppButtonVariant.outline,
+                          color: AppColors.accent,
+                          size: AppButtonSize.small,
+                          height: 44.h,
+                          onPressed: _tryAgainWithCoins,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Header row
+// ═══════════════════════════════════════════════════════════════════════════
+class _HeaderRow extends StatelessWidget {
+  final int coins;
+  const _HeaderRow({required this.coins});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          'QUIZ COMPLETE',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 10.sp,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const Spacer(),
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 5.r),
+          decoration: BoxDecoration(
+            color: AppColors.accent.withOpacity(0.13),
+            borderRadius: BorderRadius.circular(20.r),
+            border: Border.all(color: AppColors.accent.withOpacity(0.32)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.ios_share_rounded, color: Colors.white, size: 18),
-              SizedBox(width: 8),
+              Text('🪙', style: TextStyle(fontSize: 12.sp)),
+              SizedBox(width: 5.w),
               Text(
-                'Share Result',
+                '$coins',
                 style: TextStyle(
-                  color:      Colors.white,
-                  fontSize:   15,
-                  fontWeight: FontWeight.w800,
+                  color: AppColors.accent,
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
                 ),
               ),
             ],
           ),
         ),
-      );
+      ],
+    );
+  }
 }
 
-class _ShareLoadingIndicator extends StatelessWidget {
-  const _ShareLoadingIndicator({super.key});
+// ═══════════════════════════════════════════════════════════════════════════
+// Result hero — medallion + score + tier feedback, all in one card
+// ═══════════════════════════════════════════════════════════════════════════
+class _ResultHero extends StatelessWidget {
+  final _Tier tier;
+  final int correct;
+  final int total;
+
+  const _ResultHero({
+    required this.tier,
+    required this.correct,
+    required this.total,
+  });
 
   @override
-  Widget build(BuildContext context) => Container(
-        width:  double.infinity,
-        height: 52,
-        decoration: BoxDecoration(
-          color: const Color(0xFF5B2D8E).withOpacity(0.12),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: const Color(0xFF7B4FBB).withOpacity(0.3)),
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 30.r, horizontal: 24.r),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            tier.color.withOpacity(0.14),
+            tier.color.withOpacity(0.04),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 15, height: 15,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: Color(0xFF9B6FDB)),
+        borderRadius: BorderRadius.circular(24.r),
+        border: Border.all(color: tier.color.withOpacity(0.25), width: 1.2),
+      ),
+      child: Column(
+        children: [
+          // ── Emoji medallion ─────────────────────────────────────
+          Container(
+            width: 72.r,
+            height: 72.r,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: tier.color.withOpacity(0.16),
+              border:
+                  Border.all(color: tier.color.withOpacity(0.4), width: 1.5),
             ),
-            SizedBox(width: 10),
-            Text(
-              'Creating share card…',
+            child: Center(
+              child: Text(tier.emoji, style: TextStyle(fontSize: 34.sp)),
+            ),
+          ),
+          SizedBox(height: 18.h),
+
+          // ── Score ───────────────────────────────────────────────
+          RichText(
+            text: TextSpan(
+              style: const TextStyle(fontFamily: 'Nunito'),
+              children: [
+                TextSpan(
+                  text: '$correct',
+                  style: TextStyle(
+                    color: tier.color,
+                    fontSize: 64.sp,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                    letterSpacing: -2,
+                  ),
+                ),
+                TextSpan(
+                  text: '/$total',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 22.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 14.h),
+
+          // ── Tier badge ──────────────────────────────────────────
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 6.r),
+            decoration: BoxDecoration(
+              color: tier.color.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(20.r),
+              border: Border.all(color: tier.color.withOpacity(0.35)),
+            ),
+            child: Text(
+              tier.title.toUpperCase(),
               style: TextStyle(
-                color:      Color(0xFF9B6FDB),
-                fontSize:   14,
-                fontWeight: FontWeight.w700,
+                color: tier.color,
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.3,
               ),
             ),
-          ],
-        ),
-      );
+          ),
+          SizedBox(height: 12.h),
+
+          // ── Subtitle ────────────────────────────────────────────
+          Text(
+            tier.subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13.sp,
+              height: 1.45,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ── Performance Tiers ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// Stats card — accuracy + rewards + topics
+// ═══════════════════════════════════════════════════════════════════════════
+class _StatsCard extends StatelessWidget {
+  final _Tier tier;
+  final double accuracy;
+  final int pct;
+  final int coinsEarned;
+  final int wpEarned;
+  final int achievementCoins;
+  final bool isGauntlet;
+  final bool isDailyChallenge;
+  final List<String> titles;
 
+  const _StatsCard({
+    required this.tier,
+    required this.accuracy,
+    required this.pct,
+    required this.coinsEarned,
+    required this.wpEarned,
+    this.achievementCoins = 0,
+    required this.isGauntlet,
+    required this.isDailyChallenge,
+    required this.titles,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRewards =
+        coinsEarned > 0 || wpEarned > 0 || achievementCoins > 0;
+
+    return Container(
+      padding: EdgeInsets.all(18.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20.r),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Accuracy ────────────────────────────────────────────
+          Row(
+            children: [
+              Text(
+                'ACCURACY',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 10.sp,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$pct%',
+                style: TextStyle(
+                  color: tier.color,
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6.r),
+            child: LinearProgressIndicator(
+              value: accuracy,
+              backgroundColor: AppColors.divider,
+              valueColor: AlwaysStoppedAnimation(tier.color),
+              minHeight: 8,
+            ),
+          ),
+
+          // ── Rewards ─────────────────────────────────────────────
+          // Base coins (gold/🪙) and achievement coins (purple/🏆) are
+          // visually distinct by color, icon, and label — achievement coins
+          // come from a separate `earn_achievement` ledger entry.
+          if (hasRewards) ...[
+            SizedBox(height: 18.h),
+            Container(height: 1, color: AppColors.divider),
+            SizedBox(height: 16.h),
+            Row(
+              children: [
+                if (coinsEarned > 0)
+                  Expanded(
+                    child: _RewardBlock(
+                      emoji: '🪙',
+                      value: '+$coinsEarned',
+                      label: 'coins this round',
+                      color: AppColors.coinGold,
+                    ),
+                  ),
+                if (coinsEarned > 0 && wpEarned > 0) SizedBox(width: 12.w),
+                if (wpEarned > 0)
+                  Expanded(
+                    child: _RewardBlock(
+                      icon: Icons.leaderboard_rounded,
+                      value: '+$wpEarned',
+                      label: isGauntlet
+                          ? 'weekly pts'
+                          : isDailyChallenge
+                              ? 'weekly pts ⚡'
+                              : 'weekly pts',
+                      color: AppColors.skyBright,
+                    ),
+                  ),
+              ],
+            ),
+            if (achievementCoins > 0) ...[
+              SizedBox(height: 12.h),
+              Container(
+                padding: EdgeInsets.symmetric(
+                    horizontal: 12.r, vertical: 10.r),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(14.r),
+                  border: Border.all(
+                    color: const Color(0xFF8B5CF6).withOpacity(0.45),
+                  ),
+                ),
+                child: _RewardBlock(
+                  emoji: '🏆',
+                  value: '+$achievementCoins',
+                  label: 'achievement bonus',
+                  color: const Color(0xFF8B5CF6),
+                ),
+              ),
+            ],
+          ],
+
+          // ── Topics ──────────────────────────────────────────────
+          if (titles.isNotEmpty) ...[
+            SizedBox(height: 18.h),
+            Container(height: 1, color: AppColors.divider),
+            SizedBox(height: 16.h),
+            Text(
+              'TOPICS',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 10.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1,
+              ),
+            ),
+            SizedBox(height: 10.h),
+            Wrap(
+              spacing: 6.w,
+              runSpacing: 6.w,
+              children: titles.map((t) {
+                final display = t
+                    .split(' ')
+                    .map((w) =>
+                        w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+                    .join(' ');
+                return AppChip(
+                  label: display,
+                  color: AppColors.textMuted,
+                  selected: false,
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reward block — icon + big value + small label
+// ═══════════════════════════════════════════════════════════════════════════
+class _RewardBlock extends StatelessWidget {
+  final String? emoji;
+  final IconData? icon;
+  final String value;
+  final String label;
+  final Color color;
+
+  const _RewardBlock({
+    required this.value,
+    required this.label,
+    required this.color,
+    this.emoji,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (emoji != null) Text(emoji!, style: TextStyle(fontSize: 18.sp)),
+        if (icon != null) Icon(icon, color: color, size: 18.r),
+        SizedBox(width: 8.w),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 17.sp,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              SizedBox(height: 2.h),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 10.sp,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Achievement bonus banner — distinct purple/trophy styling separate from
+// base gold/coin rewards. Explains that these coins came from achievements.
+// ═══════════════════════════════════════════════════════════════════════════
+class _AchievementBonusBanner extends StatelessWidget {
+  const _AchievementBonusBanner();
+
+  static const _purple = Color(0xFF8B5CF6);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _purple.withOpacity(0.16),
+            _purple.withOpacity(0.06),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: _purple.withOpacity(0.45)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36.r,
+            height: 36.r,
+            decoration: BoxDecoration(
+              color: _purple.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(12.r),
+              border: Border.all(color: _purple.withOpacity(0.40)),
+            ),
+            child: Center(
+              child: Text('🏆', style: TextStyle(fontSize: 18.sp)),
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'ACHIEVEMENT REWARD',
+                  style: TextStyle(
+                    color: _purple,
+                    fontSize: 9.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+                SizedBox(height: 3.h),
+                Text(
+                  'Bonus coins from crossed achievement tiers — tracked separately in your ledger.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11.5.sp,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hint card
+// ═══════════════════════════════════════════════════════════════════════════
+class _HintCard extends StatelessWidget {
+  const _HintCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32.r,
+            height: 32.r,
+            decoration: BoxDecoration(
+              color: AppColors.accent.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(10.r),
+            ),
+            child: Icon(
+              Icons.lightbulb_outline_rounded,
+              color: AppColors.accent,
+              size: 17.r,
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Text(
+              'Use a hint next round to eliminate wrong answers before guessing.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12.sp,
+                height: 1.45,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tier enum + extension (unchanged)
+// ═══════════════════════════════════════════════════════════════════════════
 enum _Tier { perfect, great, good, keepPracticing }
 
 extension _TierProps on _Tier {
   String get emoji {
     switch (this) {
-      case _Tier.perfect:        return '🏆';
-      case _Tier.great:          return '🔥';
-      case _Tier.good:           return '⚔️';
-      case _Tier.keepPracticing: return '📖';
+      case _Tier.perfect:
+        return '🏆';
+      case _Tier.great:
+        return '🔥';
+      case _Tier.good:
+        return '⚔️';
+      case _Tier.keepPracticing:
+        return '📖';
     }
   }
 
   String get title {
     switch (this) {
-      case _Tier.perfect:        return 'Perfect Score!';
-      case _Tier.great:          return 'You\'re on Fire!';
-      case _Tier.good:           return 'Good Fight!';
-      case _Tier.keepPracticing: return 'Keep Training!';
+      case _Tier.perfect:
+        return 'Perfect Score';
+      case _Tier.great:
+        return 'You\'re on Fire';
+      case _Tier.good:
+        return 'Good Fight';
+      case _Tier.keepPracticing:
+        return 'Keep Training';
     }
   }
 
@@ -779,10 +899,148 @@ extension _TierProps on _Tier {
 
   Color get color {
     switch (this) {
-      case _Tier.perfect:        return AppColors.accent;
-      case _Tier.great:          return AppColors.correct;
-      case _Tier.good:           return AppColors.secondary;
-      case _Tier.keepPracticing: return AppColors.textMuted;
+      case _Tier.perfect:
+        return AppColors.accent;
+      case _Tier.great:
+        return AppColors.correct;
+      case _Tier.good:
+        return AppColors.secondary;
+      case _Tier.keepPracticing:
+        return AppColors.textMuted;
     }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Gauntlet result panel (unchanged)
+// ═══════════════════════════════════════════════════════════════════════════
+class _GauntletResultPanel extends StatelessWidget {
+  final int streak;
+  final List<int> perQuestionWP;
+
+  const _GauntletResultPanel({
+    required this.streak,
+    required this.perQuestionWP,
+  });
+
+  static const Map<int, String> _milestones = {
+    3: '40🪙',
+    7: '100🪙 + 50 WP',
+    14: '200🪙 + 100 WP + 🖼️ Frame',
+    30: '500🪙 + 7d Premium',
+  };
+
+  int? get _nextMilestoneDay {
+    for (final day in _milestones.keys) {
+      if (streak < day) return day;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final nextDay = _nextMilestoneDay;
+    final tiers = kGauntletTiers;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md + 2),
+      tier: AppCardTier.standard,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text('🔥', style: TextStyle(fontSize: 16.sp)),
+              SizedBox(width: 7.w),
+              Text(
+                '$streak day streak',
+                style: TextStyle(
+                  color: AppColors.amber,
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              Flexible(
+                child: Text(
+                  nextDay != null
+                      ? '${nextDay - streak}d → ${_milestones[nextDay]}'
+                      : 'All milestones claimed',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 12.h),
+          Row(
+            children: [
+              for (int i = 0; i < tiers.length; i++) ...[
+                if (i > 0) SizedBox(width: 5.w),
+                Expanded(child: _tierChip(i, tiers[i])),
+              ],
+            ],
+          ),
+          SizedBox(height: 8.h),
+          Text(
+            'WP per question — tiers climb as you survive',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 10.sp,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tierChip(int index, int tier) {
+    final correct = index < perQuestionWP.length && perQuestionWP[index] > 0;
+    final isTopTier = tier == kGauntletTiers.last;
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 7.r),
+      decoration: BoxDecoration(
+        color: correct
+            ? AppColors.amber.withValues(alpha: 0.22)
+            : AppColors.surfaceAlt.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(
+          color: correct
+              ? AppColors.amber.withValues(alpha: 0.55)
+              : AppColors.divider.withValues(alpha: 0.7),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Q${index + 1}',
+            style: TextStyle(
+              color: correct ? AppColors.amber : AppColors.textMuted,
+              fontSize: 9.sp,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          SizedBox(height: 2.h),
+          Text(
+            correct ? '+$tier' : '$tier',
+            style: TextStyle(
+              color: correct
+                  ? AppColors.amber
+                  : (isTopTier ? AppColors.textSecondary : AppColors.textMuted),
+              fontSize: 12.sp,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

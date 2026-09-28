@@ -2,7 +2,13 @@ name: quiz
 description: A new Flutter project.
 publish_to: 'none'
 
-version: 1.0.0+1
+# Single source of truth for the shipped Android build number.
+# `+<build>` flows through android/local.properties into
+# versionCode (android/app/build.gradle) and is read at runtime by
+# AppUpdateService via package_info_plus. It is compared against
+# app_config/android.minBuild by both the client wall and the server gate —
+# bump this and minBuild together, never separately.
+version: 1.1.0+2
 
 environment:
   sdk: '>=3.1.5 <4.0.0'
@@ -16,13 +22,18 @@ dependencies:
   firebase_core: ^4.7.0
   firebase_auth: ^6.4.0
   cloud_firestore: ^6.3.0
+  cloud_functions: ^6.2.0     # Call Cloud Functions (prize pool increment)
   connectivity_plus: ^6.1.4   # offline detection
   google_mobile_ads: ^5.1.0   # AdMob — rewarded + interstitial
-  cloud_functions: ^6.2.0     # Call Cloud Functions (prize pool increment)
+  firebase_messaging: ^16.2.1 # Stage 29 — push notifications (FCM)
+  flutter_local_notifications: ^18.0.1 # Stage 29 — foreground notification banners
   cupertino_icons: ^1.0.2
+  async: ^2.11.0
   screenshot: ^3.0.0     # off-screen widget → Uint8List image
   share_plus: ^10.0.1        # native share sheet
   path_provider: ^2.1.3     # getTemporaryDirectory() for the temp file
+  flutter_screenutil: ^5.9.3  # responsive scaling (w/h/sp/r)
+  package_info_plus: ^9.0.0   # runtime buildNumber -> forced-update gate
 
 dev_dependencies:
   flutter_test:
@@ -31,14 +42,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-  assets:
-    - assets/attack on titan.png
-    - assets/demon slayer.png
-    - assets/jujutsu kaisen.png
-    - assets/naruto.png
-    - assets/one piece.png
-    - assets/one punch man.png
 
   fonts:
     - family: Nunito

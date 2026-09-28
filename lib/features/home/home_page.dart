@@ -1,23 +1,38 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/app_button.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/widgets/coin_balance_widget.dart';
-import '../../core/widgets/insufficient_coins_sheet.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
+import '../admin/admin_payout_dashboard.dart';
 import '../auth/auth_service.dart';
 import '../quiz/questions_page.dart';
+import '../quiz/quiz_controller.dart' show kGauntletQuestionCount;
+import '../../core/constants/gauntlet_economy.dart';
 import '../player/pi_page.dart';
 import '../../features/multiplayer/multiplayer_hub_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
+import '../premium/premium_upsell_screen.dart';
 
+// ─── Anime grid filter (client-side only, no backend calls) ───────────────
+enum _AnimeFilter { all, ready, cooldown }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HomePage is the app's root shell: a persistent bottom nav hosting four
+// peer destinations — Home / Battle / Rankings / Profile.
+// ═══════════════════════════════════════════════════════════════════════════
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -25,21 +40,169 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
-  final List<String> _animeTitles = const [
-    'attack on titan', 'demon slayer', 'jujutsu kaisen',
-    'naruto', 'one piece', 'one punch man',
+class _HomePageState extends State<HomePage> {
+  int _tab = 0;
+
+  static const List<Widget> _pages = <Widget>[
+    _HomeTab(),
+    MultiplayerHubPage(),
+    WeeklyLeaderboardPage(),
+    PInform(),
   ];
 
-  final Set<String>           _selected        = {};
-  final Map<String, DateTime> _locks           = {};
-  Set<String>                 _unlockedForever = {};
-  late Timer                  _lockTimer;
-  late AnimationController    _entranceCtrl;
-  late Animation<double>      _entranceFade;
-  late SharedPreferences      _prefs;
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.surfaceDim,
+      body: IndexedStack(index: _tab, children: _pages),
+      bottomNavigationBar: _AppBottomNav(
+        current: _tab,
+        onSelect: (i) => setState(() => _tab = i),
+      ),
+    );
+  }
+}
+
+// ─── Bottom Navigation ─────────────────────────────────────────────────────
+class _NavItem {
+  final IconData icon;
+  final String label;
+  const _NavItem(this.icon, this.label);
+}
+
+class _AppBottomNav extends StatelessWidget {
+  final int current;
+  final ValueChanged<int> onSelect;
+  const _AppBottomNav({required this.current, required this.onSelect});
+
+  static const _items = <_NavItem>[
+    _NavItem(Icons.home_rounded, 'Home'),
+    _NavItem(Icons.sports_esports_rounded, 'Battle'),
+    _NavItem(Icons.emoji_events_rounded, 'Rankings'),
+    _NavItem(Icons.person_rounded, 'Profile'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: EdgeInsets.only(
+            top: 10,
+            bottom: MediaQuery.of(context).padding.bottom + 8,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceDim.withOpacity(0.92),
+            border: const Border(top: BorderSide(color: AppColors.divider)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(_items.length, (i) {
+              final active = i == current;
+              final item = _items[i];
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onSelect(i),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: active
+                            ? AppColors.primary.withOpacity(0.14)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(item.icon,
+                          size: 22,
+                          color:
+                              active ? AppColors.primary : AppColors.textMuted),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      item.label,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: active ? AppColors.primary : AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Home tab
+// ═══════════════════════════════════════════════════════════════════════════
+class _HomeTab extends StatefulWidget {
+  const _HomeTab();
+
+  @override
+  State<_HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
+  final List<String> _animeTitles = const [
+    'attack on titan',
+    'demon slayer',
+    'jujutsu kaisen',
+    'naruto',
+    'one piece',
+    'one punch man',
+    'bleach',
+    'dragon ball z',
+    'my hero academia',
+    'death note',
+  ];
+
+  final Set<String> _selected = {};
+  final Map<String, DateTime> _locks = {};
+  Set<String> _unlockedForever = {};
+  _AnimeFilter _filter = _AnimeFilter.all;
+  late Timer _lockTimer;
+  late AnimationController _entranceCtrl;
+  late Animation<double> _entranceFade;
+  late SharedPreferences _prefs;
   late StreamSubscription<User?> _authSub;
-  bool                        _prefsReady = false;
+  bool _prefsReady = false;
+
+  // ── Weekly rank badge cache ─────────────────────────────────────────────
+  // The header rebuilds every second (lock countdown), so the rank future
+  // must be cached — recreating it on every build re-queries Firestore and
+  // flickers the badge between '#N' and '—'. Keyed on week · eligibility ·
+  // points; _lastKnownRank keeps the old value on screen while a refresh
+  // is in flight.
+  Future<int>? _rankFuture;
+  String _rankKey = '';
+  int _lastKnownRank = 0;
+
+  Future<int> _rankFutureFor(UserDataProvider userData) {
+    final key = '${userData.leaderboardEntryWeekId ?? ""}'
+        '_${userData.isLeaderboardEligible}'
+        '_${userData.weeklyPoints}';
+    if (key != _rankKey || _rankFuture == null) {
+      _rankKey = key;
+      _rankFuture = FirestoreService.instance.getCurrentUserWeeklyRank(
+        entryWeekId: userData.leaderboardEntryWeekId,
+        eligible: userData.isLeaderboardEligible,
+      ).then((r) {
+        _lastKnownRank = r;
+        return r;
+      });
+    }
+    return _rankFuture!;
+  }
 
   @override
   void initState() {
@@ -50,7 +213,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _entranceFade =
         CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOut);
 
-    // Bug fix: lock timer ticks every second and removes expired cooldowns.
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(
@@ -61,8 +223,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     SharedPreferences.getInstance().then((p) {
       if (!mounted) return;
       _prefs = p;
-      // Bug fix (Bug 4): keys are namespaced by UID so different accounts
-      // on the same device never share cooldown state.
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       for (final title in _animeTitles) {
         final raw = p.getString(uid.isEmpty ? title : '${uid}_$title');
@@ -74,11 +234,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       setState(() => _prefsReady = true);
     });
 
-    // Bug fix (Bug 3): load permanently unlocked animes so _startQuiz
-    // never re-locks them after a paid 200 AC unlock.
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (!mounted) return;
-      setState(() => _unlockedForever = {}); // clear previous user's data
+      setState(() => _unlockedForever = {});
       if (user != null) _loadUnlockedAnimes();
     });
   }
@@ -91,27 +249,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  // Bug fix (Bug 4): namespace prefs keys by UID so account switches
-  // don't bleed cooldowns across users on the same device.
   String _prefKey(String title) {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     return uid.isEmpty ? title : '${uid}_$title';
   }
 
-  // Bug fix (Bug 3): fetch unlockedAnimes once on load and after unlock.
   Future<void> _loadUnlockedAnimes() async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final list =
           (doc.data()?['unlockedAnimes'] as List?)?.cast<String>() ?? [];
       if (mounted) setState(() => _unlockedForever = list.toSet());
     } catch (e) {
-      debugPrint('[HomePage] _loadUnlockedAnimes error (ignored): $e');
+      debugPrint('[HomeTab] _loadUnlockedAnimes error (ignored): $e');
     }
   }
 
@@ -122,26 +275,99 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         : _selected.add(title));
   }
 
-  // ── Start Quiz ─────────────────────────────────────────────────────────────
-  //
-  // isDailyChallenge defaults to false. Pass true when launching from the DC
-  // button so QuestionsPage can forward the flag to QuizController and then
-  // on to SoloSummaryPage.
+  List<String> get _unlockedTitles => _animeTitles
+      .where(
+          (t) => !_locks.containsKey(t) || _locks[t]!.isBefore(DateTime.now()))
+      .toList();
 
-  void _startQuiz({bool isDailyChallenge = false, List<String>? titles}) {
+  bool _isTitleLocked(String title) {
+    final t = _locks[title];
+    return t != null && t.isAfter(DateTime.now());
+  }
+
+  List<String> get _visibleTitles {
+    switch (_filter) {
+      case _AnimeFilter.ready:
+        return _animeTitles.where((t) => !_isTitleLocked(t)).toList();
+      case _AnimeFilter.cooldown:
+        return _animeTitles.where(_isTitleLocked).toList();
+      case _AnimeFilter.all:
+        return List<String>.from(_animeTitles);
+    }
+  }
+
+  void _surpriseMe() {
+    final pool = List<String>.from(_unlockedTitles);
+    if (pool.length < 2) return;
+    pool.shuffle();
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(pool.take(2));
+    });
+  }
+
+  // ── Start Quiz ─────────────────────────────────────────────────────────
+  void _startQuiz({
+    bool isDailyChallenge = false,
+    bool isGauntlet = false,
+    List<String>? titles,
+    List<String>? questionIds,
+    String? gauntletTicketId,
+  }) {
+    if (isGauntlet) {
+      if (questionIds == null || questionIds.length < kGauntletQuestionCount) {
+        // Never fail silently — the user just confirmed + may have paid.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                "Couldn't load the Daily Gauntlet — please try again."),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.wrong,
+          ),
+        );
+        return;
+      }
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, a, __) => FadeTransition(
+            opacity: a,
+            child: QuestionsPage(
+              selectedTitles: const [],
+              questionIds: questionIds,
+              mode: QuizMode.gauntlet,
+              isGauntlet: true,
+              gauntletTicketId: gauntletTicketId,
+            ),
+          ),
+          transitionDuration: const Duration(milliseconds: 400),
+        ),
+      );
+      return;
+    }
+
     final titlesToPlay = titles ?? _selected.toList();
     if (titlesToPlay.length < 2 || !_prefsReady) return;
 
-    // Always clear selection — DC picks its own titles invisibly, so any
-    // pre-existing selection must be wiped before navigating away. Without
-    // this, a title that was selected AND chosen by DC would return from
-    // the quiz still appearing selected while also being locked.
     setState(() => _selected.clear());
 
-    final counts   = [0, 0, 10 * 60, 7 * 60 + 30, 5 * 60, 2 * 60 + 30, 0];
-    final lockSecs = counts[titlesToPlay.length.clamp(0, 6)];
+    // Cooldown by lineup size: picking more titles locks each for less time.
+    // Index = number of titles played (clamped 0..10 for the 10-title grid).
+    final counts = [
+      0, // 0 titles (unreachable — guarded above)
+      0, // 1 title (unreachable — min 2 required)
+      10 * 60, // 2 titles
+      7 * 60, // 3 titles
+      5 * 60, // 4 titles
+      4 * 60, // 5 titles
+      3 * 60, // 6 titles
+      2 * 60, // 7 titles
+      1 * 60, // 8 titles
+      0, // 9 titles
+      0, // 10 titles
+    ];
+    final lockSecs = counts[titlesToPlay.length.clamp(0, 10)];
     for (final t in titlesToPlay) {
-      // Bug fix (Bug 3): permanently unlocked animes never get re-locked.
       if (_unlockedForever.contains(t)) continue;
       if (lockSecs > 0) {
         _locks[t] = DateTime.now().add(Duration(seconds: lockSecs));
@@ -154,11 +380,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         pageBuilder: (_, a, __) => FadeTransition(
           opacity: a,
           child: QuestionsPage(
-            selectedTitles:     titlesToPlay,
-            isDailyChallenge:   isDailyChallenge,
-            // When the player pays 40 AC to retry, clear these titles from
-            // the in-memory _locks map so the home grid unlocks immediately
-            // without waiting for the timer or an app restart.
+            selectedTitles: titlesToPlay,
+            isDailyChallenge: isDailyChallenge,
             onRetryLockCleared: () {
               if (mounted) {
                 setState(() {
@@ -175,157 +398,399 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  // ── Daily Challenge entry point ────────────────────────────────────────────
-  //
-  // • Free attempt not yet used today (WAT) → randomly select 2 titles and
-  //   launch immediately in DC mode (1.5× WP, server-side multiplier).
-  // • Free attempt already used → offer a 40 AC second attempt via a bottom
-  //   sheet. If the user confirms and has enough coins, spend_retry is called
-  //   and the quiz launches again in DC mode. Decline → nothing happens.
-  //
-  // The actual 1.5× WP multiplier is applied server-side by the
-  // submitQuizAnswers CF when isDailyChallenge == true.
+  // ── Daily Gauntlet entry point ──────────────────────────────────────────
+  // Flow: preview (live stream, no charge) → confirm dialog → loading →
+  // fetch question IDs (free, validated) → enterDailyGauntlet (authoritative
+  // deduction + ticket) → quiz page. Charging happens ONLY after the user
+  // confirms AND content is available, so a content failure never burns coins.
+  bool _gauntletBusy = false;
 
-  Future<void> _startDailyChallenge() async {
-    if (!_prefsReady) return;
+  static const Map<int, String> _gauntletMilestones = {
+    3: '40🪙',
+    7: '100🪙 + 50 WP',
+    14: '200🪙 + 🖼️',
+    30: '500🪙 + Premium',
+  };
 
-    final userData = context.read<UserDataProvider>();
-
-    if (userData.dailyChallengeUsedToday) {
+  Future<void> _startDailyGauntlet() async {
+    if (_gauntletBusy) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
       if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please sign in to play the Daily Gauntlet.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    // NOTE: no _prefsReady gate — the Gauntlet doesn't use cooldown locks.
 
-      // ── 40 AC second-attempt path ──────────────────────────────────────
-      const retryCost = 40;
+    // ── 1. Preview (no charge, same source as the home card) ──────────
+    // Capture premium BEFORE any async gap.
+    final isPremiumCached = context.read<UserDataProvider>().premiumActive;
+    int streak = 0;
+    bool isFreeAttempt = true;
+    int? retryCost = 0;
+    try {
+      final progress = await FirestoreService.instance
+          .gauntletProgressStream()
+          .first
+          .timeout(const Duration(seconds: 6));
+      streak = (progress['streak'] as int?) ?? 0;
+      final usedToday = (progress['usedToday'] as bool?) ?? false;
+      final retryIndex = (progress['retryIndex'] as int?) ?? 0;
+      isFreeAttempt = !usedToday;
+      retryCost = gauntletRetryCost(
+        retryIndex: retryIndex,
+        isPremium: isPremiumCached,
+        isFreeAttempt: isFreeAttempt,
+      );
+    } catch (e) {
+      // Offline / slow stream — fall back to a free preview so the dialog
+      // still opens; the server remains authoritative at enter time.
+      debugPrint('[HomeTab] gauntlet preview fallback (free): $e');
+      streak = 0;
+      isFreeAttempt = true;
+      retryCost = 0;
+    }
 
-      // Not enough coins → show the insufficient-coins sheet and bail out.
-      if (userData.animeCoins < retryCost) {
-        await showInsufficientCoinsSheet(context, needed: retryCost);
+    if (!mounted) return;
+
+    // At cap — no retries left today.
+    if (!isFreeAttempt && retryCost == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No Gauntlet retries left today — come back tomorrow.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // ── 2. Confirm (redesigned to match the app) ───────────────────────
+    final confirmed = await _showGauntletConfirmDialog(
+      streak: streak,
+      isFreeAttempt: isFreeAttempt,
+      retryCost: retryCost ?? 0,
+    );
+    if (confirmed != true || !mounted) return;
+
+    // ── 3. Load + enter with visible feedback ──────────────────────────
+    _gauntletBusy = true;
+    if (mounted) setState(() {});
+    _showGauntletLoading();
+    try {
+      // Content first (free): a content failure must never burn coins.
+      final pool = _animeTitles.toSet()..addAll(_unlockedForever);
+      final questionIds =
+          await FirestoreService.instance.fetchGauntletQuestionIds(
+        unlockedTitles: pool.toList(),
+        count: kGauntletQuestionCount,
+      );
+
+      // Then the authoritative deduction + ticket.
+      final entryResult =
+          await FirestoreService.instance.enterDailyGauntlet();
+      final String? ticketId = entryResult['ticketId'] as String?;
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // close loading
+      _startQuiz(
+        isGauntlet: true,
+        questionIds: questionIds,
+        gauntletTicketId: ticketId,
+      );
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('[HomeTab] enterDailyGauntlet error: ${e.code} ${e.message}');
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // close loading
+      if (e.code == 'resource-exhausted' &&
+          (e.message?.startsWith('insufficient_coins') ?? false)) {
+        final needed = int.tryParse(e.message?.split(':').last ?? '') ?? 40;
+        await showInsufficientCoinsSheet(context, needed: needed);
         return;
       }
-
-      // Confirm the spend with a bottom sheet.
-      final confirmed = await showModalBottomSheet<bool>(
-        context: context,
-        backgroundColor: AppColors.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      if (e.code == 'failed-precondition') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('No Gauntlet retries left today — come back tomorrow.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      if (e.code == 'not-found') {
+        // The callable isn't deployed in us-central1 on this project.
+        // Code is fine locally (enterDailyGauntlet is exported) — deploy:
+        //   firebase deploy --only functions:enterDailyGauntlet,functions:submitDailyGauntlet
+        debugPrint(
+            '[HomeTab] enterDailyGauntlet NOT_FOUND — function not deployed. '
+            'Run: firebase deploy --only '
+            'functions:enterDailyGauntlet,functions:submitDailyGauntlet');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+                'Daily Gauntlet is updating on the server — '
+                'please try again in a minute.'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppColors.wrong,
+          ),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              "Couldn't start the Daily Gauntlet — please try again."),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.wrong,
         ),
-        builder: (_) => Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 36),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40, height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.textMuted,
-                  borderRadius: BorderRadius.circular(2),
+      );
+    } catch (e) {
+      debugPrint('[HomeTab] _startDailyGauntlet error: $e');
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // close loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_gauntletLoadErrorMessage(e)),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.wrong,
+        ),
+      );
+    } finally {
+      _gauntletBusy = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Friendly message for content failures (thrown BEFORE any charge).
+  String _gauntletLoadErrorMessage(Object e) {
+    final msg = e.toString();
+    if (msg.contains('Not enough questions')) {
+      return 'Not enough questions yet — try a normal quiz first.';
+    }
+    return "Couldn't load the Daily Gauntlet — please try again.";
+  }
+
+  /// Non-dismissible loading indicator shown while fetching + entering.
+  void _showGauntletLoading() {
+    showAppDialog<void>(
+      context,
+      barrierDismissible: false,
+      builder: (_) => const AppDialog(
+        icon: Icons.hourglass_top_rounded,
+        iconColor: AppColors.amber,
+        title: 'Preparing Gauntlet…',
+        content: 'Fetching questions and reserving your entry.',
+      ),
+    );
+  }
+
+  /// Redesigned confirm dialog: amber status banner (mirrors the home card),
+  /// three detail rows, then full-width Start + Not-now buttons.
+  /// Uses contentWidget (not actions) for a stable, app-consistent layout.
+  Future<bool?> _showGauntletConfirmDialog({
+    required int streak,
+    required bool isFreeAttempt,
+    required int retryCost,
+  }) {
+    const amber = AppColors.amber;
+    final isFreeEntry = isFreeAttempt || retryCost == 0;
+
+    int? nextDay;
+    for (final day in _gauntletMilestones.keys) {
+      if (streak < day) {
+        nextDay = day;
+        break;
+      }
+    }
+    final milestoneLabel = nextDay == null
+        ? 'All milestones claimed'
+        : '${nextDay - streak}d to ${_gauntletMilestones[nextDay]}';
+
+    final entryPillLabel = isFreeAttempt
+        ? 'FREE ENTRY'
+        : (retryCost == 0 ? 'RETRY · FREE' : 'RETRY · $retryCost AC');
+    final confirmLabel = isFreeAttempt
+        ? 'Start · Free'
+        : (retryCost == 0 ? 'Retry · FREE' : 'Retry · $retryCost AC');
+
+    return showAppDialog<bool>(
+      context,
+      builder: (ctx) => AppDialog(
+        icon: Icons.emoji_events_rounded,
+        iconColor: amber,
+        title: 'Daily Gauntlet',
+        contentWidget: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Status banner (mirrors _TodayGauntletCard) ──────────
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                gradient: isFreeEntry
+                    ? LinearGradient(
+                        colors: [
+                          amber.withValues(alpha: 0.20),
+                          amber.withValues(alpha: 0.05),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : null,
+                color: isFreeEntry ? null : AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                border: Border.all(
+                  color: isFreeEntry
+                      ? amber.withValues(alpha: 0.45)
+                      : AppColors.divider,
+                  width: isFreeEntry ? 1.5 : 1,
                 ),
               ),
-              const SizedBox(height: 20),
-              const Text(
-                '⚡ Daily Challenge',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                "You've already used your free attempt today.\n"
-                'Spend 40 🪙 for a second attempt with the 1.5× WP bonus?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
+              child: Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textSecondary,
-                        side: const BorderSide(color: AppColors.divider),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '$streak',
+                        style: TextStyle(
+                          color: isFreeEntry ? amber : AppColors.textMuted,
+                          fontSize: 26.sp,
+                          fontWeight: FontWeight.w900,
+                          height: 1.0,
                         ),
                       ),
-                      child: const Text('Cancel'),
-                    ),
+                      Text(
+                        streak == 1 ? 'day' : 'days',
+                        style: TextStyle(
+                          color: isFreeEntry
+                              ? amber.withValues(alpha: 0.7)
+                              : AppColors.textMuted.withValues(alpha: 0.6),
+                          fontSize: 10.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'STREAK',
+                          style: TextStyle(
+                            color: isFreeEntry ? amber : AppColors.textMuted,
+                            fontSize: 9.sp,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.7,
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'Spend 40 🪙',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
+                        const SizedBox(height: 2),
+                        Text(
+                          milestoneLabel,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isFreeEntry
+                                ? amber.withValues(alpha: 0.16)
+                                : AppColors.surface,
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.full),
+                            border: Border.all(
+                              color: isFreeEntry
+                                  ? amber.withValues(alpha: 0.5)
+                                  : AppColors.divider,
+                            ),
+                          ),
+                          child: Text(
+                            entryPillLabel,
+                            style: TextStyle(
+                              color: isFreeEntry
+                                  ? amber
+                                  : AppColors.textSecondary,
+                              fontSize: 11.sp,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
-        ),
-      );
-
-      if (confirmed != true || !mounted) return;
-
-      // Deduct 40 AC server-side via the spendCoins CF.
-      try {
-        await userData.spendCoins(retryCost, 'spend_retry');
-      } on InsufficientCoinsException {
-        if (mounted) await showInsufficientCoinsSheet(context, needed: retryCost);
-        return;
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Transaction failed — please try again.'),
-              behavior: SnackBarBehavior.floating,
             ),
-          );
-        }
-        return;
-      }
-      // Fall through — coins deducted, launch the second DC attempt below.
-    }
-
-    // ── Launch quiz in Daily Challenge mode ────────────────────────────────
-    // Prefer unlocked titles; fall back to all titles if fewer than 2 available.
-    final unlocked = _animeTitles
-        .where((t) => !_locks.containsKey(t) ||
-                      _locks[t]!.isBefore(DateTime.now()))
-        .toList();
-    final pool = unlocked.length >= 2
-        ? unlocked
-        : List<String>.from(_animeTitles);
-    pool.shuffle();
-    final dcTitles = pool.take(2).toList();
-
-    _startQuiz(isDailyChallenge: true, titles: dcTitles);
+            const SizedBox(height: AppSpacing.md),
+            // ── Detail rows ─────────────────────────────────────────
+            _GauntletDialogRow(
+              icon: Icons.quiz_rounded,
+              text: '7 mixed-anime questions',
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            const _GauntletDialogRow(
+              icon: Icons.bolt_rounded,
+              text: 'Escalating WP · 15/15/15/20/20/25/25',
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _GauntletDialogRow(
+              icon: Icons.monetization_on_rounded,
+              text: isFreeAttempt
+                  ? 'Free attempt — no coins needed'
+                  : (retryCost == 0
+                      ? 'Retry is FREE (Premium)'
+                      : 'Entry: $retryCost AC · non-refundable if you quit'),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            // ── Actions (full-width, app-consistent) ────────────────
+            SizedBox(
+              width: double.infinity,
+              child: AppButton(
+                label: confirmLabel,
+                variant: AppButtonVariant.primary,
+                size: AppButtonSize.large,
+                color: amber,
+                onPressed: () => Navigator.of(ctx).pop(true),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: AppButton(
+                label: 'Not now',
+                variant: AppButtonVariant.text,
+                onPressed: () => Navigator.of(ctx).pop(false),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
-  // ── SPEND SURFACE 2: Cooldown Skip (25 AC) ──────────────────────────────
+  bool _spendBusy = false;
 
+  // ── SPEND SURFACE 2: Cooldown Skip — flat 100 AC (v4.8) ─────────────────
   Future<void> _skipCooldown(String title) async {
-    const cost = 25;
+    if (_spendBusy) return;
     final userData = context.read<UserDataProvider>();
+    const cost = 100;
 
     if (userData.animeCoins < cost) {
       if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
@@ -342,9 +807,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               color: AppColors.textPrimary, fontWeight: FontWeight.w800),
         ),
         content: Text(
-          'Spend 25🪙 to unlock "${title.toUpperCase()}" immediately?',
-          style: const TextStyle(
-              color: AppColors.textSecondary, fontSize: 14),
+          'Spend $cost🪙 to unlock "${title.toUpperCase()}" immediately?',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
         ),
         actions: [
           TextButton(
@@ -353,8 +817,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              '⏩ Skip  −25🪙',
+            child: Text(
+              '⏩ Skip  −$cost🪙',
               style: TextStyle(
                   color: AppColors.accent, fontWeight: FontWeight.w700),
             ),
@@ -365,6 +829,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     if (confirmed != true || !mounted) return;
 
+    setState(() => _spendBusy = true);
     try {
       await userData.spendCoins(cost, 'spend_cooldown');
       if (!mounted) return;
@@ -375,19 +840,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     } on InsufficientCoinsException {
       if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
     } catch (e) {
-      debugPrint('[HomePage] _skipCooldown error: $e');
+      debugPrint('[HomeTab] _skipCooldown error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('Something went wrong — please try again.')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _spendBusy = false);
     }
   }
 
   // ── SPEND SURFACE 4: Early Anime Unlock (500 AC) ────────────────────────
-
   Future<void> _unlockEarly(String title) async {
+    if (_spendBusy) return;
     const cost = 500;
     final userData = context.read<UserDataProvider>();
 
@@ -430,330 +897,722 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
     if (confirmed != true || !mounted) return;
 
+    setState(() => _spendBusy = true);
     try {
-      await userData.spendCoins(cost, 'spend_unlock');
-      await FirestoreService.instance.unlockAnimeEarly(title);
+      final result = await FirestoreService.instance.unlockAnimeEarly(title);
+
       if (!mounted) return;
+
       setState(() {
         _locks.remove(title);
         _prefs.remove(_prefKey(title));
         _unlockedForever.add(title);
       });
+      debugPrint('[HomeTab] _unlockEarly ok: ${result['newBalance']}');
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('[HomeTab] _unlockEarly CF error: ${e.code} ${e.message}');
+      if (e.code == 'resource-exhausted' && e.message == 'insufficient_coins') {
+        if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Something went wrong — please try again.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } on InsufficientCoinsException {
       if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
     } catch (e) {
-      debugPrint('[HomePage] _unlockEarly error: $e');
+      debugPrint('[HomeTab] _unlockEarly error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('Something went wrong — please try again.')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _spendBusy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final userData = context.watch<UserDataProvider>();
-    final username =
-        AuthService.instance.currentUser?.displayName ?? 'Trainer';
+    final username = AuthService.instance.currentUser?.displayName ?? 'Trainer';
+    final hasSelection = _selected.isNotEmpty;
+    // Client-side filter counts (no backend calls).
+    final now = DateTime.now();
+    final cooldownCount =
+        _animeTitles.where((t) {
+          final lock = _locks[t];
+          return lock != null && lock.isAfter(now);
+        }).length;
+    final readyCount = _animeTitles.length - cooldownCount;
+    final visibleTitles = _visibleTitles;
+    // Responsive columns: fall back to 2 on very narrow screens (<360px)
+    // so poster cards never squeeze below ~100px.
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final crossAxisCount = screenWidth < 360 ? 2 : 3;
 
-    return Scaffold(
-      backgroundColor: AppColors.surfaceDim,
-      drawer: _AppDrawer(username: username),
-      body: FadeTransition(
-        opacity: _entranceFade,
-        child: CustomScrollView(slivers: [
-          SliverAppBar(
-            expandedHeight: 180,
-            pinned: true,
-            backgroundColor: AppColors.surfaceDim,
-            leading: Builder(
-              builder: (ctx) => IconButton(
-                icon: const Icon(Icons.menu_rounded,
-                    color: AppColors.textPrimary),
-                onPressed: () => Scaffold.of(ctx).openDrawer(),
-              ),
-            ),
-            actions: [
-              const CoinBalanceWidget(),
-              const SizedBox(width: 8),
-              ScoreBadge(
-                  score: userData.weeklyPoints, icon: Icons.leaderboard_rounded),
-              const SizedBox(width: 16),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: AppDecorations.heroBg,
-                padding: const EdgeInsets.fromLTRB(24, 80, 24, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text('Hey, $username 👋',
-                        style: const TextStyle(
-                            color: AppColors.textSecondary, fontSize: 16)),
-                    const SizedBox(height: 4),
-                    const Text('Pick your anime',
-                        style: TextStyle(
-                            color:      AppColors.textPrimary,
-                            fontSize:   28,
-                            fontWeight: FontWeight.w900)),
-                    const Text('Select 2 or more to start',
-                        style: TextStyle(
-                            color: AppColors.textMuted, fontSize: 13)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // ── Prize pool banner ──────────────────────────────────────────
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: _PrizePoolBanner(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const WeeklyLeaderboardPage()),
-                ),
-              ),
-            ),
-          ),
-
-          // ── Rivalry banner ─────────────────────────────────────────────
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: _RivalryBanner(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        const WeeklyLeaderboardPage(initialTab: 1),
+    return FadeTransition(
+      opacity: _entranceFade,
+      child: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: CustomScrollView(
+              slivers: [
+                // ── Header ─────────────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Hey, $username 👋',
+                                style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            const CoinBalanceWidget(),
+                            const SizedBox(width: 8),
+                            FutureBuilder<int>(
+                              future: _rankFutureFor(userData),
+                              builder: (context, snapshot) {
+                                final rank = snapshot.data ?? _lastKnownRank;
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surface,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                        color: AppColors.divider),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.leaderboard_rounded,
+                                          color: AppColors.textSecondary,
+                                          size: 16),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        rank > 0 ? '#$rank' : '—',
+                                        style: const TextStyle(
+                                          color: AppColors.textPrimary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        RichText(
+                          text: TextSpan(
+                            style: const TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 27,
+                              fontWeight: FontWeight.w900,
+                              height: 1.12,
+                              color: AppColors.textPrimary,
+                            ),
+                            children: [
+                              const TextSpan(text: "Let's build\n"),
+                              const TextSpan(text: "today's lineup"),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ),
 
-          // ── Daily Challenge button ─────────────────────────────────────
-          //
-          // Always visible above the grid. Tap launches the quiz in DC mode
-          // (1.5× WP, server-side multiplier) with 2 system-selected titles.
-          // If the free attempt has already been used today, a snackbar is
-          // shown — no retry is offered (strictly 1 DC per day).
-          //   amber glow  → free attempt available
-          //   muted/grey  → already used today
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-              child: _DailyChallengeButton(
-                isUsed: userData.dailyChallengeUsedToday,
-                onTap:  _startDailyChallenge,
-              ),
-            ),
-          ),
-
-          // ── Anime grid ────────────────────────────────────────────────
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 120),
-            sliver: SliverGrid(
-              delegate: SliverChildBuilderDelegate(
-                (ctx, i) => _AnimeCard(
-                  title:          _animeTitles[i],
-                  isSelected:     _selected.contains(_animeTitles[i]),
-                  lockTime:       _locks[_animeTitles[i]],
-                  onTap:          () => _toggleSelection(_animeTitles[i]),
-                  onSkipCooldown: () => _skipCooldown(_animeTitles[i]),
-                  onUnlockEarly:  () => _unlockEarly(_animeTitles[i]),
+                // ── Today strip ────────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 98,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _TodayGauntletCard(onTap: _startDailyGauntlet),
+                        const SizedBox(width: 12),
+                        const _TodayPrizeCard(),
+                        const SizedBox(width: 8),
+                      ],
+                    ),
+                  ),
                 ),
-                childCount: _animeTitles.length,
-              ),
-              gridDelegate:
-                  const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount:   2,
-                crossAxisSpacing: 14,
-                mainAxisSpacing:  14,
-                childAspectRatio: 0.85,
+
+                // ── Premium banner ─────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: const _PremiumBanner(),
+                ),
+
+                // ── Admin payout entry ─────────────────────────────────
+                const SliverToBoxAdapter(
+                  child: AdminPayoutEntry(),
+                ),
+
+                // ── Lineup section header ──────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 26, 20, 4),
+                    child: SectionHeader(
+                      title: 'Build your lineup',
+                      trailing: GestureDetector(
+                        onTap: _prefsReady ? _surpriseMe : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: AppColors.secondary.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: AppColors.secondary.withOpacity(0.4)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('🎲', style: TextStyle(fontSize: 13)),
+                              SizedBox(width: 5),
+                              Text(
+                                'Surprise me',
+                                style: TextStyle(
+                                    color: AppColors.secondary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                    child: Text(
+                      'Pick 2 or more anime to start a quiz',
+                      style:
+                          TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                  ),
+                ),
+
+                // ── Filter chips ───────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: _FilterChips(
+                      current: _filter,
+                      totalCount: _animeTitles.length,
+                      readyCount: readyCount,
+                      cooldownCount: cooldownCount,
+                      onChanged: (f) => setState(() => _filter = f),
+                    ),
+                  ),
+                ),
+
+                // ── Anime grid (3-col poster cards) ──────────────────────
+                SliverPadding(
+                  padding:
+                      EdgeInsets.fromLTRB(20, 12, 20, hasSelection ? 120 : 32),
+                  sliver: SliverGrid(
+                    delegate: SliverChildBuilderDelegate(
+                      (ctx, i) {
+                        final title = visibleTitles[i];
+                        return _AnimeCard(
+                          title: title,
+                          isSelected: _selected.contains(title),
+                          lockTime: _locks[title],
+                          isNew: _unlockedForever.contains(title),
+                          onTap: () => _toggleSelection(title),
+                          onSkipCooldown: () => _skipCooldown(title),
+                          onUnlockEarly: () => _unlockEarly(title),
+                        );
+                      },
+                      childCount: visibleTitles.length,
+                    ),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 0.62,
+                    ),
+                  ),
+                ),
+                if (visibleTitles.isEmpty)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(20, 8, 20, 32),
+                      child: Text(
+                        'Nothing here yet — try a different filter.',
+                        style: TextStyle(
+                            color: AppColors.textMuted, fontSize: 12),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // ── Lineup tray ──────────────────────────────────────────────
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedSlide(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              offset: hasSelection ? Offset.zero : const Offset(0, 1),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 220),
+                opacity: hasSelection ? 1 : 0,
+                child: _LineupTray(
+                  selected: _selected.toList(),
+                  onStart: () => _startQuiz(),
+                  onClearAll: () => setState(() => _selected.clear()),
+                ),
               ),
             ),
           ),
-        ]),
+        ],
       ),
-      floatingActionButtonLocation:
-          FloatingActionButtonLocation.centerFloat,
-      // Bug fix: wrap in lambda because _startQuiz now has a named param.
-      floatingActionButton: _selected.length >= 2
-          ? Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: GradientButton(
-                label: 'Start Quiz  (${_selected.length} selected)',
-                onTap: () => _startQuiz(),
-                icon:  Icons.play_arrow_rounded,
-                height: 58,
-              ),
-            )
-          : null,
     );
   }
 }
 
-// ─── Daily Challenge Button ───────────────────────────────────────────────────
-//
-// Renders in two states:
-//   isUsed == false  →  amber glow, "⚡ Daily Challenge — 1.5× WP Bonus" label
-//   isUsed == true   →  muted grey, "Used Today · Retry for 40🪙" subtitle
+// ─── Gauntlet confirm dialog detail row ────────────────────────────────────
+class _GauntletDialogRow extends StatelessWidget {
+  final IconData icon;
+  final String text;
 
-class _DailyChallengeButton extends StatelessWidget {
-  final bool         isUsed;
-  final VoidCallback onTap;
-
-  const _DailyChallengeButton({
-    required this.isUsed,
-    required this.onTap,
-  });
-
-  static const _amber  = Color(0xFFF59E0B);
-  static const _orange = Color(0xFFFF6B00);
+  const _GauntletDialogRow({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width:   double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-        decoration: BoxDecoration(
-          gradient: isUsed
-              ? null
-              : LinearGradient(
-                  colors: [
-                    _amber.withOpacity(0.18),
-                    _orange.withOpacity(0.10),
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: AppColors.amber.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: AppColors.amber, size: 16),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13.sp,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Today: Daily Gauntlet card ──────────────────────────────────────────────
+class _TodayGauntletCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _TodayGauntletCard({required this.onTap});
+
+  static const _amber = Color(0xFFF59E0B);
+
+  static const Map<int, String> _milestones = {
+    3: '40🪙',
+    7: '100🪙 + 50 WP',
+    14: '200🪙 + 🖼️',
+    30: '500🪙 + Premium',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+
+    return StreamBuilder<Map<String, dynamic>>(
+      stream: FirestoreService.instance.gauntletProgressStream(),
+      builder: (context, snap) {
+        final data = snap.data ?? const {};
+        final streak = (data['streak'] as int?) ?? 0;
+        final usedToday = (data['usedToday'] as bool?) ?? false;
+        final retryIndex = (data['retryIndex'] as int?) ?? 0;
+        final isPremium = context.watch<UserDataProvider>().premiumActive;
+        final isFreeAttempt = !usedToday;
+        final retryCost = gauntletRetryCost(
+          retryIndex: retryIndex,
+          isPremium: isPremium,
+          isFreeAttempt: isFreeAttempt,
+        );
+        final atCap = retryCost == null;
+
+        int? nextDay;
+        for (final day in _milestones.keys) {
+          if (streak < day) {
+            nextDay = day;
+            break;
+          }
+        }
+        final milestoneLabel = nextDay == null
+            ? 'All milestones claimed'
+            : '${nextDay - streak}d to ${_milestones[nextDay]}';
+
+        String retryLabel;
+        if (isFreeAttempt) {
+          retryLabel = 'Free attempt';
+        } else if (atCap) {
+          retryLabel = 'No retries left';
+        } else if (retryCost == 0) {
+          retryLabel = 'Retry \u00b7 FREE';
+        } else {
+          retryLabel = 'Retry \u00b7 $retryCost AC';
+        }
+
+        return GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 196,
+            height: 88,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: usedToday
+                  ? null
+                  : LinearGradient(
+                      colors: [
+                        _amber.withOpacity(0.20),
+                        _amber.withOpacity(0.05)
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+              color: usedToday ? AppColors.surface : null,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: usedToday ? AppColors.divider : _amber.withOpacity(0.45),
+                width: usedToday ? 1 : 1.5,
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$streak',
+                      style: TextStyle(
+                        color: usedToday ? AppColors.textMuted : _amber,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        height: 1.0,
+                      ),
+                    ),
+                    Text(
+                      streak == 1 ? 'day' : 'days',
+                      style: TextStyle(
+                        color: usedToday
+                            ? AppColors.textMuted.withOpacity(0.6)
+                            : _amber.withOpacity(0.7),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                 ),
-          color:        isUsed ? AppColors.surface : null,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isUsed
-                ? AppColors.divider
-                : _amber.withOpacity(0.50),
-            width: isUsed ? 1 : 1.5,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'DAILY GAUNTLET',
+                        style: TextStyle(
+                          color: usedToday ? AppColors.textMuted : _amber,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.7,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        retryLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: usedToday
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        milestoneLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppColors.textMuted, fontSize: 9),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          boxShadow: isUsed
-              ? []
-              : [
-                  BoxShadow(
-                    color:      _amber.withOpacity(0.12),
-                    blurRadius: 12,
-                    spreadRadius: 1,
-                  ),
-                ],
-        ),
-        child: Row(
-          children: [
-            // Icon container
-            Container(
-              width:  38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: isUsed
-                    ? AppColors.divider.withOpacity(0.5)
-                    : _amber.withOpacity(0.18),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '⚡',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: isUsed
-                        ? AppColors.textMuted
-                        : null,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
+        );
+      },
+    );
+  }
+}
 
-            // Text column
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+// ─── Today: Prize Pool card ────────────────────────────────────────────────
+class _TodayPrizeCard extends StatefulWidget {
+  const _TodayPrizeCard();
+
+  @override
+  State<_TodayPrizeCard> createState() => _TodayPrizeCardState();
+}
+
+class _TodayPrizeCardState extends State<_TodayPrizeCard> {
+  late final Stream<Map<String, dynamic>> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirestoreService.instance.prizePoolStream();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Map<String, dynamic>>(
+      stream: _stream,
+      builder: (context, snap) {
+        final pool = snap.data ?? {};
+        final totalNaira = (pool['totalNaira'] as num?)?.toDouble() ?? 0.0;
+        final timeLeft = PrizePoolService.timeUntilReset();
+
+        return Container(
+          width: 120,
+          height: 88,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.divider),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    'DAILY CHALLENGE',
-                    style: TextStyle(
-                      color: isUsed
-                          ? AppColors.textMuted
-                          : _amber,
-                      fontSize:      10,
-                      fontWeight:    FontWeight.w800,
-                      letterSpacing: 1,
-                    ),
+                  const Text(
+                    '🏆',
+                    style: TextStyle(fontSize: 11),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(width: 4),
                   Text(
-                    isUsed
-                        ? 'Used today  ·  Come back tomorrow'
-                        : '1.5× WP on all points this session',
+                    'PRIZE POOL',
                     style: TextStyle(
-                      color: isUsed
-                          ? AppColors.textSecondary
-                          : AppColors.textPrimary,
-                      fontSize:   12,
-                      fontWeight: FontWeight.w600,
+                      color: AppColors.accent.withOpacity(0.9),
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-
-            // Right indicator
-            if (!isUsed)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color:        _amber.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(8),
+              const SizedBox(height: 5),
+              Text(
+                PrizePoolService.formatNaira(totalNaira),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
                 ),
-                child: const Text(
-                  'Tap to start',
-                  style: TextStyle(
-                    color:      _amber,
-                    fontSize:   11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              )
-            else
-              const Icon(
-                Icons.lock_outline_rounded,
-                color: AppColors.textMuted,
-                size:  16,
               ),
-          ],
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.schedule_rounded,
+                    size: 10,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: 3),
+                  Expanded(
+                    child: Text(
+                      PrizePoolService.formatCountdown(timeLeft),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─── Premium Banner ─────────────────────────────────────────────────────────
+class _PremiumBanner extends StatelessWidget {
+  const _PremiumBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final premium = context.watch<UserDataProvider>().premiumActive;
+
+    if (premium) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                AppColors.accent.withOpacity(0.18),
+                AppColors.secondary.withOpacity(0.10),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.accent.withOpacity(0.35)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withOpacity(0.20),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.accent.withOpacity(0.40)),
+                ),
+                child: Center(
+                    child: Text('👑', style: TextStyle(fontSize: 24.sp))),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'GO PREMIUM',
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 9.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Unlock more ways to compete',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '1.20× eligible WP · Extra Quick Match · Free Gauntlet retry',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.accent.withOpacity(0.3)),
+                ),
+                child: Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: AppColors.accent,
+                  size: 16.sp,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-// ─── Anime Card ───────────────────────────────────────────────────────────────
-
+// ─── Anime Card — 3:4 portrait poster, status-only label ──────────────────
+// Image fills the card; a bottom gradient scrim carries a single status line
+// ("Tap to add" / "Selected" / "On cooldown"). No title text — a picked card
+// turns red (border + glow + check badge); everything else on the page stays
+// neutral so red means "selected". UI-only — callbacks and lock/selection
+// logic are unchanged.
 class _AnimeCard extends StatefulWidget {
-  final String       title;
-  final bool         isSelected;
-  final DateTime?    lockTime;
+  final String title;
+  final bool isSelected;
+  final DateTime? lockTime;
   final VoidCallback onTap;
   final VoidCallback? onSkipCooldown;
   final VoidCallback? onUnlockEarly;
+  final bool isNew;
 
   const _AnimeCard({
     required this.title,
@@ -762,6 +1621,7 @@ class _AnimeCard extends StatefulWidget {
     this.lockTime,
     this.onSkipCooldown,
     this.onUnlockEarly,
+    this.isNew = false,
   });
 
   @override
@@ -777,10 +1637,10 @@ class _AnimeCardState extends State<_AnimeCard>
     super.initState();
     _ctrl = AnimationController(
         vsync: this,
-        duration:   const Duration(milliseconds: 150),
-        lowerBound: 0.95,
+        duration: const Duration(milliseconds: 150),
+        lowerBound: 0.96,
         upperBound: 1.0,
-        value:      1.0);
+        value: 1.0);
   }
 
   @override
@@ -791,14 +1651,65 @@ class _AnimeCardState extends State<_AnimeCard>
 
   bool get _isLocked =>
       widget.lockTime != null && widget.lockTime!.isAfter(DateTime.now());
-  int get _secs => _isLocked
-      ? widget.lockTime!.difference(DateTime.now()).inSeconds
-      : 0;
+  int get _secs =>
+      _isLocked ? widget.lockTime!.difference(DateTime.now()).inSeconds : 0;
+
+  String get _timerLabel =>
+      _secs >= 60 ? '${_secs ~/ 60}m ${_secs % 60}s' : '${_secs}s';
+
+  // ── Safe tile art (no copyrighted anime imagery) ──────────────────────
+  // Mirrors the gradient+emoji tile pattern from anime_select_page.dart so
+  // the home grid no longer depends on unlicensed franchise artwork. The
+  // emoji + colour per title are derived deterministically.
+  static const Map<String, String> _emojiMap = {
+    'naruto': '🍜',
+    'one piece': '🏴‍☠️',
+    'dragon ball z': '💥',
+    'attack on titan': '⚔️',
+    'demon slayer': '🗡️',
+    'my hero academia': '🦸',
+    'death note': '📓',
+    'fullmetal alchemist': '⚗️',
+    'hunter x hunter': '🎯',
+    'jujutsu kaisen': '🌀',
+    'bleach': '🔱',
+    'sword art online': '🗡',
+    'fairy tail': '🧙',
+    'black clover': '🍀',
+    'one punch man': '👊',
+    'tokyo ghoul': '👁️',
+    'vinland saga': '🪓',
+    'chainsaw man': '🔪',
+  };
+
+  static const List<List<Color>> _palettes = [
+    [Color(0xFF6D5DFB), Color(0xFF4338CA)],
+    [Color(0xFF38BDF8), Color(0xFF0369A1)],
+    [Color(0xFFF59E0B), Color(0xFFB45309)],
+    [Color(0xFF34D399), Color(0xFF047857)],
+    [Color(0xFFF472B6), Color(0xFFBE185D)],
+    [Color(0xFFA78BFA), Color(0xFF2563EB)],
+    [Color(0xFFFB7185), Color(0xFF9F1239)],
+    [Color(0xFF22D3EE), Color(0xFF155E75)],
+  ];
+
+  String get _emoji =>
+      _emojiMap[widget.title.toLowerCase().trim()] ?? '✨';
+
+  List<Color> get _palette {
+    final index = widget.title.codeUnits.fold<int>(0, (sum, value) => sum + value) %
+        _palettes.length;
+    return _palettes[index];
+  }
 
   @override
   Widget build(BuildContext context) {
+    final statusLabel = _isLocked
+        ? 'On cooldown'
+        : (widget.isSelected ? 'Selected' : 'Tap to add');
+
     return GestureDetector(
-      onTapDown:  (_) => _ctrl.reverse(),
+      onTapDown: (_) => _ctrl.reverse(),
       onTapUp: (_) {
         _ctrl.forward();
         widget.onTap();
@@ -809,146 +1720,173 @@ class _AnimeCardState extends State<_AnimeCard>
         builder: (_, child) =>
             Transform.scale(scale: _ctrl.value, child: child),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
+          duration: const Duration(milliseconds: 220),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: widget.isSelected
                   ? AppColors.primary
-                  : _isLocked
-                      ? AppColors.locked
-                      : AppColors.divider,
-              width: widget.isSelected ? 2.5 : 1,
+                  : (_isLocked ? AppColors.locked : AppColors.divider),
+              width: widget.isSelected ? 2 : 1,
             ),
             boxShadow: widget.isSelected
                 ? [
                     BoxShadow(
-                        color:      AppColors.primary.withOpacity(0.35),
-                        blurRadius: 20)
+                      color: AppColors.primary.withOpacity(0.25),
+                      blurRadius: 16,
+                      spreadRadius: 0,
+                      offset: const Offset(0, 4),
+                    ),
                   ]
-                : [],
+                : null,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(19),
-            child: Stack(fit: StackFit.expand, children: [
-              Image.asset(
-                'assets/${widget.title}.png',
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: AppColors.surface,
-                  child: const Icon(Icons.image_not_supported,
-                      color: AppColors.textMuted, size: 40),
-                ),
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.75),
-                    ],
-                    begin: Alignment.topCenter,
-                    end:   Alignment.bottomCenter,
+            borderRadius: BorderRadius.circular(15),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // ── Tile art (gradient + emoji — no copyrighted artwork) ──
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: _palette,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      _emoji,
+                      style: const TextStyle(fontSize: 52),
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: 10, right: 10, bottom: 10,
-                child: Text(
-                  widget.title.toUpperCase(),
-                  style: const TextStyle(
-                      color:         Colors.white,
-                      fontSize:      11,
-                      fontWeight:    FontWeight.w800,
-                      letterSpacing: 1),
-                  maxLines:  2,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              if (widget.isSelected)
+                // ── Bottom scrim for text contrast ───────────────────
                 Positioned(
-                  top: 10, right: 10,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  top: null,
                   child: Container(
-                    width:  28,
-                    height: 28,
-                    decoration: const BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle),
-                    child: const Icon(Icons.check,
-                        color: Colors.white, size: 18),
+                    height: 110,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.0),
+                          Colors.black.withOpacity(0.55),
+                          Colors.black.withOpacity(0.85),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-
-              // ── Locked overlay with spend-surface buttons ──────────────
-              if (_isLocked) ...[ 
-                Container(color: Colors.black.withOpacity(0.65)),
-                Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.lock_rounded,
-                          color: Colors.white70, size: 30),
-                      const SizedBox(height: 4),
-                      Text(
-                        _secs >= 60
-                            ? '${_secs ~/ 60}m ${_secs % 60}s'
-                            : '${_secs}s',
-                        style: const TextStyle(
-                            color:      Colors.white70,
-                            fontSize:   12,
-                            fontWeight: FontWeight.w700),
-                      ),
-
-                      // ── Surface 2: Cooldown Skip (25 AC) ────────────────
-                      const SizedBox(height: 8),
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap:    () => widget.onSkipCooldown?.call(),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color:        AppColors.secondary.withOpacity(0.85),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            '⏩ Skip  25🪙',
-                            style: TextStyle(
-                              color:      Colors.white,
-                              fontSize:   11,
-                              fontWeight: FontWeight.w700,
+                // ── Status pill (top-left, cooldown/NEW only) ────────
+                if (_isLocked)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: _StatusPill(
+                      label: _timerLabel,
+                      background: Colors.black.withOpacity(0.65),
+                      foreground: Colors.white,
+                      icon: Icons.lock_rounded,
+                    ),
+                  )
+                else if (widget.isNew)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: _StatusPill(
+                      label: 'NEW',
+                      background: AppColors.accent,
+                      foreground: Colors.black,
+                    ),
+                  ),
+                // ── Selected check (top-right) ───────────────────────
+                if (widget.isSelected)
+                  const Positioned(
+                    top: 6,
+                    right: 6,
+                    child: _SelectedCheck(),
+                  ),
+                // ── Locked overlay ───────────────────────────────────
+                if (_isLocked)
+                  Container(color: Colors.black.withOpacity(0.55)),
+                if (_isLocked)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.lock_rounded,
+                              color: Colors.white70, size: 22),
+                          const SizedBox(height: 6),
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => widget.onSkipCooldown?.call(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.secondary.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                '⏩ 100',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-
-                      // ── Surface 4: Early Unlock (200 AC) ────────────────
-                      const SizedBox(height: 5),
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap:    () => widget.onUnlockEarly?.call(),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color:        AppColors.accent.withOpacity(0.85),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            '🔓 Unlock  500🪙',
-                            style: TextStyle(
-                              color:      Colors.white,
-                              fontSize:   11,
-                              fontWeight: FontWeight.w700,
+                          const SizedBox(height: 4),
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => widget.onUnlockEarly?.call(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text('🔓 500',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800)),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
+                  ),
+                // ── Status label (bottom-aligned overlay) ────────────
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    child: Text(
+                      statusLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.85),
+                        fontSize: 10.5.sp,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
               ],
-            ]),
+            ),
           ),
         ),
       ),
@@ -956,479 +1894,237 @@ class _AnimeCardState extends State<_AnimeCard>
   }
 }
 
-// ─── App Drawer ───────────────────────────────────────────────────────────────
+// ─── Status pill (compact, top-left of poster card) ─────────────────────────
+class _StatusPill extends StatelessWidget {
+  final String label;
+  final Color background;
+  final Color foreground;
+  final IconData? icon;
 
-class _AppDrawer extends StatelessWidget {
-  final String username;
-  const _AppDrawer({required this.username});
-
-  @override
-  Widget build(BuildContext context) {
-    final userData = context.watch<UserDataProvider>();
-    return Drawer(
-      width:           260,
-      backgroundColor: AppColors.surface,
-      child: SafeArea(
-        child: Column(children: [
-          Container(
-            padding:    const EdgeInsets.all(24),
-            decoration: AppDecorations.heroBg,
-            child: Row(children: [
-              Container(
-                width:  52,
-                height: 52,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.primary, Color(0xFFFF6B6B)],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.person_rounded,
-                    color: Colors.white, size: 28),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(username,
-                        style: const TextStyle(
-                            color:      AppColors.textPrimary,
-                            fontSize:   18,
-                            fontWeight: FontWeight.w800),
-                        overflow: TextOverflow.ellipsis),
-                    Row(children: [
-                      const Icon(Icons.leaderboard_rounded,
-                          color: AppColors.accent, size: 14),
-                      const SizedBox(width: 4),
-                      Text('${userData.weeklyPoints} WP',
-                          style: const TextStyle(
-                              color: AppColors.accent, fontSize: 13)),
-                    ]),
-                  ],
-                ),
-              ),
-            ]),
-          ),
-
-          const SizedBox(height: 12),
-
-          _Tile(
-            icon:  Icons.person_outline_rounded,
-            label: 'My Profile',
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PInform()));
-            },
-          ),
-
-          _Tile(
-            icon:  Icons.sports_esports_rounded,
-            label: 'Battle Arena',
-            color: AppColors.primary,
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const MultiplayerHubPage(),
-                ),
-              );
-            },
-          ),
-
-
-          _Tile(
-            icon:  Icons.emoji_events_rounded,
-            label: 'Weekly Prizes',
-            color: AppColors.accent,
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context,
-                  MaterialPageRoute(
-                      builder: (_) => const WeeklyLeaderboardPage()));
-            },
-          ),
-
-          const Spacer(),
-          const Divider(color: AppColors.divider),
-          _Tile(
-            icon:  Icons.logout_rounded,
-            label: 'Sign Out',
-            color: AppColors.wrong,
-            onTap: () async {
-              Navigator.pop(context);
-              await AuthService.instance.signOut();
-            },
-          ),
-          const SizedBox(height: 16),
-        ]),
-      ),
-    );
-  }
-}
-
-class _Tile extends StatelessWidget {
-  final IconData     icon;
-  final String       label;
-  final VoidCallback onTap;
-  final Color?       color;
-  const _Tile({
-    required this.icon,
+  const _StatusPill({
     required this.label,
-    required this.onTap,
-    this.color,
+    required this.background,
+    required this.foreground,
+    this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? AppColors.textPrimary;
-    return ListTile(
-      leading: Icon(icon, color: c, size: 22),
-      title:   Text(label,
-          style: TextStyle(
-              color: c, fontSize: 15, fontWeight: FontWeight.w600)),
-      onTap:   onTap,
-      shape:   RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12)),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-    );
-  }
-}
-
-// ─── Prize Pool Banner ────────────────────────────────────────────────────────
-
-class _PrizePoolBanner extends StatefulWidget {
-  final VoidCallback onTap;
-  const _PrizePoolBanner({required this.onTap});
-
-  @override
-  State<_PrizePoolBanner> createState() => _PrizePoolBannerState();
-}
-
-class _PrizePoolBannerState extends State<_PrizePoolBanner> {
-  late final Stream<Map<String, dynamic>> _stream;
-
-  @override
-  void initState() {
-    super.initState();
-    _stream = FirestoreService.instance.prizePoolStream();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<Map<String, dynamic>>(
-      stream: _stream,
-      builder: (context, snap) {
-        final pool       = snap.data ?? {};
-        final totalNaira = (pool['totalNaira'] as num?)?.toDouble() ?? 0.0;
-        final timeLeft   = PrizePoolService.timeUntilReset();
-
-        return GestureDetector(
-          onTap: widget.onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.primary.withOpacity(0.18),
-                  AppColors.accent.withOpacity(0.12),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(16),
-              border:       Border.all(
-                  color: AppColors.primary.withOpacity(0.35)),
-            ),
-            child: Row(
-              children: [
-                const Text('🏆', style: TextStyle(fontSize: 28)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'THIS WEEK\'S PRIZE POOL',
-                        style: TextStyle(
-                          color:         AppColors.textMuted,
-                          fontSize:      10,
-                          fontWeight:    FontWeight.w700,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        PrizePoolService.formatNaira(totalNaira),
-                        style: const TextStyle(
-                          color:      AppColors.textPrimary,
-                          fontSize:   22,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Text(
-                      'Resets in',
-                      style: TextStyle(
-                          color: AppColors.textMuted, fontSize: 10),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      PrizePoolService.formatCountdown(timeLeft),
-                      style: const TextStyle(
-                          color:      AppColors.accent,
-                          fontSize:   11,
-                          fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Top 5 win →',
-                      style: TextStyle(
-                          color: AppColors.textMuted, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ─── Rivalry Banner ───────────────────────────────────────────────────────────
-
-class _RivalryBanner extends StatefulWidget {
-  final VoidCallback onTap;
-  const _RivalryBanner({required this.onTap});
-
-  @override
-  State<_RivalryBanner> createState() => _RivalryBannerState();
-}
-
-class _RivalryBannerState extends State<_RivalryBanner> {
-  List<UniversityTotal>? _top;
-  bool                   _loaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch();
-  }
-
-  Future<void> _fetch() async {
-    try {
-      final top = await FirestoreService.instance.getTopUniversities();
-      if (!mounted) return;
-      setState(() {
-        _top    = top;
-        _loaded = true;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loaded = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_loaded) {
-      return _RivalryBannerShell(
-        onTap: widget.onTap,
-        child: const _RivalrySkeleton(),
-      );
-    }
-
-    final top = _top ?? [];
-
-    if (top.length < 2) {
-      return _RivalryBannerShell(
-        onTap: widget.onTap,
-        child: Row(
-          children: [
-            Container(
-              width:  36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: AppColors.surface,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.school_outlined,
-                  color: AppColors.textMuted, size: 18),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Campus battles heat up as more students join',
-                style: TextStyle(
-                  color:    AppColors.textMuted,
-                  fontSize: 12,
-                  height:   1.3,
-                ),
-              ),
-            ),
-            const Icon(Icons.chevron_right_rounded,
-                color: AppColors.textMuted, size: 18),
-          ],
-        ),
-      );
-    }
-
-    final leader     = top[0];
-    final challenger = top[1];
-
-    return _RivalryBannerShell(
-      onTap: widget.onTap,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width:  36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFF6C63FF).withOpacity(0.18),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.school_rounded,
-                color: Color(0xFF6C63FF), size: 18),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'CAMPUS WARS',
-                  style: TextStyle(
-                    color:         AppColors.textMuted,
-                    fontSize:      9,
-                    fontWeight:    FontWeight.w800,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                RichText(
-                  text: TextSpan(
-                    style: const TextStyle(fontSize: 13, height: 1.2),
-                    children: [
-                      TextSpan(
-                        text: leader.university,
-                        style: const TextStyle(
-                          color:      AppColors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const TextSpan(
-                        text:  ' leads ',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                      TextSpan(
-                        text: challenger.university,
-                        style: const TextStyle(
-                          color:      AppColors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      TextSpan(
-                        text: '  ·  ${_fmt(leader.total)} – ${_fmt(challenger.total)}',
-                        style: const TextStyle(
-                          color:      AppColors.textMuted,
-                          fontSize:   11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+          if (icon != null) ...[
+            Icon(icon, color: foreground, size: 10),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 9.sp,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(width: 8),
-          const Icon(Icons.chevron_right_rounded,
-              color: AppColors.textMuted, size: 18),
         ],
       ),
     );
   }
+}
 
-  String _fmt(int n) {
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
-    if (n >= 1000)    return '${(n / 1000).toStringAsFixed(1)}K';
-    return '$n';
+// ─── Selected check badge (top-right) ───────────────────────────────────────
+class _SelectedCheck extends StatelessWidget {
+  const _SelectedCheck();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: const BoxDecoration(
+          color: AppColors.primary, shape: BoxShape.circle),
+      child: const Icon(Icons.check, color: Colors.white, size: 14),
+    );
   }
 }
 
-class _RivalryBannerShell extends StatelessWidget {
+// ─── Filter chips — client-side only, filters _visibleTitles ────────────────
+class _FilterChips extends StatelessWidget {
+  final _AnimeFilter current;
+  final int totalCount;
+  final int readyCount;
+  final int cooldownCount;
+  final ValueChanged<_AnimeFilter> onChanged;
+
+  const _FilterChips({
+    required this.current,
+    required this.totalCount,
+    required this.readyCount,
+    required this.cooldownCount,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = <({ _AnimeFilter value, String label })>[
+      (value: _AnimeFilter.all, label: 'All ($totalCount)'),
+      (value: _AnimeFilter.ready, label: 'Ready ($readyCount)'),
+      (value: _AnimeFilter.cooldown, label: 'Cooldown ($cooldownCount)'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < chips.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            _FilterChip(
+              label: chips[i].label,
+              selected: current == chips[i].value,
+              onTap: () => onChanged(chips[i].value),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
   final VoidCallback onTap;
-  final Widget       child;
-  const _RivalryBannerShell({required this.onTap, required this.child});
+
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFF6C63FF).withOpacity(0.12),
-              const Color(0xFF3ECFCF).withOpacity(0.08),
-            ],
+          color: selected ? AppColors.surfaceAlt : AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppColors.textMuted : AppColors.divider,
           ),
-          borderRadius: BorderRadius.circular(14),
-          border:       Border.all(
-              color: const Color(0xFF6C63FF).withOpacity(0.28)),
         ),
-        child: child,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? AppColors.textPrimary : AppColors.textMuted,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
       ),
     );
   }
 }
 
-class _RivalrySkeleton extends StatelessWidget {
-  const _RivalrySkeleton();
+// ─── Lineup tray (compact: header + start button, no chips) ─────────────────
+class _LineupTray extends StatelessWidget {
+  final List<String> selected;
+  final VoidCallback onStart;
+  final VoidCallback onClearAll;
+
+  const _LineupTray({
+    required this.selected,
+    required this.onStart,
+    required this.onClearAll,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width:  36,
-          height: 36,
-          decoration: const BoxDecoration(
-            color: AppColors.surface,
-            shape: BoxShape.circle,
+    final ready = selected.length >= 2;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: const Border(top: BorderSide(color: AppColors.divider)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.35),
+            blurRadius: 24,
+            offset: const Offset(0, -6),
           ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header: count badge + clear-all ───────────────────────
+          Row(
             children: [
+              const Text(
+                'Lineup',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 8),
               Container(
-                  width: 70, height: 8,
-                  decoration: BoxDecoration(
-                      color:        AppColors.surface,
-                      borderRadius: BorderRadius.circular(4))),
-              const SizedBox(height: 6),
-              Container(
-                  width: double.infinity, height: 10,
-                  decoration: BoxDecoration(
-                      color:        AppColors.surface,
-                      borderRadius: BorderRadius.circular(4))),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.textMuted),
+                ),
+                child: Text(
+                  '${selected.length}',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onClearAll,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  child: Text(
+                    'Clear all',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          GradientButton(
+            label: ready
+                ? 'Start Quiz  (${selected.length} picked)'
+                : 'Pick ${2 - selected.length} more to begin',
+            onTap: ready ? onStart : null,
+            icon: ready ? Icons.play_arrow_rounded : null,
+            height: 54,
+          ),
+        ],
+      ),
     );
   }
 }

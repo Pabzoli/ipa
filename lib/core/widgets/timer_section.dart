@@ -1,40 +1,23 @@
 // =============================================================================
 // widgets/timer_section.dart
 // =============================================================================
-// What changed and why:
-//
-//  URGENCY COLOR SYSTEM
-//  • The ring wrapper animates through three distinct states using
-//    AnimatedContainer (300 ms, Curves.easeOut):
-//      > 5 s  — calm:    primary colour glow
-//      3–5 s  — warning: amber (#F59E0B) glow
-//      ≤ 2 s  — danger:  crimson (AppColors.wrong) glow
-//  • This gives the player a clear visual escalation without any sudden jump.
-//
-//  CRITICAL PULSE
-//  • When timerIsCritical, AnimatedScale applies a subtle 1.0 → 1.06 scale
-//    (200 ms) on top of the TimerRing. The scale resets every second as the
-//    countdown ticks, creating a heartbeat effect.
-//
-//  SEMANTICS
-//  • liveRegion: true so screen readers announce the countdown automatically
-//    without the user needing to focus the element.
-//
-//  NOTE: TimerRing is kept as-is from shared_widgets.dart. If the TimerRing
-//  widget ever exposes a `color` parameter, pass _ringColor directly to it
-//  instead of wrapping with an outer glow container.
+// Timer Pause power-up (freeze until answered):
+//  • TimerWithPowerup combines the timer ring and the pause button.
+//  • The button appears only when canShowTimerPause is true.
+//  • When paused, the countdown is frozen and a "Paused" badge is shown.
+//  • A fixed‑width placeholder keeps the timer centered.
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../features/quiz/quiz_controller.dart';
+import 'powerup_bar.dart'; // TimerPauseButton
 
-// Amber used for the warning tier.
-// TODO: migrate to Theme.of(context).colorScheme.tertiary
-const _kAmber = Color(0xFFF59E0B);
+// ── Existing TimerSection (kept for reference, but not used) ──
 
 class TimerSection extends StatelessWidget {
   const TimerSection({super.key});
@@ -44,14 +27,14 @@ class TimerSection extends StatelessWidget {
     final ctrl = context.watch<QuizController>();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 0),
       child: Semantics(
-        label:      '${ctrl.timerSeconds} seconds remaining',
+        label: '${ctrl.timerSeconds} seconds remaining',
         liveRegion: true,
         child: Center(
           child: _UrgencyRingWrapper(
-            seconds:    ctrl.timerSeconds,
-            isUrgent:   ctrl.timerIsUrgent,
+            seconds: ctrl.timerSeconds,
+            isUrgent: ctrl.timerIsUrgent,
             isCritical: ctrl.timerIsCritical,
           ),
         ),
@@ -60,46 +43,175 @@ class TimerSection extends StatelessWidget {
   }
 }
 
+// ── New: Timer + Powerup in a compact, centered row ──────────────────────
+
+class TimerWithPowerup extends StatelessWidget {
+  const TimerWithPowerup({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<QuizController>();
+    // Approximate width of the button (Pause · 20 AC with padding)
+    const double buttonPlaceholderWidth = 148.0;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 8.r),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final useStack = constraints.maxWidth < 360;
+          if (useStack) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(
+                  label: ctrl.isTimerPaused
+                      ? 'Timer paused with ${ctrl.timerSeconds} seconds remaining'
+                      : '${ctrl.timerSeconds} seconds remaining',
+                  liveRegion: true,
+                  child: _UrgencyRingWrapper(
+                    seconds: ctrl.timerSeconds,
+                    isUrgent: ctrl.timerIsUrgent,
+                    isCritical: ctrl.timerIsCritical,
+                    isPaused: ctrl.isTimerPaused,
+                  ),
+                ),
+                if (ctrl.isTimerPaused) ...[
+                  SizedBox(height: 6.h),
+                  const _PausedBadge(),
+                ] else if (ctrl.canShowTimerPause) ...[
+                  SizedBox(height: 8.h),
+                  TimerPauseButton(
+                    coins: ctrl.animeCoins,
+                    onTap: ctrl.useTimerPause,
+                  ),
+                ],
+              ],
+            );
+          }
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Timer ring – fixed size, no stretching
+              Semantics(
+                label: ctrl.isTimerPaused
+                    ? 'Timer paused with ${ctrl.timerSeconds} seconds remaining'
+                    : '${ctrl.timerSeconds} seconds remaining',
+                liveRegion: true,
+                child: _UrgencyRingWrapper(
+                  seconds: ctrl.timerSeconds,
+                  isUrgent: ctrl.timerIsUrgent,
+                  isCritical: ctrl.timerIsCritical,
+                  isPaused: ctrl.isTimerPaused,
+                ),
+              ),
+              SizedBox(width: 16.w),
+              // Fixed‑width placeholder ensures the timer never shifts
+              SizedBox(
+                width: buttonPlaceholderWidth,
+                child: AnimatedOpacity(
+                  opacity: (ctrl.canShowTimerPause || ctrl.isTimerPaused)
+                      ? 1.0
+                      : 0.0,
+                  duration: const Duration(milliseconds: 250),
+                  child: Center(
+                    child: ctrl.isTimerPaused
+                        ? const _PausedBadge()
+                        : ctrl.canShowTimerPause
+                            ? TimerPauseButton(
+                                coins: ctrl.animeCoins,
+                                onTap: ctrl.useTimerPause,
+                              )
+                            : const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ── Ring wrapper ────────────────────────────────────────────────────────────
+
+class _PausedBadge extends StatelessWidget {
+  const _PausedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
+      decoration: BoxDecoration(
+        color: AppColors.secondary.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppRadii.full),
+        border: Border.all(
+          color: AppColors.secondary.withValues(alpha: 0.55),
+          width: 1.5,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.pause_rounded, size: 14, color: AppColors.secondary),
+          SizedBox(width: 4),
+          Text(
+            'Paused',
+            style: TextStyle(
+              color: AppColors.secondary,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _UrgencyRingWrapper extends StatelessWidget {
-  final int  seconds;
+  final int seconds;
   final bool isUrgent;
   final bool isCritical;
+  final bool isPaused;
 
   const _UrgencyRingWrapper({
     required this.seconds,
     required this.isUrgent,
     required this.isCritical,
+    this.isPaused = false,
   });
 
   Color get _glowColor {
     if (isCritical) return AppColors.wrong;
-    if (isUrgent)   return _kAmber;
+    if (isUrgent) return AppColors.amber;
     return AppColors.primary;
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedScale(
-      // Heartbeat scale kicks in at critical tier.
-      // The key changes every second so AnimatedScale restarts from 1.0 each
-      // tick, creating a repeating pulse without a persistent AnimationController.
-      scale:    isCritical ? 1.06 : 1.0,
+      scale: isCritical ? 1.06 : 1.0,
       duration: const Duration(milliseconds: 180),
-      curve:    Curves.easeOut,
+      curve: Curves.easeOut,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        curve:    Curves.easeOut,
+        curve: Curves.easeOut,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color:      _glowColor.withOpacity(isCritical ? 0.35 : isUrgent ? 0.20 : 0.10),
+              color: _glowColor.withValues(
+                  alpha: isCritical
+                      ? 0.35
+                      : isUrgent
+                          ? 0.20
+                          : 0.10),
               blurRadius: isCritical ? 24 : 16,
               spreadRadius: isCritical ? 2 : 0,
             ),
           ],
         ),
-        // TODO: pass _glowColor into TimerRing once it supports a color param.
         child: TimerRing(seconds: seconds),
       ),
     );

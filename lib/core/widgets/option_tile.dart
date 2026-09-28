@@ -30,6 +30,7 @@
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -149,18 +150,18 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
       if (i == correct) {
         return _TileColors(
           border:    AppColors.correct,
-          bg:        AppColors.correct.withOpacity(0.13),
+          bg:        AppColors.correct.withValues(alpha: 0.13),
           text:      AppColors.correct,
           badge:     AppColors.correct,
           badgeFill: true,
           shadows: [
             BoxShadow(
-              color:      AppColors.correct.withOpacity(0.2),
+              color: AppColors.correct.withValues(alpha: 0.2),
               blurRadius: 20,
               offset:     const Offset(0, 4),
             ),
           ],
-          trailing: const Icon(
+          trailing: Icon(
             Icons.check_circle_rounded,
             color: AppColors.correct,
             size:  22,
@@ -171,18 +172,18 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
       if (i == selectedOption) {
         return _TileColors(
           border:    AppColors.wrong,
-          bg:        AppColors.wrong.withOpacity(0.11),
+          bg:        AppColors.wrong.withValues(alpha: 0.11),
           text:      AppColors.wrong,
           badge:     AppColors.wrong,
           badgeFill: true,
           shadows: [
             BoxShadow(
-              color:      AppColors.wrong.withOpacity(0.15),
+              color: AppColors.wrong.withValues(alpha: 0.15),
               blurRadius: 14,
               offset:     const Offset(0, 3),
             ),
           ],
-          trailing: const Icon(
+          trailing: Icon(
             Icons.cancel_rounded,
             color: AppColors.wrong,
             size:  22,
@@ -192,10 +193,10 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
 
       // Revealed-but-not-selected after answer shown
       return _TileColors(
-        border:    AppColors.divider.withOpacity(0.4),
-        bg:        AppColors.surface.withOpacity(0.35),
-        text:      AppColors.textMuted.withOpacity(0.5),
-        badge:     AppColors.textMuted.withOpacity(0.4),
+        border:    AppColors.divider.withValues(alpha: 0.4),
+        bg:        AppColors.surface.withValues(alpha: 0.35),
+        text:      AppColors.textMuted.withValues(alpha: 0.5),
+        badge:     AppColors.textMuted.withValues(alpha: 0.4),
         badgeFill: false,
         shadows:   const [],
         trailing:  null,
@@ -205,13 +206,13 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
     if (i == selectedOption) {
       return _TileColors(
         border:    AppColors.secondary,
-        bg:        AppColors.secondary.withOpacity(0.1),
+        bg:        AppColors.secondary.withValues(alpha: 0.1),
         text:      AppColors.secondary,
         badge:     AppColors.secondary,
         badgeFill: true,
         shadows: [
           BoxShadow(
-            color:      AppColors.secondary.withOpacity(0.15),
+            color: AppColors.secondary.withValues(alpha: 0.15),
             blurRadius: 12,
             offset:     const Offset(0, 3),
           ),
@@ -277,7 +278,7 @@ class _TileContent extends StatelessWidget {
       curve:    Curves.easeOut,
       decoration: BoxDecoration(
         color:        colors.bg,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadii.xl),
         border:       Border.all(color: colors.border, width: 1.5),
         boxShadow:    colors.shadows,
       ),
@@ -294,24 +295,27 @@ class _TileContent extends StatelessWidget {
                 height: 34,
                 decoration: BoxDecoration(
                   color: colors.badgeFill
-                      ? colors.badge.withOpacity(0.25)
-                      : colors.badge.withOpacity(0.1),
+                      ? colors.badge.withValues(alpha: 0.25)
+                      : colors.badge.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(9),
                   border: Border.all(
-                    color: colors.badge.withOpacity(
-                      colors.badgeFill ? 0.6 : 0.3,
+                    color: colors.badge.withValues(
+                      alpha: colors.badgeFill ? 0.6 : 0.3,
                     ),
                     width: 1.5,
                   ),
                 ),
                 child: Center(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color:         colors.badge,
-                      fontWeight:    FontWeight.w900,
-                      fontSize:      13,
-                      letterSpacing: 0.5,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color:         colors.badge,
+                        fontWeight:    FontWeight.w900,
+                        fontSize:      13.sp,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                 ),
@@ -322,7 +326,7 @@ class _TileContent extends StatelessWidget {
                   text,
                   style: TextStyle(
                     color:           colors.text,
-                    fontSize:        15,
+                    fontSize:        15.sp,
                     fontWeight:      FontWeight.w600,
                     height:          1.35,
                     decoration:      strikethrough

@@ -24,6 +24,7 @@
 // =============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -37,7 +38,8 @@ class QuizHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final ctrl = context.watch<QuizController>();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.sm, AppSpacing.md, AppSpacing.lg, 0),
       child: Row(
         children: [
           _CloseButton(onTap: onQuit),
@@ -83,7 +85,7 @@ class _CloseButton extends StatelessWidget {
             shape:  BoxShape.circle,
             border: Border.all(color: AppColors.divider, width: 1),
           ),
-          child: const Icon(
+          child: Icon(
             Icons.close_rounded,
             color: AppColors.textMuted,
             size:  18,
@@ -111,7 +113,7 @@ class _QuestionCounter extends StatelessWidget {
             children: [
               TextSpan(
                 text: '$current',
-                style: const TextStyle(
+                style: TextStyle(
                   color:      AppColors.textPrimary,
                   fontSize:   22,
                   fontWeight: FontWeight.w900,
@@ -120,7 +122,7 @@ class _QuestionCounter extends StatelessWidget {
               ),
               TextSpan(
                 text: ' / $total',
-                style: const TextStyle(
+                style: TextStyle(
                   color:      AppColors.textMuted,
                   fontSize:   14,
                   fontWeight: FontWeight.w600,
@@ -141,24 +143,24 @@ class _CoinPill extends StatelessWidget {
   final int balance;
   const _CoinPill({required this.balance});
 
-  // TODO: migrate to Theme.of(context).colorScheme.tertiary (gold role)
-  static const _gold = Color(0xFFFBBF24);
-
   @override
   Widget build(BuildContext context) {
+    const accent = AppColors.coinGold;
     return Semantics(
       label: '$balance anime coins',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        padding: EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: 7),
         decoration: BoxDecoration(
-          color:        _gold.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border:       Border.all(color: _gold.withOpacity(0.3), width: 1),
+          color: accent.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          border:
+              Border.all(color: accent.withValues(alpha: 0.3), width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('🪙', style: TextStyle(fontSize: 14)),
+            Text('🪙', style: TextStyle(fontSize: 14.sp)),
             const SizedBox(width: 5),
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
@@ -169,16 +171,19 @@ class _CoinPill extends StatelessWidget {
                 ).animate(animation),
                 child: FadeTransition(opacity: animation, child: child),
               ),
-              child: Text(
-                '$balance',
-                // Key forces AnimatedSwitcher to treat each new value as a
-                // different child, triggering the slide-up transition.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
                 key:   ValueKey(balance),
-                style: const TextStyle(
-                  color:         _gold,
-                  fontWeight:    FontWeight.w800,
-                  fontSize:      14,
-                  letterSpacing: -0.3,
+                child: Text(
+                  '$balance',
+                  // Key forces AnimatedSwitcher to treat each new value as a
+                  // different child, triggering the slide-up transition.
+                  style: TextStyle(
+                    color:         accent,
+                    fontWeight:    FontWeight.w800,
+                    fontSize:      14.sp,
+                    letterSpacing: -0.3,
+                  ),
                 ),
               ),
             ),
@@ -228,15 +233,15 @@ class _HintButton extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             curve:    Curves.easeOut,
-            padding:  const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+            padding:  EdgeInsets.symmetric(horizontal: 11, vertical: 7),
             decoration: BoxDecoration(
               color: active
-                  ? AppColors.secondary.withOpacity(0.1)
+                  ? AppColors.secondary.withValues(alpha: 0.1)
                   : AppColors.surface,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadii.md),
               border: Border.all(
                 color: active
-                    ? AppColors.secondary.withOpacity(0.35)
+                    ? AppColors.secondary.withValues(alpha: 0.35)
                     : AppColors.divider,
                 width: 1,
               ),
@@ -263,25 +268,32 @@ class _HintButton extends StatelessWidget {
                     ).animate(animation),
                     child: FadeTransition(opacity: animation, child: child),
                   ),
-                  child: Text(
-                    exhausted ? '0' : '$hintsLeft',
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
                     key:   ValueKey(hintsLeft),
-                    style: TextStyle(
-                      color:         accent,
-                      fontWeight:    FontWeight.w800,
-                      fontSize:      14,
-                      letterSpacing: -0.3,
+                    child: Text(
+                      exhausted ? '0' : '$hintsLeft',
+                      style: TextStyle(
+                        color:         accent,
+                        fontWeight:    FontWeight.w800,
+                        fontSize:      14.sp,
+                        letterSpacing: -0.3,
+                      ),
                     ),
                   ),
                 ),
                 if (!exhausted) ...[
                   const SizedBox(width: 4),
-                  Text(
-                    '−${kHintCost}🪙',
-                    style: TextStyle(
-                      color:      accent.withOpacity(0.6),
-                      fontSize:   10,
-                      fontWeight: FontWeight.w700,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '−${kHintCost}🪙',
+                      style: TextStyle(
+                        color:
+                            accent.withValues(alpha: 0.6),
+                        fontSize:   10.sp,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],

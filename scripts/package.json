@@ -1,0 +1,8 @@
+{
+  "name": "scripts",
+  "description": "Local admin scripts — NOT deployed to Firebase. Run `npm install` here first.",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^13.10.0"
+  }
+}

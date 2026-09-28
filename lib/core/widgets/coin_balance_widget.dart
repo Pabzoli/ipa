@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/user_data_provider.dart';
 import '../theme/app_theme.dart';
 import '../../features/coins/earn_coins_screen.dart';
+import 'app_page_route.dart';
 
 /// Compact pill: 🪙 + live animeCoins balance.
 ///
@@ -16,39 +18,44 @@ class CoinBalanceWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final coins = context.watch<UserDataProvider>().animeCoins;
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const EarnCoinsScreen()),
-        );
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color:        AppColors.accent.withOpacity(0.13),
-          borderRadius: BorderRadius.circular(20),
-          border:       Border.all(
-            color: AppColors.accent.withOpacity(0.38),
-            width: 1.2,
-          ),
+    return Ink(
+      decoration: BoxDecoration(
+        color:        AppColors.accent.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        border:       Border.all(
+          color: AppColors.accent.withValues(alpha: 0.38),
+          width: 1.2,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('🪙', style: TextStyle(fontSize: 14)),
-            const SizedBox(width: 5),
-            Text(
-              _formatCoins(coins),
-              style: const TextStyle(
-                color:      AppColors.accent,
-                fontWeight: FontWeight.w800,
-                fontSize:   14,
-                fontFamily: 'Nunito',
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            AppPageRoute(builder: (_) => const EarnCoinsScreen()),
+          );
+        },
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('🪙', style: TextStyle(fontSize: 14.sp)),
+              const SizedBox(width: 5),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _formatCoins(coins),
+                  style: TextStyle(
+                    color:      AppColors.accent,
+                    fontWeight: FontWeight.w800,
+                    fontSize:   14.sp,
+                    fontFamily: AppTypography.fontFamily,
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

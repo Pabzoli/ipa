@@ -61,10 +61,10 @@ static String get _appOpenAdId {
       : 'ca-app-pub-3940256099942544/5575463023';  // iOS test
   return Platform.isAndroid
       ? 'ca-app-pub-9195964766205519/2949625797'
-      : 'ca-app-pub-9195964766205519/8728410558';
+: 'ca-app-pub-9195964766205519/8728410558';
 }
 
-  // ── State ─────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────
   RewardedAd?     _rewardedAd;
   InterstitialAd? _interstitialAd;
   AppOpenAd?      _appOpenAd;
@@ -76,13 +76,26 @@ static String get _appOpenAdId {
   DateTime? _appOpenAdLoadTime;
   static const Duration _appOpenMaxAge = Duration(hours: 4);
 
-  /// Set to true by QuestionsPage.initState(), false in dispose().
-  /// Prevents app-open ads from interrupting a live quiz.
-  static bool _quizActive = false;
+  /// Rate-limit for app-open ads — at most one per 30 min across cold open
+  /// and foreground resumes, so backgrounding mid-session never chains ads.
+  static DateTime? _lastAppOpenShownAt;
+  static const Duration _appOpenMinGap = Duration(minutes: 30);
+
+  /// Set by QuestionsPage.initState() / dispose(). Counter-based so nested
+  /// or overlapping quiz pages can never leave the gate stuck open.
+  static int _quizActiveCount = 0;
 
   /// Call from QuestionsPage.initState() / dispose() to suppress app-open
   /// ads during active gameplay.
-  void setQuizActive(bool active) => _quizActive = active;
+  void setQuizActive(bool active) {
+    if (active) {
+      _quizActiveCount++;
+    } else if (_quizActiveCount > 0) {
+      _quizActiveCount--;
+    }
+  }
+
+  bool get _quizActive => _quizActiveCount > 0;
 
   /// Global concurrency gate — true while ANY ad is on-screen.
   /// All show/load entry-points short-circuit when this is true.
@@ -93,7 +106,7 @@ static String get _appOpenAdId {
   static int _sessionInterstitialsShown = 0;
   static DateTime? _lastInterstitialTime;
 
-  static const int _interstitialEvery   = 2;   // trigger every Nth result
+  static const int _interstitialEvery   = 3;   // trigger every Nth result
   static const int _sessionMax          = 5;   // hard cap per session
   static const int _cooldownSeconds     = 90;  // minimum gap (seconds)
 
@@ -112,7 +125,9 @@ static String get _appOpenAdId {
   void preloadAll() {
     loadRewardedAd();
     _loadInterstitial();
-    _loadAppOpenAd();
+    if (appOpenAdsEnabled) {
+      _loadAppOpenAd();
+    }
   }
 
   /// Explicitly pre-loads (or re-loads) the rewarded ad.
@@ -183,39 +198,28 @@ static String get _appOpenAdId {
     return completer.future;
   }
 
-  /// Shows a regular interstitial ad only when both conditions are met:
-  ///   1. The current user is NOT Premium ([isPremium] == false).
-  ///   2. [sessionQuizCount] is a non-zero multiple of 3.
-  ///
-  /// Prefer [recordResultAndMaybeShowInterstitial] for result screens — it
-  /// handles frequency, cooldown, and the session cap automatically.
-  /// This method is retained for any other call sites that drive their own
-  /// session counter externally.
-  ///
-  /// Skips silently if the ad is not loaded — never blocks the user.
-  void showInterstitialIfDue({
-    required bool isPremium,
-    required int sessionQuizCount,
-  }) {
-    // Premium users never see regular interstitials.
-    if (isPremium) return;
-
-    // Fire on every 3rd quiz completion this session.
-    if (sessionQuizCount <= 0 || sessionQuizCount % 3 != 0) return;
-
-    // Silently skip if not loaded — caller is never blocked.
-    showInterstitial();
-  }
-
   // ── App Open Ad API ────────────────────────────────────────────────────────
+
+  /// Master switch for app open ads. Currently DISABLED for release because
+  /// the App Open ad units aren't configured in AdMob yet. Flip to `true` to
+  /// re-enable the load/show path below — no other changes required.
+  static const bool appOpenAdsEnabled = false;
 
   /// Call on cold open and every time the app returns to foreground.
   /// No-ops silently when: premium, quiz active, another ad is showing,
   /// ad not loaded, or the loaded ad has expired (>4 h old).
   void showAppOpenAdIfReady({required bool isPremium}) {
+    if (!appOpenAdsEnabled) return;
     if (isPremium)      return;
     if (_quizActive)    return;
     if (_isAdShowing)   return;
+
+    // Rate-limit — skip if an app-open was shown less than 30 min ago.
+    final now = DateTime.now();
+    if (_lastAppOpenShownAt != null &&
+        now.difference(_lastAppOpenShownAt!) < _appOpenMinGap) {
+      return;
+    }
 
     // Expire and reload if the loaded creative is too old.
     if (_appOpenAd != null && _isAppOpenAdExpired) {
@@ -231,6 +235,7 @@ static String get _appOpenAdId {
     }
 
     _isAdShowing = true;
+    _lastAppOpenShownAt = now;
     _appOpenAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
@@ -495,11 +500,11 @@ static String get _appOpenAdId {
 
   /// Silently increments the prize pool after a full rewarded ad watch.
   /// No UI feedback — per AdMob §2.1, the user must not see a naira reward.
-  void _silentlyIncrementPrizePool() {
+void _silentlyIncrementPrizePool() {
     FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('incrementPrizePool')
         .call({'nairaAmount': 2.0})
-        .catchError((_) {});
+        .then((_) {});
   }
 
   // ── Quick Match ad-token rewarded ad ─────────────────────────────────────
@@ -596,39 +601,6 @@ static String get _appOpenAdId {
         // QM token ads do not contribute to the prize pool (they award no AC).
       },
     );
-
-    return true;
-  }
-
-  // ── Legacy method — kept for any call sites not yet migrated to P-04 ──────
-  /// Prefer [showRewardedAd] for all new code.
-  @Deprecated('Use showRewardedAd() — it awards AC via the recordAdWatch CF')
-  Future<bool> showRewarded({required Future<void> Function() onRewarded}) async {
-    final remaining = await remainingToday();
-    if (remaining <= 0) return false;
-    if (_rewardedAd == null) {
-      _loadRewarded();
-      return false;
-    }
-
-    _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        _rewardedAd = null;
-        _loadRewarded();
-      },
-      onAdFailedToShowFullScreenContent: (ad, _) {
-        ad.dispose();
-        _rewardedAd = null;
-        _loadRewarded();
-      },
-    );
-
-    _rewardedAd!.show(onUserEarnedReward: (_, __) async {
-      await _incrementLocalDailyCount();
-      await onRewarded();
-      _silentlyIncrementPrizePool();
-    });
 
     return true;
   }

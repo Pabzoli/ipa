@@ -1,133 +1,52 @@
 // lib/features/multiplayer/multiplayer_hub_page.dart
-//
-// ══════════════════════════════════════════════════════════════════════════════
-//  VISUAL REDESIGN — same logic, elevated aesthetics
-//  Changes vs previous version:
-//  1. Deeper, richer colour palette with gradient anchor colours.
-//  2. _ArenaBanner uses a LinearGradient + CustomPaint diagonal-stripe overlay
-//     and a stronger multi-layer glow.
-//  3. _HowItWorksStrip: circular numbered badges, coloured per-step accents.
-//  4. _ActionCard: gradient-filled header zone, gradient border treatment.
-//  5. QMWindowWidget: animated glowing border when window is open; layered
-//     glow behind the card.
-//  6. _TokenBar: segmented pill progress bar replaces dot indicators.
-//  7. _SearchingDialog: three-ring concentric pulse animation.
-//  8. _ActiveChallengeCard: left-accent border, status chip, better layout.
-//  9. _HubAppBar: larger wordmark, gradient coin badge.
-//  10. _RulesCard / _RuleRow: full-row tinted containers with left accent strip.
-// ══════════════════════════════════════════════════════════════════════════════
-
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
-import '../quiz/quiz_controller.dart' show QuizMode;
 import '../quiz/questions_page.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/app_page_route.dart';
 import 'anime_select_page.dart';
 import 'join_challenge_page.dart';
+import 'my_challenges_page.dart';
+import 'challenge_lobby_page.dart';
+import '../premium/premium_upsell_screen.dart';
 
-// =============================================================================
-// ── Design tokens — mapped to AppColors from app_theme.dart ──────────────────
-// =============================================================================
-
+// ─── Design tokens (mapped to AppColors) ──────────────────────────────────────
 abstract final class _C {
-  // ── Surfaces ──────────────────────────────────────────────────────────────
-  static const bg       = AppColors.surfaceDim;
-  static const surface  = AppColors.surface;
+  static const surface = AppColors.surface;
   static const elevated = AppColors.surfaceAlt;
-  static const raised   = Color(0xFF1F1F30);
 
-  // ── Primary accent — crimson ──────────────────────────────────────────────
-  static const crimson       = AppColors.primary;      // Color(0xFFE63946)
-  static const crimsonBright = Color(0xFFFF6B7A);
-  static const crimsonGlow   = Color(0x1CE63946);
-  static const crimsonFog    = Color(0x0CE63946);
+  static const crimson = AppColors.primary;
+  static const crimsonBright = AppColors.crimsonBright;
+  static const crimsonGlow = Color(0x1CE63946);
   static const crimsonBorder = Color(0x55E63946);
 
-  // ── Legacy aliases ────────────────────────────────────────────────────────
-  static const amber       = crimson;
-  static const amberBright = crimsonBright;
-  static const amberGlow   = crimsonGlow;
-  static const amberBorder = crimsonBorder;
-  static const rose        = crimson;
-  static const roseDim     = crimsonGlow;
+  static const sky = AppColors.secondary;
 
-  // ── Secondary accents ─────────────────────────────────────────────────────
-  static const sky    = AppColors.secondary;            // Color(0xFF457B9D)
-  static const skyDim = Color(0x16457B9D);
-
-  static const green    = AppColors.correct;            // Color(0xFF38EF7D)
+  static const green = AppColors.correct;
   static const greenDim = Color(0x1638EF7D);
 
-  // ── Text ──────────────────────────────────────────────────────────────────
-  static const text      = AppColors.textPrimary;       // Color(0xFFF8F8FF)
-  static const textSub   = AppColors.textSecondary;     // Color(0xFFB0B0CC)
-  static const textMuted = AppColors.textMuted;         // Color(0xFF6B6B8A)
-
-  // ── Structure ─────────────────────────────────────────────────────────────
-  static const divider = AppColors.divider;             // Color(0xFF2E2E42)
-  static const border  = Color(0xFF252538);
-
-  // ── Gradient helpers ──────────────────────────────────────────────────────
-  static const LinearGradient crimsonGrad = LinearGradient(
-    colors: [AppColors.primary, Color(0xFFFF4D5E)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  static const LinearGradient skyGrad = LinearGradient(
-    colors: [AppColors.secondary, Color(0xFF70AEFF)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  static const LinearGradient bannerGrad = LinearGradient(
-    colors: [Color(0xFF1C0A0D), Color(0xFF0E0E1C)],
-    begin: Alignment.topRight,
-    end: Alignment.bottomLeft,
-  );
+  static const text = AppColors.textPrimary;
+  static const textSub = AppColors.textSecondary;
+  static const textMuted = AppColors.textMuted;
+  static const divider = AppColors.divider;
+  static const border = Color(0xFF252538);
 }
 
-// =============================================================================
-// ── Diagonal-stripe painter (banner decoration) ───────────────────────────────
-// =============================================================================
-
-class _StripePainter extends CustomPainter {
-  final Color color;
-  const _StripePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    const spacing = 24.0;
-    for (double x = -size.height; x < size.width + size.height; x += spacing) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x + size.height, size.height),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_StripePainter old) => old.color != color;
-}
-
-// =============================================================================
-// ── Entry hub ─────────────────────────────────────────────────────────────────
-// =============================================================================
-
+// ═══════════════════════════════════════════════════════════════════════════
+// MultiplayerHubPage — Battle tab
+// ═══════════════════════════════════════════════════════════════════════════
 class MultiplayerHubPage extends StatefulWidget {
   const MultiplayerHubPage({super.key});
 
@@ -135,37 +54,11 @@ class MultiplayerHubPage extends StatefulWidget {
   State<MultiplayerHubPage> createState() => _MultiplayerHubPageState();
 }
 
-class _MultiplayerHubPageState extends State<MultiplayerHubPage>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _pulseCtrl;
-  late Animation<double>   _pulseAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _pulseCtrl.dispose();
-    super.dispose();
-  }
-
-  // ── Navigation helpers ───────────────────────────────────────────────────
-
+class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
   void _goCreate() =>
       Navigator.push(context, _slideRoute(const AnimeSelectPage()));
-
   void _goJoin() =>
       Navigator.push(context, _slideRoute(const JoinChallengePage()));
-
   void _goQuickMatch() => _startMatchmaking();
 
   Future<void> _startMatchmaking() async {
@@ -181,203 +74,258 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage>
     if (result == null) return;
 
     if (result.qmWindowClosed) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'Quick Match is only available during scheduled windows. '
-          'Check the timer below.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ));
+      _snack('Quick Match is only available during scheduled windows. '
+          'Check the timer below.');
       return;
     }
-
     if (result.noTokens) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('No tokens left — watch an ad for one more.'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      _snack('No tokens left — watch an ad for one more.');
+      return;
+    }
+    if (result.tooManyActive) {
+      _snack('You already have 5 active challenges. Finish or leave one '
+          'before starting a Quick Match.');
+      return;
+    }
+    if (result.noMatch) {
+      _snack(
+          'No ghost sessions available right now. Try again in a few minutes.');
       return;
     }
 
-    if (result.noMatch) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'No opponents available right now. Try again in a few minutes.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ));
-      return;
-    }
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _MatchedDialog(result: result),
+    );
+
+    if (!mounted) return;
 
     Navigator.push(
       context,
       _slideRoute(
         QuestionsPage(
-          mode:           QuizMode.asyncChallenge,
+          mode: QuizMode.asyncChallenge,
           selectedTitles: [result.animeTitle],
-          questionIds:    result.questionIds,
-          challengeId:    result.challengeId,
-          isCreator:      result.isCreator,
-          isQuickMatch:   true,
-          isGhost:        result.isGhost,
-          opponentName:   result.opponentName,
+          questionIds: result.questionIds,
+          challengeId: result.challengeId,
+          isCreator: result.isCreator,
+          isQuickMatch: true,
+          isGhost: result.isGhost,
+          opponentName: result.opponentName,
         ),
       ),
     );
   }
 
-  PageRoute _slideRoute(Widget page) => PageRouteBuilder(
-        pageBuilder: (_, a, __) => page,
-        transitionsBuilder: (_, a, __, child) => SlideTransition(
-          position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-              .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
-          child: child,
-        ),
-        transitionDuration: const Duration(milliseconds: 350),
-      );
+  void _snack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
-  // ── Build ───────────────────────────────────────────────────────────────
+  PageRoute _slideRoute(Widget page) => AppPageRoute(builder: (_) => page);
 
   @override
   Widget build(BuildContext context) {
-    final animeCoins = context.watch<UserDataProvider>().animeCoins;
+    final udp = context.watch<UserDataProvider>();
+    final animeCoins = udp.animeCoins;
+    final weeklyPoints = udp.weeklyPoints;
+    final premiumActive = udp.premiumActive;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Text(
-              'MULTIPLAYER',
-              style: TextStyle(
-                color:         AppColors.primary,
-                fontSize:      9,
-                fontWeight:    FontWeight.w800,
-                letterSpacing: 2.8,
-                height:        1,
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            // ── Flat page header ──────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 0.r),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Battle',
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 27.sp,
+                              fontWeight: FontWeight.w900,
+                              height: 1.1,
+                            ),
+                          ),
+                          SizedBox(height: 3.h),
+                          Text(
+                            'Challenge a rival · Quick match · Async battles',
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 12.w),
+                    _BattlePremiumChip(premiumActive: premiumActive),
+                    SizedBox(width: 8.w),
+                    // Coin balance
+                    Container(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(20.r),
+                        border: Border.all(
+                            color: AppColors.accent.withValues(alpha: 0.38)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('🪙', style: TextStyle(fontSize: 14.sp)),
+                          SizedBox(width: 5.w),
+                          Text(
+                            '$animeCoins',
+                            style: TextStyle(
+                              color: AppColors.accent,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14.sp,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 8.w),
+                    // WP balance
+                    Container(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
+                      decoration: BoxDecoration(
+                        color: _C.sky.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(20.r),
+                        border:
+                            Border.all(color: _C.sky.withValues(alpha: 0.38)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('⭐', style: TextStyle(fontSize: 14.sp)),
+                          SizedBox(width: 5.w),
+                          Text(
+                            '$weeklyPoints',
+                            style: TextStyle(
+                              color: _C.sky,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14.sp,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-              'Battle Arena',
-              style: TextStyle(
-                color:         AppColors.textPrimary,
-                fontSize:      20,
-                fontWeight:    FontWeight.w900,
-                letterSpacing: -0.7,
-                height:        1.0,
+
+            // ── Arena banner ──────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 20.r, 20.r, 0.r),
+                child: const _ArenaBanner(),
+              ),
+            ),
+
+            // ── How it works ──────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
+                child: const _HowItWorksStrip(),
+              ),
+            ),
+
+            // ── Active challenges ─────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 20.r, 20.r, 0.r),
+                child: const _ActiveChallengesSection(),
+              ),
+            ),
+
+            // ── Create / Join ─────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 16.r, 20.r, 0.r),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _ActionCard(
+                          emoji: '⚔️',
+                          title: 'Create\nChallenge',
+                          subtitle:
+                              'Pick anime, set stake,\nplay first. Share code.',
+                          accent: _C.crimson,
+                          onTap: _goCreate,
+                        ),
+                      ),
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: _ActionCard(
+                          emoji: '🎯',
+                          title: 'Join\nChallenge',
+                          subtitle: 'Got a 6-char code?\nEnter it and battle.',
+                          accent: _C.sky,
+                          onTap: _goJoin,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Quick Match window ────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
+                child: QMWindowWidget(onStartMatchmaking: _goQuickMatch),
+              ),
+            ),
+
+            // ── Rules ─────────────────────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 40.r),
+                child: const _RulesCard(),
               ),
             ),
           ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    AppColors.primary.withOpacity(0.18),
-                    AppColors.primary.withOpacity(0.08),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: _C.crimsonBorder),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('🪙', style: TextStyle(fontSize: 14)),
-                  const SizedBox(width: 5),
-                  Text(
-                    '$animeCoins',
-                    style: const TextStyle(
-                      color:         _C.crimsonBright,
-                      fontSize:      14,
-                      fontWeight:    FontWeight.w900,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 56),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 8),
-
-              _ArenaBanner(pulseAnim: _pulseAnim),
-              const SizedBox(height: 20),
-
-              const _HowItWorksStrip(),
-              const SizedBox(height: 20),
-
-              const _ActiveChallengesSection(),
-
-              // Create / Join challenge cards — above Quick Match
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: _ActionCard(
-                        emoji: '⚔️',
-                        title: 'Create\nChallenge',
-                        subtitle:
-                            'Pick anime, set stake,\nplay first. Share code.',
-                        gradient: _C.crimsonGrad,
-                        glowColor: _C.crimson,
-                        onTap: _goCreate,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _ActionCard(
-                        emoji: '🎯',
-                        title: 'Join\nChallenge',
-                        subtitle:
-                            'Got a 6-char code?\nEnter it and battle.',
-                        gradient: _C.skyGrad,
-                        glowColor: _C.sky,
-                        onTap: _goJoin,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              QMWindowWidget(onStartMatchmaking: _goQuickMatch),
-              const SizedBox(height: 20),
-
-              const _RulesCard(),
-            ],
-          ),
         ),
       ),
     );
   }
 }
 
-// =============================================================================
-// ── Match result data class ────────────────────────────────────────────────────
-// =============================================================================
+// ─── Match result data class ──────────────────────────────────────────────────
+/// Defensive list builder for `questionIds` returned by the matchmaking CF.
+/// Remote data is untrusted — a legacy ghost session may store ids as ints,
+/// which used to crash `List<String>.from(...)` with a type-cast error.
+List<String> _stringListOf(Object? raw) {
+  if (raw is! List) return const [];
+  return List<String>.unmodifiable(raw.map((e) => '$e'));
+}
 
 class _MatchResult {
   final bool noMatch;
   final bool qmWindowClosed;
   final bool noTokens;
+  final bool tooManyActive;
   final List<String> questionIds;
   final String challengeId;
   final bool isGhost;
@@ -389,6 +337,7 @@ class _MatchResult {
       : noMatch = true,
         qmWindowClosed = false,
         noTokens = false,
+        tooManyActive = false,
         questionIds = const [],
         challengeId = '',
         isGhost = false,
@@ -400,6 +349,7 @@ class _MatchResult {
       : noMatch = false,
         qmWindowClosed = true,
         noTokens = false,
+        tooManyActive = false,
         questionIds = const [],
         challengeId = '',
         isGhost = false,
@@ -411,6 +361,19 @@ class _MatchResult {
       : noMatch = false,
         qmWindowClosed = false,
         noTokens = true,
+        tooManyActive = false,
+        questionIds = const [],
+        challengeId = '',
+        isGhost = false,
+        isCreator = true,
+        opponentName = '',
+        animeTitle = '';
+
+  const _MatchResult.tooManyActive()
+      : noMatch = false,
+        qmWindowClosed = false,
+        noTokens = false,
+        tooManyActive = true,
         questionIds = const [],
         challengeId = '',
         isGhost = false,
@@ -427,13 +390,11 @@ class _MatchResult {
     required this.animeTitle,
   })  : noMatch = false,
         qmWindowClosed = false,
-        noTokens = false;
+        noTokens = false,
+        tooManyActive = false;
 }
 
-// =============================================================================
-// ── Searching dialog ──────────────────────────────────────────────────────────
-// =============================================================================
-
+// ─── Searching dialog ─────────────────────────────────────────────────────────
 class _SearchingDialog extends StatefulWidget {
   const _SearchingDialog();
 
@@ -443,265 +404,190 @@ class _SearchingDialog extends StatefulWidget {
 
 class _SearchingDialogState extends State<_SearchingDialog>
     with SingleTickerProviderStateMixin {
-  int    _remaining    = 60;
-  bool   _leaving      = false;
-  String _displayTitle = 'Any Anime';
-  Timer? _countdownTimer;
+  bool _leaving = false;
+  late AnimationController _spinCtrl;
+  late Animation<double> _spinAnim;
 
   @override
   void initState() {
     super.initState();
-    _startCountdown();
+    _spinCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+    _spinAnim = Tween<double>(begin: 0, end: 1).animate(_spinCtrl);
     _callMatchmaking();
   }
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
+    _spinCtrl.dispose();
     super.dispose();
   }
 
-  void _startCountdown() {
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() {
-        _remaining = (_remaining - 1).clamp(0, 60);
-      });
-    });
-  }
-
   Future<void> _callMatchmaking() async {
-    const pollInterval = Duration(seconds: 5);
-    const maxWait      = Duration(seconds: 60);
-    final deadline     = DateTime.now().add(maxWait);
+    if (!mounted || _leaving) return;
 
-    while (mounted && !_leaving) {
-      try {
-        final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
-            .httpsCallable('joinMatchmakingQueue');
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('joinMatchmakingQueue');
 
-        final result = await callable.call<Map<Object?, Object?>>({});
+      final result = await callable.call<Map<Object?, Object?>>({});
 
-        if (!mounted || _leaving) return;
+      if (!mounted || _leaving) return;
 
-        final data       = Map<String, dynamic>.from(result.data);
-        final matched    = (data['matched']    as bool?)   ?? false;
-        final isGhost    = (data['isGhost']    as bool?)   ?? false;
-        final animeTitle = (data['animeTitle'] as String?) ?? '';
+      final data = Map<String, dynamic>.from(result.data);
+      final matched = data['matched'] == true;
+      final isGhost = data['isGhost'] == true;
+      final animeTitle = data['animeTitle']?.toString() ?? '';
 
-        if (matched) {
-          _countdownTimer?.cancel();
-          Navigator.of(context).pop(
-            _MatchResult(
-              questionIds:  List<String>.from(data['questionIds'] as List),
-              challengeId:  data['challengeId'] as String,
-              isGhost:      false,
-              isCreator:    (data['isCreator'] as bool?) ?? true,
-              opponentName: (data['opponentUsername'] as String?) ?? 'Opponent',
-              animeTitle:   animeTitle,
-            ),
-          );
-          return;
-        }
+      final questionIds = _stringListOf(data['questionIds']);
 
-        if (isGhost) {
-          _countdownTimer?.cancel();
-          Navigator.of(context).pop(
-            _MatchResult(
-              questionIds:  List<String>.from(data['questionIds'] as List),
-              challengeId:  data['challengeId'] as String,
-              isGhost:      true,
-              isCreator:    true,
-              opponentName: (data['ghostUsername'] as String?) ?? 'Recorded Opponent',
-              animeTitle:   animeTitle,
-            ),
-          );
-          return;
-        }
-
-        if (DateTime.now().isBefore(deadline)) {
-          await Future.delayed(pollInterval);
-          continue;
-        }
-
-        _countdownTimer?.cancel();
-        Navigator.of(context).pop(const _MatchResult.noMatch());
-        return;
-
-      } on FirebaseFunctionsException catch (e) {
-        if (!mounted || _leaving) return;
-        if (e.message == 'outside_qm_window') {
-          _countdownTimer?.cancel();
-          Navigator.of(context).pop(const _MatchResult.qmWindowClosed());
-          return;
-        }
-        if (e.message == 'no_qm_tokens') {
-          _countdownTimer?.cancel();
-          Navigator.of(context).pop(const _MatchResult.noTokens());
-          return;
-        }
-        if (DateTime.now().isBefore(deadline)) {
-          await Future.delayed(pollInterval);
-          continue;
-        }
-        _countdownTimer?.cancel();
-        Navigator.of(context).pop(const _MatchResult.noMatch());
-        return;
-
-      } catch (_) {
-        if (!mounted || _leaving) return;
-        if (DateTime.now().isBefore(deadline)) {
-          await Future.delayed(pollInterval);
-          continue;
-        }
-        _countdownTimer?.cancel();
-        Navigator.of(context).pop(const _MatchResult.noMatch());
+      if (matched) {
+        Navigator.of(context).pop(_MatchResult(
+          questionIds: questionIds,
+          challengeId: data['challengeId']?.toString() ?? '',
+          isGhost: false,
+          isCreator: data['isCreator'] == true,
+          opponentName: data['opponentUsername']?.toString() ?? 'Opponent',
+          animeTitle: animeTitle,
+        ));
         return;
       }
+
+      if (isGhost) {
+        Navigator.of(context).pop(_MatchResult(
+          questionIds: questionIds,
+          challengeId: data['challengeId']?.toString() ?? '',
+          isGhost: true,
+          isCreator: true,
+          opponentName:
+              data['ghostUsername']?.toString() ?? 'Recorded Opponent',
+          animeTitle: animeTitle,
+        ));
+        return;
+      }
+
+      // No ghosts available
+      Navigator.of(context).pop(const _MatchResult.noMatch());
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted || _leaving) return;
+      if (e.message == 'outside_qm_window') {
+        Navigator.of(context).pop(const _MatchResult.qmWindowClosed());
+        return;
+      }
+      if (e.message == 'no_qm_tokens') {
+        Navigator.of(context).pop(const _MatchResult.noTokens());
+        return;
+      }
+      if (e.message == 'too_many_active_challenges') {
+        Navigator.of(context).pop(const _MatchResult.tooManyActive());
+        return;
+      }
+      Navigator.of(context).pop(const _MatchResult.noMatch());
+    } catch (e, st) {
+      debugPrint('[GhostMatch][joinMatchmakingQueue] ERROR: $e');
+      debugPrintStack(stackTrace: st);
+      if (!mounted || _leaving) return;
+      Navigator.of(context).pop(const _MatchResult.noMatch());
     }
   }
 
   Future<void> _handleCancel() async {
     if (_leaving) return;
     setState(() => _leaving = true);
-    _countdownTimer?.cancel();
-
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('leaveMatchmakingQueue')
           .call();
     } catch (_) {}
-
     if (!mounted) return;
     Navigator.of(context).pop(null);
   }
 
   @override
   Widget build(BuildContext context) {
-    final progress = _remaining / 60.0;
-
     return PopScope(
       canPop: false,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _handleCancel();
       },
       child: Dialog(
         backgroundColor: _C.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: BorderSide(color: _C.crimson.withOpacity(0.30), width: 1.5),
+          borderRadius: BorderRadius.circular(24.r),
+          side:
+              BorderSide(color: _C.crimson.withValues(alpha: 0.30), width: 1.5),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(28, 34, 28, 26),
+          padding: EdgeInsets.fromLTRB(28.r, 34.r, 28.r, 26.r),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // ── Concentric-ring pulsing badge ─────────────────────────
-              _ConcentricPulseBadge(),
-              const SizedBox(height: 22),
-
-              // ── Status chip ───────────────────────────────────────────
+              RotationTransition(
+                turns: _spinAnim,
+                child: Container(
+                  width: 88.w,
+                  height: 88.h,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _C.crimsonGlow,
+                    border: Border.all(color: _C.crimsonBorder, width: 1.5),
+                  ),
+                  child: Center(
+                      child: Text('⚡', style: TextStyle(fontSize: 32.sp))),
+                ),
+              ),
+              SizedBox(height: 22.h),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 4.r),
                 decoration: BoxDecoration(
                   color: _C.crimsonGlow,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(20.r),
                   border: Border.all(color: _C.crimsonBorder, width: 1),
                 ),
-                child: const Text(
-                  'FINDING OPPONENT',
+                child: Text(
+                  'FINDING GHOST',
                   style: TextStyle(
                     color: _C.crimsonBright,
-                    fontSize: 10,
+                    fontSize: 10.sp,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 2.5,
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-
+              SizedBox(height: 10.h),
               Text(
-                _displayTitle,
-                style: const TextStyle(
+                'Match against a recorded player',
+                style: TextStyle(
                   color: _C.text,
-                  fontSize: 18,
+                  fontSize: 18.sp,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.4,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 30),
-
-              // ── Circular countdown ────────────────────────────────────
-              SizedBox(
-                width: 88,
-                height: 88,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      width: 88,
-                      height: 88,
-                      child: CircularProgressIndicator(
-                        value: progress,
-                        backgroundColor: _C.elevated,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color.lerp(_C.crimson, _C.crimsonBright, 1 - progress)!,
-                        ),
-                        strokeWidth: 4.5,
-                        strokeCap: StrokeCap.round,
-                      ),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '$_remaining',
-                          style: const TextStyle(
-                            color: _C.text,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900,
-                            height: 1,
-                          ),
-                        ),
-                        const Text(
-                          'sec',
-                          style: TextStyle(
-                            color: _C.textMuted,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 30),
-
-              // ── Cancel button ─────────────────────────────────────────
+              SizedBox(height: 24.h),
               GestureDetector(
                 onTap: _leaving ? null : _handleCancel,
                 child: AnimatedOpacity(
                   opacity: _leaving ? 0.35 : 1.0,
                   duration: const Duration(milliseconds: 150),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 32, vertical: 13),
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 32.r, vertical: 13.r),
                     decoration: BoxDecoration(
                       color: _C.elevated,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _C.border.withOpacity(0.7),
-                      ),
+                      borderRadius: BorderRadius.circular(12.r),
+                      border:
+                          Border.all(color: _C.border.withValues(alpha: 0.7)),
                     ),
-                    child: const Text(
-                      'Cancel Search',
+                    child: Text(
+                      'Cancel',
                       style: TextStyle(
-                        color: _C.textSub,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
+                          color: _C.textSub,
+                          fontSize: 13.sp,
+                          fontWeight: FontWeight.w600),
                     ),
                   ),
                 ),
@@ -714,8 +600,7 @@ class _SearchingDialogState extends State<_SearchingDialog>
   }
 }
 
-// ── Concentric-ring pulse badge ───────────────────────────────────────────────
-
+// ─── Concentric pulse badge ────────────────────────────────────────────────
 class _ConcentricPulseBadge extends StatefulWidget {
   @override
   State<_ConcentricPulseBadge> createState() => _ConcentricPulseBadgeState();
@@ -724,35 +609,22 @@ class _ConcentricPulseBadge extends StatefulWidget {
 class _ConcentricPulseBadgeState extends State<_ConcentricPulseBadge>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double>   _ring1;
-  late Animation<double>   _ring2;
-  late Animation<double>   _ring3;
+  late Animation<double> _ring1, _ring2, _ring3;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat();
-    _ring1 = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
+        vsync: this, duration: const Duration(milliseconds: 1800))
+      ..repeat();
+    _ring1 = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
+        parent: _ctrl, curve: const Interval(0.0, 1.0, curve: Curves.easeOut)));
+    _ring2 = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
         parent: _ctrl,
-        curve: const Interval(0.0, 1.0, curve: Curves.easeOut),
-      ),
-    );
-    _ring2 = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
+        curve: const Interval(0.18, 1.0, curve: Curves.easeOut)));
+    _ring3 = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
         parent: _ctrl,
-        curve: const Interval(0.18, 1.0, curve: Curves.easeOut),
-      ),
-    );
-    _ring3 = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _ctrl,
-        curve: const Interval(0.36, 1.0, curve: Curves.easeOut),
-      ),
-    );
+        curve: const Interval(0.36, 1.0, curve: Curves.easeOut)));
   }
 
   @override
@@ -765,88 +637,64 @@ class _ConcentricPulseBadgeState extends State<_ConcentricPulseBadge>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) {
-        return SizedBox(
-          width: 88,
-          height: 88,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Outermost ring
-              Opacity(
-                opacity: (1.0 - _ring3.value).clamp(0.0, 1.0),
-                child: Container(
-                  width:  44 + 44 * _ring3.value,
-                  height: 44 + 44 * _ring3.value,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _C.crimson.withOpacity(0.18),
-                      width: 1,
-                    ),
-                  ),
-                ),
+      builder: (_, __) => SizedBox(
+        width: 88.w,
+        height: 88.h,
+        child: Stack(alignment: Alignment.center, children: [
+          Opacity(
+            opacity: (1.0 - _ring3.value).clamp(0.0, 1.0),
+            child: Container(
+              width: 44 + 44 * _ring3.value,
+              height: 44 + 44 * _ring3.value,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: _C.crimson.withValues(alpha: 0.18), width: 1),
               ),
-              // Middle ring
-              Opacity(
-                opacity: (1.0 - _ring2.value).clamp(0.0, 1.0),
-                child: Container(
-                  width:  44 + 30 * _ring2.value,
-                  height: 44 + 30 * _ring2.value,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _C.crimson.withOpacity(0.28),
-                      width: 1,
-                    ),
-                  ),
-                ),
-              ),
-              // Inner ring
-              Opacity(
-                opacity: (1.0 - _ring1.value).clamp(0.0, 1.0),
-                child: Container(
-                  width:  44 + 16 * _ring1.value,
-                  height: 44 + 16 * _ring1.value,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _C.crimson.withOpacity(0.40),
-                      width: 1,
-                    ),
-                  ),
-                ),
-              ),
-              // Core badge
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const RadialGradient(
-                    colors: [Color(0x30E63946), Color(0x10E63946)],
-                  ),
-                  border: Border.all(
-                    color: _C.crimson.withOpacity(0.45),
-                    width: 1.5,
-                  ),
-                ),
-                child: const Center(
-                  child: Text('⚡', style: TextStyle(fontSize: 24)),
-                ),
-              ),
-            ],
+            ),
           ),
-        );
-      },
+          Opacity(
+            opacity: (1.0 - _ring2.value).clamp(0.0, 1.0),
+            child: Container(
+              width: 44 + 30 * _ring2.value,
+              height: 44 + 30 * _ring2.value,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: _C.crimson.withValues(alpha: 0.28), width: 1),
+              ),
+            ),
+          ),
+          Opacity(
+            opacity: (1.0 - _ring1.value).clamp(0.0, 1.0),
+            child: Container(
+              width: 44 + 16 * _ring1.value,
+              height: 44 + 16 * _ring1.value,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                    color: _C.crimson.withValues(alpha: 0.40), width: 1),
+              ),
+            ),
+          ),
+          Container(
+            width: 52.w,
+            height: 52.h,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _C.crimsonGlow,
+              border: Border.all(
+                  color: _C.crimson.withValues(alpha: 0.45), width: 1.5),
+            ),
+            child: Center(child: Text('⚡', style: TextStyle(fontSize: 24.sp))),
+          ),
+        ]),
+      ),
     );
   }
 }
 
-// =============================================================================
-// ── QMWindowWidget ─────────────────────────────────────────────────────────────
-// =============================================================================
-
+// ─── QM Window widget ────────────────────────────────────────────────────────
 class QMWindowWidget extends StatefulWidget {
   final VoidCallback onStartMatchmaking;
   const QMWindowWidget({super.key, required this.onStartMatchmaking});
@@ -855,14 +703,17 @@ class QMWindowWidget extends StatefulWidget {
   State<QMWindowWidget> createState() => _QMWindowWidgetState();
 }
 
-class _QMWindowWidgetState extends State<QMWindowWidget>
-    with SingleTickerProviderStateMixin {
-  Timer?    _countdownTimer;
-  Duration  _timeToNext  = Duration.zero;
-  bool      _watchingAd  = false;
+class _QMWindowWidgetState extends State<QMWindowWidget> {
+  static const List<String> _testQmBypassUids = [
+    '79OGBOEHSFhn2gONP0XPijZXugP2',
+  ];
 
-  late AnimationController _borderCtrl;
-  late Animation<double>   _borderAnim;
+  bool get _isQmTestBypassUser =>
+      _testQmBypassUids.contains(FirebaseAuth.instance.currentUser?.uid);
+
+  Timer? _countdownTimer;
+  Duration _timeToNext = Duration.zero;
+  bool _watchingAd = false;
 
   @override
   void initState() {
@@ -871,19 +722,11 @@ class _QMWindowWidgetState extends State<QMWindowWidget>
     _countdownTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) _updateCountdown();
     });
-    _borderCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
-    _borderAnim = Tween<double>(begin: 0.3, end: 0.7).animate(
-      CurvedAnimation(parent: _borderCtrl, curve: Curves.easeInOut),
-    );
   }
 
   @override
   void dispose() {
     _countdownTimer?.cancel();
-    _borderCtrl.dispose();
     super.dispose();
   }
 
@@ -916,7 +759,6 @@ class _QMWindowWidgetState extends State<QMWindowWidget>
   Future<void> _handleWatchAd(BuildContext context) async {
     if (_watchingAd) return;
     setState(() => _watchingAd = true);
-
     final shown = await AdService.instance.showQMTokenAd(
       context: context,
       onTokenGranted: () {
@@ -928,103 +770,89 @@ class _QMWindowWidgetState extends State<QMWindowWidget>
         }
       },
     );
-
     if (!shown && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Ad not ready yet — try again in a moment.'),
         behavior: SnackBarBehavior.floating,
       ));
     }
-
     if (mounted) setState(() => _watchingAd = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final udp          = context.watch<UserDataProvider>();
-    final qmTokens     = udp.qmTokens;
+    final udp = context.watch<UserDataProvider>();
+    final qmTokens = udp.qmTokens;
     final qmAdTokenUsed = udp.qmAdTokenUsed;
     final activeWindow = QMWindowSchedule.currentWindow();
-    final isWindowOpen = activeWindow != null;
+    final isWindowOpen = activeWindow != null || _isQmTestBypassUser;
+    final premiumActive = udp.premiumActive;
 
-    return AnimatedBuilder(
-      animation: _borderAnim,
-      builder: (_, child) => Container(
-        decoration: BoxDecoration(
-          color: _C.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isWindowOpen
-                ? _C.crimson.withOpacity(_borderAnim.value)
-                : _C.border.withOpacity(0.5),
-            width: isWindowOpen ? 1.5 : 1,
-          ),
-          boxShadow: isWindowOpen
-              ? [
-                  BoxShadow(
-                    color: _C.crimson.withOpacity(0.08 * _borderAnim.value),
-                    blurRadius: 24,
-                    spreadRadius: 2,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
+    return Container(
+      decoration: BoxDecoration(
+        color: _C.surface,
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(
+          color: isWindowOpen
+              ? _C.crimson.withValues(alpha: 0.40)
+              : _C.border.withValues(alpha: 0.5),
+          width: isWindowOpen ? 1.5 : 1,
         ),
-        child: child,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Header row ─────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+            padding: EdgeInsets.fromLTRB(16.r, 18.r, 16.r, 14.r),
             child: Row(
               children: [
                 Container(
-                  width: 48,
-                  height: 48,
+                  width: 44.w,
+                  height: 44.h,
                   decoration: BoxDecoration(
                     color: isWindowOpen ? _C.crimsonGlow : _C.elevated,
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(13.r),
                     border: Border.all(
                       color: isWindowOpen
                           ? _C.crimsonBorder
-                          : _C.border.withOpacity(0.5),
+                          : _C.border.withValues(alpha: 0.5),
                     ),
                   ),
-                  child: const Center(
-                    child: Text('⚡', style: TextStyle(fontSize: 22)),
-                  ),
+                  child: Center(
+                      child: Text('⚡', style: TextStyle(fontSize: 20.sp))),
                 ),
-                const SizedBox(width: 14),
+                SizedBox(width: 14.w),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Text(
+                          Text(
                             'Quick Match',
                             style: TextStyle(
                               color: _C.text,
-                              fontSize: 16,
+                              fontSize: 16.sp,
                               fontWeight: FontWeight.w800,
                               letterSpacing: -0.4,
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8.w),
                           _LiveChip(isLive: isWindowOpen),
                         ],
                       ),
-                      const SizedBox(height: 3),
+                      SizedBox(height: 3.h),
                       Text(
                         isWindowOpen
-                            ? '${activeWindow.name} window is open'
+                            ? '${activeWindow?.name ?? 'Test'} window is open'
                             : 'Opens 3× daily — windows gated',
-                        style: const TextStyle(
-                          color: _C.textMuted,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
+                      ),
+                      SizedBox(height: 4.h),
+                      _QMPremiumLine(
+                        premiumActive: premiumActive,
+                        tokens: qmTokens,
+                        isWindowOpen: isWindowOpen,
                       ),
                     ],
                   ),
@@ -1032,11 +860,9 @@ class _QMWindowWidgetState extends State<QMWindowWidget>
               ],
             ),
           ),
-
-          Divider(height: 1, thickness: 1, color: _C.divider),
-
+          Divider(height: 1.h, thickness: 1, color: _C.divider),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 8.r),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1044,25 +870,19 @@ class _QMWindowWidgetState extends State<QMWindowWidget>
                   _TokenBar(tokens: qmTokens)
                 else
                   _CountdownChip(label: _buildCountdownLabel()),
-
-                const SizedBox(height: 14),
-
+                SizedBox(height: 14.h),
                 _QMButton(
                   enabled: isWindowOpen && qmTokens > 0,
-                  onTap:   widget.onStartMatchmaking,
+                  onTap: widget.onStartMatchmaking,
                 ),
-
                 if (isWindowOpen && qmTokens == 0 && !qmAdTokenUsed) ...[
-                  const SizedBox(height: 10),
+                  SizedBox(height: 10.h),
                   _AdButton(
                     loading: _watchingAd,
-                    onTap: _watchingAd
-                        ? null
-                        : () => _handleWatchAd(context),
+                    onTap: _watchingAd ? null : () => _handleWatchAd(context),
                   ),
                 ],
-
-                const SizedBox(height: 8),
+                SizedBox(height: 8.h),
               ],
             ),
           ),
@@ -1072,8 +892,7 @@ class _QMWindowWidgetState extends State<QMWindowWidget>
   }
 }
 
-// ── Live / closed chip ────────────────────────────────────────────────────────
-
+// ─── Live chip ────────────────────────────────────────────────────────────────
 class _LiveChip extends StatefulWidget {
   final bool isLive;
   const _LiveChip({required this.isLive});
@@ -1085,18 +904,16 @@ class _LiveChip extends StatefulWidget {
 class _LiveChipState extends State<_LiveChip>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double>   _blink;
+  late Animation<double> _blink;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _blink = Tween<double>(begin: 0.35, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
+        vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
+    _blink = Tween<double>(begin: 0.35, end: 1.0)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override
@@ -1110,14 +927,14 @@ class _LiveChipState extends State<_LiveChip>
     return AnimatedBuilder(
       animation: _blink,
       builder: (_, __) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 3.r),
         decoration: BoxDecoration(
           color: widget.isLive ? _C.greenDim : _C.elevated,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(20.r),
           border: Border.all(
             color: widget.isLive
-                ? _C.green.withOpacity(0.45)
-                : _C.border.withOpacity(0.4),
+                ? _C.green.withValues(alpha: 0.45)
+                : _C.border.withValues(alpha: 0.4),
           ),
         ),
         child: Row(
@@ -1125,13 +942,13 @@ class _LiveChipState extends State<_LiveChip>
           children: [
             if (widget.isLive)
               Padding(
-                padding: const EdgeInsets.only(right: 4),
+                padding: EdgeInsets.only(right: 4.r),
                 child: Container(
-                  width: 5,
-                  height: 5,
+                  width: 5.w,
+                  height: 5.h,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _C.green.withOpacity(_blink.value),
+                    color: _C.green.withValues(alpha: _blink.value),
                   ),
                 ),
               ),
@@ -1139,7 +956,7 @@ class _LiveChipState extends State<_LiveChip>
               widget.isLive ? 'LIVE' : '○ CLOSED',
               style: TextStyle(
                 color: widget.isLive ? _C.green : _C.textMuted,
-                fontSize: 9,
+                fontSize: 9.sp,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 1,
               ),
@@ -1151,8 +968,7 @@ class _LiveChipState extends State<_LiveChip>
   }
 }
 
-// ── Token bar ─────────────────────────────────────────────────────────────────
-
+// ─── Token bar ────────────────────────────────────────────────────────────────
 class _TokenBar extends StatelessWidget {
   final int tokens;
   const _TokenBar({required this.tokens});
@@ -1160,44 +976,42 @@ class _TokenBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 13.r),
       decoration: BoxDecoration(
         color: _C.crimsonGlow,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12.r),
         border: Border.all(color: _C.crimsonBorder),
       ),
       child: Row(
         children: [
-          const Text('🎟', style: TextStyle(fontSize: 15)),
-          const SizedBox(width: 10),
+          Text('🎟', style: TextStyle(fontSize: 15.sp)),
+          SizedBox(width: 10.w),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   '$tokens ${tokens == 1 ? "token" : "tokens"} remaining',
-                  style: const TextStyle(
-                    color: _C.crimsonBright,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(
+                      color: _C.crimsonBright,
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700),
                 ),
-                const SizedBox(height: 6),
-                // Segmented progress pills
+                SizedBox(height: 6.h),
                 Row(
                   children: List.generate(3, (i) {
                     final filled = i < tokens;
                     return Expanded(
                       child: Padding(
-                        padding: EdgeInsets.only(right: i < 2 ? 4 : 0),
+                        padding: EdgeInsets.only(right: i < 2 ? 4.r : 0.r),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 300),
-                          height: 4,
+                          height: 4.h,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius: BorderRadius.circular(2.r),
                             color: filled
                                 ? _C.crimson
-                                : _C.crimson.withOpacity(0.18),
+                                : _C.crimson.withValues(alpha: 0.18),
                           ),
                         ),
                       ),
@@ -1213,8 +1027,7 @@ class _TokenBar extends StatelessWidget {
   }
 }
 
-// ── Countdown chip ────────────────────────────────────────────────────────────
-
+// ─── Countdown chip ───────────────────────────────────────────────────────────
 class _CountdownChip extends StatelessWidget {
   final String label;
   const _CountdownChip({required this.label});
@@ -1222,89 +1035,53 @@ class _CountdownChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 13.r),
       decoration: BoxDecoration(
         color: _C.elevated,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _C.border.withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.timer_outlined, color: _C.textMuted, size: 15),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              color: _C.textSub,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          Icon(Icons.timer_outlined, color: _C.textMuted, size: 15.r),
+          SizedBox(width: 8.w),
+          Text(label,
+              style: TextStyle(
+                  color: _C.textSub,
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
 }
 
-// ── Find a Match button ───────────────────────────────────────────────────────
-
+// ─── Find a Match button ──────────────────────────────────────────────────────
 class _QMButton extends StatelessWidget {
-  final bool      enabled;
+  final bool enabled;
   final VoidCallback? onTap;
   const _QMButton({required this.enabled, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: AnimatedOpacity(
-        opacity: enabled ? 1.0 : 0.30,
-        duration: const Duration(milliseconds: 200),
-        child: Container(
-          height: 52,
-          decoration: BoxDecoration(
-            gradient: enabled ? _C.crimsonGrad : null,
-            color:    enabled ? null : _C.elevated,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: enabled
-                ? [
-                    BoxShadow(
-                      color: _C.crimson.withOpacity(0.30),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.bolt_rounded,
-                color: enabled ? Colors.white : _C.textMuted,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Find a Match',
-                style: TextStyle(
-                  color:       enabled ? Colors.white : _C.textMuted,
-                  fontSize:    15,
-                  fontWeight:  FontWeight.w900,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return AppButton(
+      label: 'Play Ghost Match',
+      icon: Icon(Icons.bolt_rounded, size: 20.r),
+      onPressed: enabled ? onTap : null,
+      variant: AppButtonVariant.gradient,
+      gradientColors: const [
+        AppColors.primary,
+        Color(0xFFFF4D5E),
+      ],
+      size: AppButtonSize.large,
+      height: 52.h,
+      width: double.infinity,
     );
   }
 }
 
-// ── Watch-ad button ───────────────────────────────────────────────────────────
-
+// ─── Watch-ad button ──────────────────────────────────────────────────────────
 class _AdButton extends StatelessWidget {
   final bool loading;
   final VoidCallback? onTap;
@@ -1312,183 +1089,37 @@ class _AdButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 42,
-        decoration: BoxDecoration(
-          color: _C.elevated,
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: _C.border.withOpacity(0.6)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (loading)
-              SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: _C.textMuted,
-                ),
-              )
-            else
-              const Text('📺', style: TextStyle(fontSize: 14)),
-            const SizedBox(width: 8),
-            Text(
-              loading ? 'Loading ad…' : 'Watch ad for extra token',
-              style: const TextStyle(
-                color:      _C.textMuted,
-                fontSize:   12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+    return Ink(
+      decoration: BoxDecoration(
+        color: _C.elevated,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: _C.border.withValues(alpha: 0.6)),
       ),
-    );
-  }
-}
-
-// =============================================================================
-// ── Hub sub-widgets ────────────────────────────────────────────────────────────
-// =============================================================================
-
-// ── Arena banner ──────────────────────────────────────────────────────────────
-
-class _ArenaBanner extends StatelessWidget {
-  final Animation<double> pulseAnim;
-  const _ArenaBanner({required this.pulseAnim});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: pulseAnim,
-      builder: (_, __) => Container(
-        height: 176,
-        decoration: BoxDecoration(
-          gradient: _C.bannerGrad,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: _C.crimson.withOpacity(0.10 + 0.22 * pulseAnim.value),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _C.crimson.withOpacity(0.05 * pulseAnim.value),
-              blurRadius: 28,
-              spreadRadius: 4,
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Stack(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: Container(
+          height: 42.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.r),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Diagonal stripe texture
-              Positioned.fill(
-                child: CustomPaint(
-                  painter: _StripePainter(
-                    color: _C.crimson.withOpacity(0.025),
-                  ),
-                ),
-              ),
-
-              // Glow blobs
-              Positioned(
-                right: -30,
-                top: -30,
-                child: Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _C.crimson
-                        .withOpacity(0.04 * pulseAnim.value),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: -20,
-                bottom: -20,
-                child: Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _C.sky.withOpacity(0.05),
-                  ),
-                ),
-              ),
-
-              // Content
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 20, vertical: 20),
-                child: Row(
-                  children: [
-                    _GlowIcon(
-                      emoji:     '⚔️',
-                      size:      84,
-                      glowColor: _C.crimson,
-                      pulse:     pulseAnim.value,
-                    ),
-                    const SizedBox(width: 20),
-
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 9, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: _C.crimsonGlow,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: _C.crimsonBorder,
-                                width: 0.5,
-                              ),
-                            ),
-                            child: const Text(
-                              'ASYNC MULTIPLAYER',
-                              style: TextStyle(
-                                color:         _C.crimsonBright,
-                                fontSize:      9,
-                                fontWeight:    FontWeight.w800,
-                                letterSpacing: 2,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          const Text(
-                            'Challenge\nyour rival',
-                            style: TextStyle(
-                              color:         _C.text,
-                              fontSize:      26,
-                              fontWeight:    FontWeight.w900,
-                              letterSpacing: -1.0,
-                              height:        1.06,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          const Text(
-                            'Play now · They play when ready\nWinner takes all',
-                            style: TextStyle(
-                              color:  _C.textMuted,
-                              fontSize: 12,
-                              height:   1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              if (loading)
+                SizedBox(
+                  width: 14.w,
+                  height: 14.h,
+                  child: const CircularProgressIndicator(
+                      strokeWidth: 2, color: _C.textMuted),
+                )
+              else
+                Text('📺', style: TextStyle(fontSize: 14.sp)),
+              SizedBox(width: 8.w),
+              Text(
+                loading ? 'Loading ad…' : 'Watch ad for extra token',
+                style: TextStyle(
+                    color: _C.textMuted,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -1498,60 +1129,75 @@ class _ArenaBanner extends StatelessWidget {
   }
 }
 
-// ── Glowing icon bubble ───────────────────────────────────────────────────────
-
-class _GlowIcon extends StatelessWidget {
-  final String emoji;
-  final double size;
-  final Color  glowColor;
-  final double pulse;
-
-  const _GlowIcon({
-    required this.emoji,
-    required this.size,
-    required this.glowColor,
-    required this.pulse,
-  });
+// ─── Arena banner ──────────────────────────────────────────────────────────────
+class _ArenaBanner extends StatelessWidget {
+  const _ArenaBanner();
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
+    return Container(
+      padding: EdgeInsets.all(20.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Outer glow
           Container(
-            width: size,
-            height: size,
+            width: 64.w,
+            height: 64.h,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: glowColor.withOpacity(0.06 * pulse),
+              color: AppColors.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(18.r),
+              border:
+                  Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
             ),
+            child: Center(child: Text('⚔️', style: TextStyle(fontSize: 28.sp))),
           ),
-          // Inner ring
-          Container(
-            width: size * 0.70,
-            height: size * 0.70,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  glowColor.withOpacity(0.16),
-                  glowColor.withOpacity(0.06),
-                ],
-              ),
-              border: Border.all(
-                color: glowColor.withOpacity(0.18 + 0.28 * pulse),
-                width: 1.5,
-              ),
-            ),
-            child: Center(
-              child: Text(
-                emoji,
-                style: TextStyle(fontSize: size * 0.38),
-              ),
+          SizedBox(width: 18.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(6.r),
+                  ),
+                  child: Text(
+                    'ASYNC MULTIPLAYER',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 8.sp,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                Text(
+                  'Challenge\nyour rival',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 24.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.8,
+                    height: 1.08,
+                  ),
+                ),
+                SizedBox(height: 6.h),
+                Text(
+                  'Play now · They play when ready\nWinner takes all',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 12.sp,
+                    height: 1.45,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1560,37 +1206,34 @@ class _GlowIcon extends StatelessWidget {
   }
 }
 
-// ── How-it-works strip ────────────────────────────────────────────────────────
-
+// ─── How-it-works strip ───────────────────────────────────────────────────────
 class _HowItWorksStrip extends StatelessWidget {
   const _HowItWorksStrip();
 
   static const _steps = [
-    (num: '1', emoji: '🎮', label: 'You play\nfirst',   color: _C.crimson),
-    (num: '2', emoji: '📤', label: 'Share\nyour code',  color: _C.sky),
-    (num: '3', emoji: '🏆', label: 'Best score\nwins',  color: _C.green),
+    (num: '1', emoji: '🎮', label: 'You play\nfirst', color: _C.crimson),
+    (num: '2', emoji: '📤', label: 'Share\nyour code', color: _C.sky),
+    (num: '3', emoji: '🏆', label: 'Best score\nwins', color: _C.green),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 16.r),
       decoration: BoxDecoration(
         color: _C.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _C.border.withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
       ),
       child: Row(
         children: [
           for (int i = 0; i < _steps.length; i++) ...[
             if (i > 0)
-              Expanded(
-                child: Container(height: 1, color: _C.divider),
-              ),
+              Expanded(child: Container(height: 1.h, color: _C.divider)),
             _StepBadge(
               number: _steps[i].num,
-              emoji:  _steps[i].emoji,
-              label:  _steps[i].label,
+              emoji: _steps[i].emoji,
+              label: _steps[i].label,
               accent: _steps[i].color,
             ),
           ],
@@ -1604,7 +1247,7 @@ class _StepBadge extends StatelessWidget {
   final String number;
   final String emoji;
   final String label;
-  final Color  accent;
+  final Color accent;
 
   const _StepBadge({
     required this.number,
@@ -1622,56 +1265,43 @@ class _StepBadge extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 48.w,
+              height: 48.h,
               decoration: BoxDecoration(
-                color: accent.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: accent.withOpacity(0.28),
-                ),
+                color: accent.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(14.r),
+                border: Border.all(color: accent.withValues(alpha: 0.28)),
               ),
-              child: Center(
-                child: Text(emoji, style: const TextStyle(fontSize: 22)),
-              ),
+              child:
+                  Center(child: Text(emoji, style: TextStyle(fontSize: 22.sp))),
             ),
             Positioned(
-              top: -5,
-              right: -5,
+              top: -5.h,
+              right: -5.w,
               child: Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: accent,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: accent.withOpacity(0.4),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
+                width: 18.w,
+                height: 18.h,
+                decoration:
+                    BoxDecoration(color: accent, shape: BoxShape.circle),
                 child: Center(
-                  child: Text(
-                    number,
-                    style: const TextStyle(
-                      color:      Colors.white,
-                      fontSize:   9,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
+                  child: Text(number,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9.sp,
+                        fontWeight: FontWeight.w900,
+                      )),
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         Text(
           label,
-          style: const TextStyle(
-            color:     _C.textMuted,
-            fontSize:  10,
-            height:    1.35,
+          style: TextStyle(
+            color: _C.textMuted,
+            fontSize: 10.sp,
+            height: 1.35,
             fontWeight: FontWeight.w500,
           ),
           textAlign: TextAlign.center,
@@ -1681,22 +1311,19 @@ class _StepBadge extends StatelessWidget {
   }
 }
 
-// ── Action card (Create / Join) ───────────────────────────────────────────────
-
+// ─── Action card ──────────────────────────────────────────────────────────────
 class _ActionCard extends StatefulWidget {
-  final String   emoji;
-  final String   title;
-  final String   subtitle;
-  final Gradient gradient;
-  final Color    glowColor;
+  final String emoji;
+  final String title;
+  final String subtitle;
+  final Color accent;
   final VoidCallback onTap;
 
   const _ActionCard({
     required this.emoji,
     required this.title,
     required this.subtitle,
-    required this.gradient,
-    required this.glowColor,
+    required this.accent,
     required this.onTap,
   });
 
@@ -1707,18 +1334,15 @@ class _ActionCard extends StatefulWidget {
 class _ActionCardState extends State<_ActionCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _scaleCtrl;
-  late Animation<double>   _scaleAnim;
+  late Animation<double> _scaleAnim;
 
   @override
   void initState() {
     super.initState();
     _scaleCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 100),
-    );
-    _scaleAnim = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeOut),
-    );
+        vsync: this, duration: const Duration(milliseconds: 100));
+    _scaleAnim = Tween<double>(begin: 1.0, end: 0.96)
+        .animate(CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeOut));
   }
 
   @override
@@ -1731,103 +1355,57 @@ class _ActionCardState extends State<_ActionCard>
   Widget build(BuildContext context) {
     return ScaleTransition(
       scale: _scaleAnim,
-      child: GestureDetector(
-        onTapDown:  (_) => _scaleCtrl.forward(),
-        onTapUp:    (_) { _scaleCtrl.reverse(); widget.onTap(); },
-        onTapCancel:()  => _scaleCtrl.reverse(),
-        child: Container(
-          decoration: BoxDecoration(
-            color: _C.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: widget.glowColor.withOpacity(0.28),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: _C.surface,
+          borderRadius: BorderRadius.circular(AppRadii.xl),
+          border: Border.all(color: widget.accent.withValues(alpha: 0.28)),
+        ),
+        child: InkWell(
+          onTapDown: (_) => _scaleCtrl.forward(),
+          onTap: () {
+            _scaleCtrl.reverse();
+            widget.onTap();
+          },
+          onTapCancel: () => _scaleCtrl.reverse(),
+          borderRadius: BorderRadius.circular(AppRadii.xl),
+          child: Container(
+            padding: EdgeInsets.all(16.r),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44.w,
+                  height: 44.h,
+                  decoration: BoxDecoration(
+                    color: widget.accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(13.r),
+                    border: Border.all(
+                        color: widget.accent.withValues(alpha: 0.25)),
+                  ),
+                  child: Center(
+                      child: Text(widget.emoji,
+                          style: TextStyle(fontSize: 22.sp))),
+                ),
+                SizedBox(height: 14.h),
+                Text(
+                  widget.title,
+                  style: TextStyle(
+                    color: widget.accent,
+                    fontSize: 15.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                    height: 1.15,
+                  ),
+                ),
+                SizedBox(height: 5.h),
+                Text(
+                  widget.subtitle,
+                  style: TextStyle(
+                      color: _C.textMuted, fontSize: 11.sp, height: 1.45),
+                ),
+              ],
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Gradient header
-              Container(
-                height: 92,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      widget.glowColor.withOpacity(0.20),
-                      widget.glowColor.withOpacity(0.06),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(17),
-                  ),
-                ),
-                child: Center(
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: widget.gradient,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: widget.glowColor.withOpacity(0.35),
-                          blurRadius: 14,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        widget.emoji,
-                        style: const TextStyle(fontSize: 24),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            widget.title,
-                            style: TextStyle(
-                              color:         widget.glowColor,
-                              fontSize:      15,
-                              fontWeight:    FontWeight.w900,
-                              letterSpacing: -0.3,
-                              height:        1.15,
-                            ),
-                          ),
-                        ),
-                        Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          color: widget.glowColor.withOpacity(0.50),
-                          size: 11,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      widget.subtitle,
-                      style: const TextStyle(
-                        color:    _C.textMuted,
-                        fontSize: 11,
-                        height:   1.45,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -1835,125 +1413,256 @@ class _ActionCardState extends State<_ActionCard>
   }
 }
 
-// ── Payout rules card ─────────────────────────────────────────────────────────
-
-class _RulesCard extends StatelessWidget {
+// ─── Rules card ──────────────────────────────────────────────────────────────
+class _RulesCard extends StatefulWidget {
   const _RulesCard();
+
+  @override
+  State<_RulesCard> createState() => _RulesCardState();
+}
+
+class _RulesCardState extends State<_RulesCard> {
+  bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: _C.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _C.border.withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: _C.elevated,
-                    borderRadius: BorderRadius.circular(9),
-                    border: Border.all(color: _C.border.withOpacity(0.5)),
+          // ── Tappable Header ──
+          InkWell(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 12.r),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32.w,
+                    height: 32.h,
+                    decoration: BoxDecoration(
+                      color: _C.elevated,
+                      borderRadius: BorderRadius.circular(9.r),
+                      border:
+                          Border.all(color: _C.border.withValues(alpha: 0.5)),
+                    ),
+                    child: Center(
+                        child: Text('⚖️', style: TextStyle(fontSize: 15.sp))),
                   ),
-                  child: const Center(
-                    child: Text('⚖️', style: TextStyle(fontSize: 15)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'Payout Rules',
-                  style: TextStyle(
-                    color:         _C.text,
-                    fontSize:      15,
-                    fontWeight:    FontWeight.w800,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 9, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _C.elevated,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _C.border.withOpacity(0.5)),
-                  ),
-                  child: const Text(
-                    '5% platform fee',
+                  SizedBox(width: 10.w),
+                  Text(
+                    'Payout Rules',
                     style: TextStyle(
-                      color:      _C.textMuted,
-                      fontSize:   10,
-                      fontWeight: FontWeight.w600,
+                      color: _C.text,
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
                     ),
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  Icon(
+                    _isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: _C.textMuted,
+                  ),
+                ],
+              ),
             ),
           ),
 
-          Divider(height: 1, thickness: 1, color: _C.divider),
+          // ── Foldable Content ──
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _isExpanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Divider(height: 1.h, thickness: 1, color: _C.divider),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-            child: Column(
-              children: [
-                _RuleRow(
-                  emoji:          '🏆',
-                  label:          'WIN',
-                  labelColor:     const Color(0xFF4ADE80),
-                  labelBg:        const Color(0xFF052E16),
-                  accentColor:    const Color(0xFF4ADE80),
-                  detail:         "Your stake + 80% of opponent's",
-                  highlight:      '1.8×',
-                  highlightColor: const Color(0xFF4ADE80),
-                ),
-                const SizedBox(height: 8),
-                _RuleRow(
-                  emoji:          '🤝',
-                  label:          'DRAW',
-                  labelColor:     const Color(0xFFFBBF24),
-                  labelBg:        const Color(0xFF3D1900),
-                  accentColor:    const Color(0xFFFBBF24),
-                  detail:         'Both stakes refunded minus 5% fee',
-                  highlight:      '~0.95×',
-                  highlightColor: const Color(0xFFFBBF24),
-                ),
-                const SizedBox(height: 8),
-                _RuleRow(
-                  emoji:          '💀',
-                  label:          'LOSE',
-                  labelColor:     const Color(0xFFFB7185),
-                  labelBg:        const Color(0xFF3D0011),
-                  accentColor:    const Color(0xFFFB7185),
-                  detail:         'Your stake goes to your opponent',
-                  highlight:      '0×',
-                  highlightColor: const Color(0xFFFB7185),
-                ),
-              ],
-            ),
-          ),
+                      // ── AC stakes ─────────────────────────
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(12.r, 12.r, 12.r, 4.r),
+                        child: Row(
+                          children: [
+                            Text('🪙', style: TextStyle(fontSize: 12.sp)),
+                            SizedBox(width: 6.w),
+                            Text(
+                              'AC STAKES',
+                              style: TextStyle(
+                                color: _C.textMuted,
+                                fontSize: 10.sp,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 9.r, vertical: 3.r),
+                              decoration: BoxDecoration(
+                                color: _C.elevated,
+                                borderRadius: BorderRadius.circular(20.r),
+                                border: Border.all(
+                                    color: _C.border.withValues(alpha: 0.5)),
+                              ),
+                              child: Text(
+                                '10% win fee · 5% draw fee',
+                                style: TextStyle(
+                                    color: _C.textMuted,
+                                    fontSize: 10.sp,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 14),
-            child: Row(
-              children: const [
-                Icon(Icons.timer_outlined, color: _C.textMuted, size: 12),
-                SizedBox(width: 6),
-                Text(
-                  'Unclaimed challenges expire after 48 hours',
-                  style: TextStyle(color: _C.textMuted, fontSize: 11),
-                ),
-              ],
-            ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(12.r, 8.r, 12.r, 6.r),
+                        child: Column(
+                          children: [
+                            _RuleRow(
+                              emoji: '🏆',
+                              label: 'WIN',
+                              labelColor: AppColors.win,
+                              accentColor: AppColors.win,
+                              detail: "Your stake back + 90% of opponent's",
+                              highlight: '1.9×',
+                              highlightColor: AppColors.win,
+                            ),
+                            SizedBox(height: 8.h),
+                            _RuleRow(
+                              emoji: '🤝',
+                              label: 'DRAW',
+                              labelColor: AppColors.draw,
+                              accentColor: AppColors.draw,
+                              detail: 'Stake refunded minus a 5% fee',
+                              highlight: '0.95×',
+                              highlightColor: AppColors.draw,
+                            ),
+                            SizedBox(height: 8.h),
+                            _RuleRow(
+                              emoji: '💀',
+                              label: 'LOSE',
+                              labelColor: AppColors.lose,
+                              accentColor: AppColors.lose,
+                              detail:
+                                  'Your full stake is forfeited to the house',
+                              highlight: '0×',
+                              highlightColor: AppColors.lose,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Divider(
+                          height: 1.h,
+                          thickness: 1,
+                          indent: 12.w,
+                          endIndent: 12.w,
+                          color: _C.divider.withValues(alpha: 0.5)),
+
+                      // ── WP stakes ─────────────────────────
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(12.r, 12.r, 12.r, 4.r),
+                        child: Row(
+                          children: [
+                            Text('⭐', style: TextStyle(fontSize: 12.sp)),
+                            SizedBox(width: 6.w),
+                            Text(
+                              'WP STAKES · RIVAL CHALLENGES',
+                              style: TextStyle(
+                                color: _C.textMuted,
+                                fontSize: 10.sp,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 9.r, vertical: 3.r),
+                              decoration: BoxDecoration(
+                                color: _C.elevated,
+                                borderRadius: BorderRadius.circular(20.r),
+                                border: Border.all(
+                                    color: _C.border.withValues(alpha: 0.5)),
+                              ),
+                              child: Text(
+                                '10% fee',
+                                style: TextStyle(
+                                    color: _C.textMuted,
+                                    fontSize: 10.sp,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(12.r, 8.r, 12.r, 6.r),
+                        child: Column(
+                          children: [
+                            _RuleRow(
+                              emoji: '🏆',
+                              label: 'WIN',
+                              labelColor: AppColors.win,
+                              accentColor: AppColors.win,
+                              detail: "Your WP back + 90% of opponent's",
+                              highlight: '1.9×',
+                              highlightColor: AppColors.win,
+                            ),
+                            SizedBox(height: 8.h),
+                            _RuleRow(
+                              emoji: '🤝',
+                              label: 'DRAW',
+                              labelColor: AppColors.draw,
+                              accentColor: AppColors.draw,
+                              detail: 'WP refunded minus a 10% fee',
+                              highlight: '0.9×',
+                              highlightColor: AppColors.draw,
+                            ),
+                            SizedBox(height: 8.h),
+                            _RuleRow(
+                              emoji: '💀',
+                              label: 'LOSE',
+                              labelColor: AppColors.lose,
+                              accentColor: AppColors.lose,
+                              detail: '90% of your WP to opponent, 10% fee',
+                              highlight: '0×',
+                              highlightColor: AppColors.lose,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(16.r, 6.r, 16.r, 14.r),
+                        child: Row(
+                          children: [
+                            Icon(Icons.timer_outlined,
+                                color: _C.textMuted, size: 12.r),
+                            SizedBox(width: 6.w),
+                            Text(
+                              'Unclaimed challenges expire after 24 hours',
+                              style: TextStyle(
+                                  color: _C.textMuted, fontSize: 11.sp),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),
@@ -1964,18 +1673,16 @@ class _RulesCard extends StatelessWidget {
 class _RuleRow extends StatelessWidget {
   final String emoji;
   final String label;
-  final Color  labelColor;
-  final Color  labelBg;
-  final Color  accentColor;
+  final Color labelColor;
+  final Color accentColor;
   final String detail;
   final String highlight;
-  final Color  highlightColor;
+  final Color highlightColor;
 
   const _RuleRow({
     required this.emoji,
     required this.label,
     required this.labelColor,
-    required this.labelBg,
     required this.accentColor,
     required this.detail,
     required this.highlight,
@@ -1985,63 +1692,54 @@ class _RuleRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 11.r),
       decoration: BoxDecoration(
-        color: labelBg.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: labelColor.withOpacity(0.18), width: 1),
+        color: labelColor.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(11.r),
+        border: Border.all(color: labelColor.withValues(alpha: 0.15), width: 1),
       ),
       child: Row(
         children: [
-          // Left accent strip
           Container(
-            width: 3,
-            height: 28,
+            width: 3.w,
+            height: 26.h,
             decoration: BoxDecoration(
               color: accentColor,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(2.r),
             ),
           ),
-          const SizedBox(width: 10),
-
-          Text(emoji, style: const TextStyle(fontSize: 16)),
-          const SizedBox(width: 8),
-
+          SizedBox(width: 10.w),
+          Text(emoji, style: TextStyle(fontSize: 16.sp)),
+          SizedBox(width: 8.w),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            padding: EdgeInsets.symmetric(horizontal: 6.r, vertical: 2.r),
             decoration: BoxDecoration(
-              color: labelBg,
-              borderRadius: BorderRadius.circular(5),
+              color: labelColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(5.r),
             ),
             child: Text(
               label,
               style: TextStyle(
-                color:         labelColor,
-                fontSize:      9,
-                fontWeight:    FontWeight.w900,
+                color: labelColor,
+                fontSize: 9.sp,
+                fontWeight: FontWeight.w900,
                 letterSpacing: 0.8,
               ),
             ),
           ),
-          const SizedBox(width: 8),
-
+          SizedBox(width: 8.w),
           Expanded(
             child: Text(
               detail,
-              style: const TextStyle(
-                color:    _C.textSub,
-                fontSize: 12,
-                height:   1.3,
-              ),
+              style: TextStyle(color: _C.textSub, fontSize: 12.sp, height: 1.3),
             ),
           ),
-          const SizedBox(width: 8),
-
+          SizedBox(width: 8.w),
           Text(
             highlight,
             style: TextStyle(
-              color:      highlightColor,
-              fontSize:   14,
+              color: highlightColor,
+              fontSize: 14.sp,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -2051,10 +1749,9 @@ class _RuleRow extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// ── Active Challenges Section ─────────────────────────────────────────────────
-// =============================================================================
-
+// ═══════════════════════════════════════════════════════════════════════════
+// Active Challenges Section
+// ═══════════════════════════════════════════════════════════════════════════
 class _ActiveChallengesSection extends StatefulWidget {
   const _ActiveChallengesSection();
 
@@ -2074,7 +1771,7 @@ class _ActiveChallengesSectionState extends State<_ActiveChallengesSection> {
   StreamSubscription<QuerySnapshot>? _creatorSub;
   StreamSubscription<QuerySnapshot>? _opponentSub;
 
-  List<QueryDocumentSnapshot> _creatorDocs  = [];
+  List<QueryDocumentSnapshot> _creatorDocs = [];
   List<QueryDocumentSnapshot> _opponentDocs = [];
   bool _loading = true;
 
@@ -2104,7 +1801,7 @@ class _ActiveChallengesSectionState extends State<_ActiveChallengesSection> {
       if (!mounted) return;
       setState(() {
         _creatorDocs = snap.docs;
-        _loading     = false;
+        _loading = false;
       });
     });
 
@@ -2117,7 +1814,7 @@ class _ActiveChallengesSectionState extends State<_ActiveChallengesSection> {
       if (!mounted) return;
       setState(() {
         _opponentDocs = snap.docs;
-        _loading      = false;
+        _loading = false;
       });
     });
   }
@@ -2130,12 +1827,27 @@ class _ActiveChallengesSectionState extends State<_ActiveChallengesSection> {
   }
 
   List<QueryDocumentSnapshot> get _merged {
-    final seen   = <String>{};
+    final seen = <String>{};
     final result = <QueryDocumentSnapshot>[];
     for (final doc in [..._creatorDocs, ..._opponentDocs]) {
       if (seen.add(doc.id)) result.add(doc);
     }
     return result;
+  }
+
+  void _navigateToMyChallenges() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, a, __) => const MyChallengesPage(),
+        transitionsBuilder: (_, a, __, child) => SlideTransition(
+          position: Tween(begin: const Offset(1, 0), end: Offset.zero)
+              .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
+          child: child,
+        ),
+        transitionDuration: const Duration(milliseconds: 350),
+      ),
+    );
   }
 
   @override
@@ -2144,108 +1856,170 @@ class _ActiveChallengesSectionState extends State<_ActiveChallengesSection> {
     final challenges = _merged;
     if (challenges.isEmpty) return const SizedBox.shrink();
 
+    final visible =
+        challenges.length > 3 ? challenges.sublist(0, 3) : challenges;
+    final showSeeAll = challenges.length > 3;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Section header
         Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 12),
+          padding: EdgeInsets.only(left: 2.r, bottom: 12.r),
           child: Row(
             children: [
-              const Text(
+              Text(
                 'Active Challenges',
                 style: TextStyle(
-                  color:         _C.text,
-                  fontSize:      15,
-                  fontWeight:    FontWeight.w800,
+                  color: _C.text,
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: -0.3,
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8.w),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
                 decoration: BoxDecoration(
                   color: _C.crimsonGlow,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(10.r),
                   border: Border.all(color: _C.crimsonBorder),
                 ),
                 child: Text(
                   '${challenges.length}',
-                  style: const TextStyle(
-                    color:      _C.crimsonBright,
-                    fontSize:   11,
+                  style: TextStyle(
+                    color: _C.crimsonBright,
+                    fontSize: 11.sp,
                     fontWeight: FontWeight.w800,
                   ),
-                ),
-              ),
-              const Spacer(),
-              const Text(
-                'See all',
-                style: TextStyle(
-                  color:      _C.sky,
-                  fontSize:   12,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
         ),
-
-        for (final doc in challenges)
+        for (final doc in visible)
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
+            padding: EdgeInsets.only(bottom: 10.r),
             child: _ActiveChallengeCard(doc: doc),
           ),
-
-        const SizedBox(height: 8),
+        if (showSeeAll) ...[
+          SizedBox(height: 4.h),
+          TextButton(
+            onPressed: _navigateToMyChallenges,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('See All'),
+                SizedBox(width: 4.w),
+                Icon(Icons.arrow_forward_rounded, size: 14.r),
+              ],
+            ),
+          ),
+        ],
+        SizedBox(height: 8.h),
       ],
     );
   }
 }
 
-// ── Single active challenge card ──────────────────────────────────────────────
-
-class _ActiveChallengeCard extends StatelessWidget {
+// ─── Single active challenge card ─────────────────────────────────────────────
+class _ActiveChallengeCard extends StatefulWidget {
   final QueryDocumentSnapshot doc;
   const _ActiveChallengeCard({required this.doc});
 
-  PageRoute _slide(Widget page) => PageRouteBuilder(
-        pageBuilder: (_, a, __) => page,
-        transitionsBuilder: (_, a, __, child) => SlideTransition(
-          position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-              .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
-          child: child,
+  @override
+  State<_ActiveChallengeCard> createState() => _ActiveChallengeCardState();
+}
+
+class _ActiveChallengeCardState extends State<_ActiveChallengeCard> {
+  bool _declining = false;
+
+  QueryDocumentSnapshot get doc => widget.doc;
+
+  Future<void> _declineChallenge(
+      BuildContext context, String challengeId) async {
+    if (_declining) return;
+    final confirmed = await showAppDialog<bool>(
+      context,
+      builder: (ctx) => AppDialog(
+        title: 'Decline challenge?',
+        contentWidget: Text(
+          'The other player\'s stake will be refunded to them. This can\'t be undone.',
+          style: TextStyle(color: _C.textMuted, fontSize: 13.sp),
         ),
-        transitionDuration: const Duration(milliseconds: 350),
-      );
+        actions: [
+          AppButton(
+            label: 'Cancel',
+            variant: AppButtonVariant.text,
+            color: _C.textMuted,
+            onPressed: () => Navigator.pop(ctx, false),
+          ),
+          AppButton(
+            label: 'Decline',
+            variant: AppButtonVariant.text,
+            color: _C.crimsonBright,
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _declining = true);
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('declineChallenge')
+          .call({'challengeId': challengeId});
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Challenge declined'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Failed to decline: ${e.toString().replaceFirst('Exception: ', '')}'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _declining = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final data = doc.data() as Map<String, dynamic>;
-    final uid  = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-    final animeTitle       = data['animeTitle']       as String? ?? 'Unknown Anime';
-    final status           = data['status']           as String? ?? '';
-    final isQuickMatch     = data['isQuickMatch']     as bool?   ?? false;
-    final creatorUid       = data['creatorUid']       as String? ?? '';
-    final creatorUsername  = data['creatorUsername']  as String? ?? 'You';
+    final animeTitle = data['animeTitle'] as String? ?? 'Unknown Anime';
+    final status = data['status'] as String? ?? '';
+    final isQuickMatch = data['isQuickMatch'] as bool? ?? false;
+    final creatorUid = data['creatorUid'] as String? ?? '';
+    final creatorUsername = data['creatorUsername'] as String? ?? 'You';
     final opponentUsername = data['opponentUsername'] as String? ?? '—';
-    final stakeAmount      = data['stakeAmount']      as int?    ?? 0;
-    final questionIds      =
-        (data['questionIds'] as List<dynamic>?)?.cast<String>() ?? [];
-    final challengeId      = doc.id;
-    final isCreator        = creatorUid == uid;
+    final stakeAmount = data['stakeAmount'] as int? ?? 0;
+    final wpStake = data['wpStake'] as int? ?? 0;
+    final questionIds = _stringListOf(data['questionIds']);
+    final challengeId = doc.id;
+    final isCreator = creatorUid == uid;
+    final hasOpponent = data['opponentUid'] != null;
 
-    final creatorScore  = data['creatorScore'];
+    final creatorScore = data['creatorScore'];
     final opponentScore = data['opponentScore'];
 
     String statusLabel;
-    bool   needsAction = false;
+    bool needsAction = false;
 
     if (isQuickMatch) {
-      final hasPlayed = isCreator
-          ? creatorScore != null
-          : opponentScore != null;
+      final hasPlayed =
+          isCreator ? creatorScore != null : opponentScore != null;
       if (hasPlayed) {
         statusLabel = 'Waiting for opponent…';
       } else {
@@ -2255,9 +2029,15 @@ class _ActiveChallengeCard extends StatelessWidget {
     } else {
       switch (status) {
         case 'waiting':
-          statusLabel = isCreator
-              ? 'Waiting for opponent to join'
-              : 'Pending';
+          if (isCreator) {
+            statusLabel = hasOpponent
+                ? 'Waiting for opponent to accept'
+                : 'Waiting — share code';
+          } else {
+            statusLabel = 'Pending — accept to play';
+            needsAction = true;
+          }
+          break;
         case 'opponent_joined':
           if (isCreator) {
             statusLabel = creatorScore != null
@@ -2270,149 +2050,150 @@ class _ActiveChallengeCard extends StatelessWidget {
                 : 'Creator played — your turn!';
             needsAction = opponentScore == null;
           }
+          break;
         case 'creator_submitted':
-          if (isCreator) {
-            statusLabel = 'Waiting for opponent to play';
-          } else {
-            statusLabel = 'Creator played — your turn!';
-            needsAction = true;
-          }
+          statusLabel = isCreator
+              ? 'Waiting for opponent to play'
+              : 'Creator played — your turn!';
+          if (!isCreator) needsAction = true;
+          break;
         case 'opponent_submitted':
-          if (!isCreator) {
-            statusLabel = 'Waiting for creator to play';
-          } else {
-            statusLabel = 'Opponent played — your turn!';
-            needsAction = true;
-          }
+          statusLabel = isCreator
+              ? 'Opponent played — your turn!'
+              : 'Waiting for creator to play';
+          if (isCreator) needsAction = true;
+          break;
         default:
           statusLabel = status;
       }
     }
 
     final opponentName = isCreator ? opponentUsername : creatorUsername;
-    final accentColor  = isQuickMatch ? _C.crimson : _C.sky;
+    final accentColor = isQuickMatch ? _C.crimson : _C.sky;
+
+    final showCopyCode =
+        isCreator && status == 'waiting' && !hasOpponent && !isQuickMatch;
+
+    final canDecline =
+        !isQuickMatch && status == 'waiting' && !isCreator && hasOpponent;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(14.r),
       decoration: BoxDecoration(
         color: _C.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(16.r),
         border: Border.all(
           color: needsAction
-              ? _C.crimson.withOpacity(0.45)
-              : _C.border.withOpacity(0.50),
+              ? _C.crimson.withValues(alpha: 0.45)
+              : _C.border.withValues(alpha: 0.50),
           width: needsAction ? 1.5 : 1,
         ),
-        boxShadow: needsAction
-            ? [
-                BoxShadow(
-                  color: _C.crimson.withOpacity(0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ]
-            : null,
       ),
       child: Row(
         children: [
-          // Match type icon
           Container(
-            width: 44,
-            height: 44,
+            width: 44.w,
+            height: 44.h,
             decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: accentColor.withOpacity(0.30),
-              ),
+              color: accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12.r),
+              border: Border.all(color: accentColor.withValues(alpha: 0.30)),
             ),
             child: Center(
-              child: Text(
-                isQuickMatch ? '⚡' : '⚔️',
-                style: const TextStyle(fontSize: 18),
-              ),
-            ),
+                child: Text(isQuickMatch ? '⚡' : '⚔️',
+                    style: TextStyle(fontSize: 18.sp))),
           ),
-          const SizedBox(width: 12),
-
-          // Info column
+          SizedBox(width: 12.w),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   animeTitle,
-                  style: const TextStyle(
-                    color:      _C.text,
-                    fontSize:   13,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(
+                      color: _C.text,
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700),
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  'vs $opponentName',
-                  style: const TextStyle(color: _C.textMuted, fontSize: 11),
-                ),
-                const SizedBox(height: 4),
-                // Status chip
+                SizedBox(height: 3.h),
+                Text('vs $opponentName',
+                    style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
+                SizedBox(height: 4.h),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 7, vertical: 2),
+                  padding: EdgeInsets.symmetric(horizontal: 7.r, vertical: 2.r),
                   decoration: BoxDecoration(
                     color: needsAction
-                        ? _C.crimson.withOpacity(0.14)
+                        ? _C.crimson.withValues(alpha: 0.14)
                         : _C.elevated,
-                    borderRadius: BorderRadius.circular(5),
+                    borderRadius: BorderRadius.circular(5.r),
                     border: Border.all(
                       color: needsAction
-                          ? _C.crimson.withOpacity(0.35)
-                          : _C.border.withOpacity(0.4),
+                          ? _C.crimson.withValues(alpha: 0.35)
+                          : _C.border.withValues(alpha: 0.4),
                       width: 0.5,
                     ),
                   ),
                   child: Text(
                     statusLabel,
                     style: TextStyle(
-                      color:      needsAction ? _C.crimsonBright : _C.textMuted,
-                      fontSize:   10,
-                      fontWeight: needsAction
-                          ? FontWeight.w700
-                          : FontWeight.w500,
+                      color: needsAction ? _C.crimsonBright : _C.textMuted,
+                      fontSize: 10.sp,
+                      fontWeight:
+                          needsAction ? FontWeight.w700 : FontWeight.w500,
                     ),
                   ),
                 ),
                 if (!isQuickMatch && stakeAmount > 0) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '🪙 $stakeAmount AC staked',
-                    style: const TextStyle(
-                        color: _C.textMuted, fontSize: 10),
+                  SizedBox(height: 4.h),
+                  Row(
+                    children: [
+                      Text('🪙 $stakeAmount AC',
+                          style:
+                              TextStyle(color: _C.textMuted, fontSize: 10.sp)),
+                      if (wpStake > 0) ...[
+                        SizedBox(width: 8.w),
+                        Text('⭐ $wpStake WP',
+                            style: TextStyle(
+                                color: _C.textMuted, fontSize: 10.sp)),
+                      ],
+                    ],
                   ),
                 ],
               ],
             ),
           ),
-          const SizedBox(width: 10),
-
-          // Right action
-          if (status == 'waiting' && isCreator && !isQuickMatch)
-            _CopyCodeButton(code: challengeId)
+          SizedBox(width: 10.w),
+          if (showCopyCode)
+            SizedBox(
+              width: 90.w,
+              child: _CopyCodeButton(code: challengeId),
+            )
           else if (needsAction && questionIds.isNotEmpty)
-            _PlayNowButton(
-              onTap: () => Navigator.push(
-                context,
-                _slide(
-                  QuestionsPage(
-                    mode:         QuizMode.asyncChallenge,
-                    questionIds:  questionIds,
-                    challengeId:  challengeId,
-                    isCreator:    isCreator,
-                    isQuickMatch: isQuickMatch,
-                    isGhost:      false,
-                    opponentName: opponentName,
+            SizedBox(
+              width: 90.w,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _PlayNowButton(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChallengeLobbyPage(
+                          challengeId: challengeId,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  if (canDecline) ...[
+                    SizedBox(height: 6.h),
+                    _DeclineButton(
+                      loading: _declining,
+                      onTap: () => _declineChallenge(context, challengeId),
+                    ),
+                  ],
+                ],
               ),
             ),
         ],
@@ -2421,46 +2202,229 @@ class _ActiveChallengeCard extends StatelessWidget {
   }
 }
 
-// ── Tap-to-copy challenge code ────────────────────────────────────────────────
+// ─── Decline button ──────────────────────────────────────────────────────────
+class _DeclineButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+  const _DeclineButton({required this.loading, required this.onTap});
 
+  @override
+  Widget build(BuildContext context) {
+    return Ink(
+      decoration: BoxDecoration(
+        color: _C.crimson.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(9.r),
+        border: Border.all(
+          color: _C.crimson.withValues(alpha: 0.4),
+        ),
+      ),
+      child: InkWell(
+        onTap: loading ? null : onTap,
+        borderRadius: BorderRadius.circular(9.r),
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
+          child: Center(
+            child: loading
+                ? SizedBox(
+                    width: 11.w,
+                    height: 11.h,
+                    child: const CircularProgressIndicator(
+                        strokeWidth: 1.6, color: _C.textMuted),
+                  )
+                : Text(
+                    'Decline',
+                    style: TextStyle(
+                        color: _C.crimson,
+                        fontSize: 10.sp,
+                        fontWeight: FontWeight.w700),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Copy code button ────────────────────────────────────────────────────────
 class _CopyCodeButton extends StatelessWidget {
   final String code;
   const _CopyCodeButton({required this.code});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Clipboard.setData(ClipboardData(text: code));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Challenge code copied!'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
-        ));
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: _C.elevated,
-          borderRadius: BorderRadius.circular(11),
-          border: Border.all(color: _C.border.withOpacity(0.65)),
+    return Ink(
+      decoration: BoxDecoration(
+        color: _C.elevated,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: _C.border.withValues(alpha: 0.65)),
+      ),
+      child: InkWell(
+        onTap: () {
+          Clipboard.setData(ClipboardData(text: code));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Challenge code copied!'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ));
+        },
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                code,
+                style: TextStyle(
+                  color: _C.text,
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2.5,
+                ),
+              ),
+              SizedBox(height: 3.h),
+              Text('tap to copy',
+                  style: TextStyle(color: _C.textMuted, fontSize: 9.sp)),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+// ─── Play Now button ─────────────────────────────────────────────────────────
+class _PlayNowButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _PlayNowButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppButton(
+      label: 'Accept',
+      onPressed: onTap,
+      variant: AppButtonVariant.primary,
+      size: AppButtonSize.small,
+      width: double.infinity,
+      height: 38.h,
+    );
+  }
+}
+
+// ─── Matched dialog ─────────────────────────────────────────────────────────
+class _MatchedDialog extends StatefulWidget {
+  final _MatchResult result;
+  const _MatchedDialog({required this.result});
+
+  @override
+  State<_MatchedDialog> createState() => _MatchedDialogState();
+}
+
+class _MatchedDialogState extends State<_MatchedDialog> {
+  Timer? _autoDismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoDismissTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoDismissTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = widget.result;
+    return Dialog(
+      backgroundColor: _C.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24.r),
+        side: BorderSide(color: _C.crimson.withValues(alpha: 0.40), width: 1.5),
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(24.r, 30.r, 24.r, 24.r),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(
+              width: 72.w,
+              height: 72.h,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _C.crimsonGlow,
+                border: Border.all(
+                    color: _C.crimson.withValues(alpha: 0.5), width: 1.5),
+              ),
+              child: Center(
+                child: Text('⚡', style: TextStyle(fontSize: 30.sp)),
+              ),
+            ),
+            SizedBox(height: 16.h),
             Text(
-              code,
-              style: const TextStyle(
-                color:         _C.text,
-                fontSize:      13,
-                fontWeight:    FontWeight.w900,
+              'GHOST FOUND!',
+              style: TextStyle(
+                color: _C.crimsonBright,
+                fontSize: 12.sp,
+                fontWeight: FontWeight.w800,
                 letterSpacing: 2.5,
               ),
             ),
-            const SizedBox(height: 3),
-            const Text(
-              'tap to copy',
-              style: TextStyle(color: _C.textMuted, fontSize: 9),
+            SizedBox(height: 12.h),
+            Text(
+              result.opponentName,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: _C.text,
+                fontSize: 24.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              ),
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              result.animeTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: _C.textMuted,
+                fontSize: 15.sp,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 20.h),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _PlayerTag(
+                  label: 'YOU',
+                  name: 'You',
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.r),
+                  child: Text(
+                    'VS',
+                    style: TextStyle(
+                      color: _C.crimson.withValues(alpha: 0.8),
+                      fontSize: 18.sp,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ),
+                _PlayerTag(
+                  label: result.isGhost ? 'GHOST' : 'RIVAL',
+                  name: result.opponentName,
+                ),
+              ],
+            ),
+            SizedBox(height: 24.h),
+            Text(
+              'Starting battle...',
+              style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
             ),
           ],
         ),
@@ -2469,37 +2433,131 @@ class _CopyCodeButton extends StatelessWidget {
   }
 }
 
-// ── Play Now action button ────────────────────────────────────────────────────
+class _PlayerTag extends StatelessWidget {
+  final String label;
+  final String name;
+  const _PlayerTag({required this.label, required this.name});
 
-class _PlayNowButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _PlayNowButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 4.r),
+          decoration: BoxDecoration(
+            color: _C.elevated,
+            borderRadius: BorderRadius.circular(6.r),
+            border: Border.all(color: _C.border.withValues(alpha: 0.5)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: _C.textMuted,
+              fontSize: 10.sp,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1,
+            ),
+          ),
+        ),
+        SizedBox(height: 6.h),
+        SizedBox(
+          width: 100.w,
+          child: Text(
+            name,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _C.text,
+              fontSize: 14.sp,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Battle header premium chip ───────────────────────────────────────────────
+// Free users get a tappable gold "GO PREMIUM" pill; premium users get a calm
+// gold crown pill affirming their status. Both lead to PremiumUpsellScreen.
+class _BattlePremiumChip extends StatelessWidget {
+  final bool premiumActive;
+  const _BattlePremiumChip({required this.premiumActive});
+
+  static const _gold = Color(0xFFFFB300);
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+      ),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
         decoration: BoxDecoration(
-          gradient: _C.crimsonGrad,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: _C.crimson.withOpacity(0.35),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+          color: _gold.withValues(alpha: premiumActive ? 0.13 : 0.10),
+          borderRadius: BorderRadius.circular(20.r),
+          border: Border.all(color: _gold.withValues(alpha: 0.38)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('👑', style: TextStyle(fontSize: 12.sp)),
+            SizedBox(width: 4.w),
+            Text(
+              premiumActive ? 'PREMIUM' : 'GET',
+              style: TextStyle(
+                color: _gold,
+                fontWeight: FontWeight.w800,
+                fontSize: 11.sp,
+                letterSpacing: 0.4,
+              ),
             ),
           ],
         ),
-        child: const Text(
-          'Play',
-          style: TextStyle(
-            color:      Colors.white,
-            fontSize:   13,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
+      ),
+    );
+  }
+}
+
+// ─── Quick Match premium line ─────────────────────────────────────────────────
+// One-line, zero-height-cost hint under the QM status:
+//   - premium: quiet gold affirmation of extra QM access
+//   - free:    grey nudge naming what Premium adds
+class _QMPremiumLine extends StatelessWidget {
+  final bool premiumActive;
+  final int tokens;
+  final bool isWindowOpen;
+
+  const _QMPremiumLine({
+    required this.premiumActive,
+    required this.tokens,
+    required this.isWindowOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final String label;
+    if (premiumActive) {
+      if (!isWindowOpen) {
+        label = '★ Premium · watch for your next window';
+      } else if (tokens > 0) {
+        label = '★ Premium · extra QM access active';
+      } else {
+        label = '★ Premium · watch an ad below for one more token';
+      }
+    } else {
+      label = '★ Premium adds extra Quick Match access';
+    }
+
+    return Text(
+      label,
+      style: TextStyle(
+        color: premiumActive ? Color(0xFFFFB300) : _C.textMuted,
+        fontSize: 10.sp,
+        fontWeight: premiumActive ? FontWeight.w800 : FontWeight.w600,
       ),
     );
   }
