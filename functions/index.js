@@ -567,7 +567,12 @@ exports.ensureProfile = onCall(
 //   • matchmaking_queue/{uid}
 //   • telemetry/**/{uid} (quiz_cadence, account_signals)
 //   • fraudReviews/{weekId}_{uid}
-//   • leaderboardCycles/{weekId}/pendingClaim/{uid} (bank details)
+//
+// ANONYMIZED BANK DETAILS (record kept — pendingClaim IS the payout record)
+//   • leaderboardCycles/{weekId}/pendingClaim/{uid} — accountNumber / bankCode /
+//     beneficiaryName redacted, status set to 'anonymized'. Amount, timestamps
+//     and markedBy survive for accounting. Refused outright above if any claim
+//     is still 'pending' (money still owed).
 //
 // ANONYMIZED (PII redacted, record kept)
 //   • leaderboardCycles.ranked[]  — username/university/buyerEmail
@@ -577,14 +582,15 @@ exports.ensureProfile = onCall(
 //   • prize_pool.winners[]        — username/university
 //
 // RETAINED UNCHANGED (legal/accounting obligation — see Privacy Policy)
-//   • payoutLedger/{weekId}_{uid} + leaderboardCycles/*/payouts/* (payout audit)
+//   • leaderboardCycles/*/pendingClaim/* (payout records; bank fields anonymized
+//     below because nothing further is owed once status is 'marked')
 //   • processedTransactions/*, paymentIntents/* (purchase/accounting records)
 //   • house_fees/* (house-rake accounting)
 //   • redemptionCodes/* (redeemed purchase records)
 //
-// GUARD: refuses deletion while a payout is in flight ('reserved'/'submitted')
-// or an approved-but-unpaid claim exists, so a real outstanding prize is never
-// destroyed by an account deletion.
+// GUARD: refuses deletion while a claim is still 'pending' (admin has not
+// transferred the prize yet), so an outstanding prize and the bank details it
+// depends on are never destroyed by an account deletion.
 const _DELETE_BATCH = 400;
 
 async function _deleteQueryInBatches(query, label) {
@@ -614,28 +620,21 @@ exports.deleteAccount = onCall(
     // deletion there would turn a self-service privacy right into a support
     // ticket. See the exclusion list on _assertClientBuildAllowed.
 
-    // ── 0. Guard: block while a real payout is outstanding ────────────────
-    const ledgerSnap = await db.collection('payoutLedger')
-      .where('uid', '==', uid).get();
-    const inFlight = ledgerSnap.docs
-      .map((d) => d.data()?.status)
-      .filter((s) => s === 'reserved' || s === 'submitted');
-    if (inFlight.length > 0) {
-      throw new HttpsError(
-        'failed-precondition',
-        'A prize payout is currently in progress on this account. ' +
-        'Wait for it to complete before deleting your account.'
-      );
-    }
-
+    // ── 0. Guard: block while a prize is still owed to this account ───────
+    // Payouts are manual, so there is no transfer to wait on — the only thing
+    // that matters is whether the admin still owes money. An unsubmitted or
+    // pending claim means either a prize is unclaimed (which is forfeited, never
+    // carried over into any later week's pool — see checkPendingClaim) or the
+    // admin is holding the destination account to send to.
+    // Deleting now would destroy the bank details a pending transfer needs.
     const cycleSnaps = await db.collection('leaderboardCycles').get();
     for (const c of cycleSnaps.docs) {
       const claim = await c.ref.collection('pendingClaim').doc(uid).get();
-      if (claim.exists && claim.data()?.status === 'approved') {
+      if (claim.exists && claim.data()?.status === 'pending') {
         throw new HttpsError(
           'failed-precondition',
-          'You have an approved prize payout awaiting transfer. ' +
-          'Wait for it to complete before deleting your account.'
+          'You have a prize payout awaiting payment on this account. ' +
+          'Wait for it to be paid before deleting your account.'
         );
       }
     }
@@ -643,7 +642,7 @@ exports.deleteAccount = onCall(
     const deleted = {};
     const anonymized = {};
     const retained = [
-      'payoutLedger', 'leaderboardCycles/payouts', 'processedTransactions',
+      'leaderboardCycles/pendingClaim', 'processedTransactions',
       'paymentIntents', 'house_fees', 'redemptionCodes',
     ];
 
@@ -666,9 +665,24 @@ exports.deleteAccount = onCall(
     deleted.fraudReviews = await _deleteQueryInBatches(
       db.collection('fraudReviews').where('uid', '==', uid), 'fraudReviews');
 
-    // pendingClaim/{uid} under every cycle (bank details)
+    // pendingClaim/{uid} under every cycle.
+    //
+    // With manual payouts these docs ARE the payout record, so they are not
+    // simply deleted. The guard above already refused deletion while any claim
+    // was still 'pending', so nothing is owed at this point and no money is
+    // lost by keeping the record. Bank fields are PII and are redacted; the
+    // amount, timestamps and markedBy stay for accounting.
     for (const c of cycleSnaps.docs) {
-      await c.ref.collection('pendingClaim').doc(uid).delete().catch(() => {});
+      await c.ref.collection('pendingClaim').doc(uid).set({
+        uid,
+        accountNumber:   FieldValue.delete(),
+        bankCode:        FieldValue.delete(),
+        beneficiaryName: FieldValue.delete(),
+        status:          'anonymized',
+        anonymizedAt:    FieldValue.serverTimestamp(),
+      }, { merge: true }).catch(() => {
+        // No claim for this cycle — nothing to anonymize.
+      });
     }
     deleted.pendingClaims = true;
 
@@ -1515,13 +1529,23 @@ async function runWeeklyReset() {
       console.warn(`[weeklyReset] leaderboard floor read failed (ignored): ${err.message}`);
     }
 
-    // 70% �?prize pool, 30% �?house. Prize pool never falls below the floor.
-    // Rollover from expired prior-week claims (prize_pool/{weekId}.rolloverNaira,
-    // incremented by checkPendingClaim) is added at 100% �?those naira are
-    // already net of the house cut, so applying the 70% split again would
-    // silently funnel a slice back to the house.
-    const prizePool = Math.max((entryRevenue * 0.70) + (poolData.rolloverNaira || 0), floor);
-    const houseCut  = entryRevenue * 0.30;
+    // Pool sizing, in priority order:
+    //   1. adminPoolNaira - a FIXED amount the admin set for this week via
+    //      setPrizePool. It REPLACES the revenue-based figure outright, so the
+    //      admin always knows exactly what is at stake regardless of how many
+    //      entries sold.
+    //   2. Otherwise 70% of leaderboard-entry sales, never below the floor.
+    //
+    // There is NO rollover term. Expired claims are forfeited, not carried into
+    // a later week, so nothing is added here beyond this week's own revenue.
+    // Each week's pool is funded only by that week's entries (or your fixed
+    // amount) - see checkPendingClaim, which records forfeited shares on the
+    // cycle as forfeitedNaira for accounting.
+    const adminPool   = Number(poolData.adminPoolNaira);
+    const isFixedPool = Number.isFinite(adminPool) && adminPool > 0;
+    const revenuePool = Math.max(entryRevenue * 0.70, floor);
+    const prizePool   = isFixedPool ? adminPool : revenuePool;
+    const houseCut    = entryRevenue * 0.30;
 
     const ranked = eligible.map((u, i) => ({
       rank:            i + 1,
@@ -1542,14 +1566,18 @@ async function runWeeklyReset() {
       prizePool:        parseFloat(prizePool.toFixed(2)),
       houseCut:         parseFloat(houseCut.toFixed(2)),
       guaranteedFloor:  floor,
+      poolSource:      isFixedPool ? 'admin_fixed' : 'revenue',
+      adminPoolNaira:  isFixedPool ? prizePool : null,
       eligibleCount:    ranked.length,
       ranked,
       status:           'calculated',
       calculatedAt:     FieldValue.serverTimestamp(),
       paidAt:           null,
-      notes:            floor > prizePool
-        ? `Low-volume week �?pool bumped to guaranteed floor of �?{floor}`
-        : '',
+      notes:            isFixedPool
+        ? `Pool fixed by admin at ${prizePool} naira (entry revenue ${entryRevenue}).`
+        : (floor > revenuePool
+            ? `Low-volume week — pool bumped to guaranteed floor of ${floor}`
+            : ''),
     });
 
     if (ranked.length > 0) {
@@ -1694,58 +1722,177 @@ exports.triggerWeeklyReset = onRequest(
   }
 );
 
-exports.incrementPrizePool = onCall(
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── setPrizePool — admin sets the FIXED prize pool for the current week ───
+// ─────────────────────────────────────────────────────────────────────────────
+// REPLACES the old incrementPrizePool, which was broken: it accumulated ad
+// revenue into prize_pool/{weekId}.totalNaira while runWeeklyReset computes the
+// pool from entryCodeRevenue and never read totalNaira. Every naira it added
+// since launch was silently discarded. It was also callable by any
+// authenticated player with no admin gate. Both problems are gone.
+//
+// WHAT THIS DOES: the admin picks ONE number for the current week and that
+// becomes the prize pool outright — it REPLACES the 70%-of-entry-sales figure,
+// it does not add to it. One source of truth, and you always know exactly what
+// is at stake before the week closes.
+//
+// WRITE SCOPE: current week only. A closed cycle has already had shares
+// assigned and possibly paid, so rewriting it retroactively would silently
+// change what a winner was promised. That is refused rather than papered over.
+//
+// FIELDS WRITTEN:
+//   adminPoolNaira : the fixed pool (integer NGN). This is what weeklyReset reads.
+//   poolSetBy / poolSetAt : who set it and when, for the audit trail.
+//
+// CAVEAT: the pool is snapshotted into leaderboardCycles/{weekId} by
+// runWeeklyReset when the week closes. Changing this value AFTER that point has
+// no effect on the already-calculated cycle — the amount above is what the
+// winners' shares were based on.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Sanity ceiling. A typo should not create a nine-figure payout obligation.
+const MAX_POOL_NAIRA = 50_000_000; // ₦50,000,000
+
+exports.setPrizePool = onCall(
   { region: 'us-central1' },
   async (request) => {
-    const uid = request.auth?.uid;
-    if (!uid) {
-      throw new HttpsError('unauthenticated', 'Unauthenticated');
+    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
+      throw new HttpsError('permission-denied', 'Forbidden');
     }
 
-    const { nairaAmount } = request.data;
+    const { amount } = request.data || {};
 
-    if (typeof nairaAmount !== 'number' || nairaAmount <= 0) {
-      throw new Error('Invalid nairaAmount');
+    if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) {
+      throw new HttpsError('invalid-argument', 'amount must be a positive number');
+    }
+    if (!Number.isInteger(amount)) {
+      throw new HttpsError('invalid-argument', 'amount must be a whole naira amount');
+    }
+    if (amount > MAX_POOL_NAIRA) {
+      throw new HttpsError('invalid-argument',
+        `amount must not exceed ₦${MAX_POOL_NAIRA.toLocaleString()}`);
     }
 
-    const safeAmount = Math.min(nairaAmount, 10);
-    const weekId     = currentWeekId();
-    const ref        = db.collection('prize_pool').doc(weekId);
-    const userRef    = db.collection('users').doc(uid);
-    const todayWAT   = _watDateString();
+    const weekId = currentWeekId();
 
-    await db.runTransaction(async (tx) => {
-      const userSnap = await tx.get(userRef);
-      const data     = userSnap.exists ? userSnap.data() : {};
+    // Refuse if this week has already been snapshotted by weeklyReset — the
+    // cycle doc is immutable once calculated.
+    const cycleSnap = await db.collection('leaderboardCycles').doc(weekId).get();
+    if (cycleSnap.exists) {
+      throw new HttpsError('failed-precondition',
+        'This week has already closed and its prize pool is fixed. ' +
+        'It can no longer be changed.');
+    }
 
-      // Per-user daily call cap (mirrors recordAdWatch's daily-10 pattern):
-      // a date-keyed counter that rolls over to 0 when the WAT day changes.
-      // Fields follow the same camelCase naming convention as
-      // dailyAdWatched / lastAdWatchDate, but are kept distinct so this
-      // security cap never collides with a real rewarded-ad watch counter.
-      const lastDateStr = data.lastPrizePoolIncrementDate;
-      let dailyCount = lastDateStr === todayWAT
-        ? (Number(data.dailyPrizePoolIncrements) || 0)
-        : 0;
+    await db.collection('prize_pool').doc(weekId).set({
+      weekId,
+      adminPoolNaira: amount,
+      poolSetBy:      request.auth.uid,
+      poolSetAt:      FieldValue.serverTimestamp(),
+      status:         'active',
+    }, { merge: true });
 
-      if (dailyCount >= 10) {
-        throw new HttpsError('resource-exhausted', 'daily_limit_reached');
-      }
+    console.log(`[setPrizePool] week=${weekId} pool=₦${amount} by ${request.auth.uid}`);
+    return {
+      success: true,
+      weekId,
+      amount,
+      message: `Prize pool for week ${weekId} set to ₦${amount.toLocaleString()}.`,
+    };
+  }
+);
 
-      tx.set(ref, {
-        totalNaira:  FieldValue.increment(safeAmount),
-        adViewCount: FieldValue.increment(1),
-        weekId,
-        status:      'active',
-      }, { merge: true });
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── clearPrizePool — admin reverts to revenue-based pool ───────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Removes the fixed amount so runWeeklyReset falls back to
+// (entryRevenue * 0.70), which is what it did before this feature
+// feature existed. Same current-week-only restriction as setPrizePool.
+exports.clearPrizePool = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
+      throw new HttpsError('permission-denied', 'Forbidden');
+    }
 
-      tx.update(userRef, {
-        dailyPrizePoolIncrements: dailyCount + 1,
-        lastPrizePoolIncrementDate: todayWAT,
-      });
-    });
+    const weekId = currentWeekId();
 
-    return { success: true, added: safeAmount };
+    const cycleSnap = await db.collection('leaderboardCycles').doc(weekId).get();
+    if (cycleSnap.exists) {
+      throw new HttpsError('failed-precondition',
+        'This week has already closed. It can no longer be changed.');
+    }
+
+    await db.collection('prize_pool').doc(weekId).set({
+      adminPoolNaira: FieldValue.delete(),
+      poolSetBy:      FieldValue.delete(),
+      poolSetAt:      FieldValue.delete(),
+    }, { merge: true });
+
+    console.log(`[clearPrizePool] week=${weekId} reverted to revenue-based pool by ${request.auth.uid}`);
+    return {
+      success: true,
+      weekId,
+      message: 'Reverted. This week\'s pool now follows leaderboard entry sales (70%).',
+    };
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── getPrizePoolStatus — live pool state for the admin UI ─────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Read-only. Returns both the live figures for the CURRENT week and what the
+// pool WILL be if left alone, so the admin can see the gap between their
+// revenue-based expectation and any fixed amount they have set.
+exports.getPrizePoolStatus = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
+      throw new HttpsError('permission-denied', 'Forbidden');
+    }
+
+    const weekId = currentWeekId();
+    const [poolSnap, cycleSnap] = await Promise.all([
+      db.collection('prize_pool').doc(weekId).get(),
+      db.collection('leaderboardCycles').doc(weekId).get(),
+    ]);
+
+    const pool = poolSnap.exists ? (poolSnap.data() || {}) : {};
+    const entryRevenue = Number(pool.entryCodeRevenue) || 0;
+    const revenueBased = entryRevenue * 0.70;
+    const fixedAmount  = Number.isFinite(Number(pool.adminPoolNaira))
+      ? Number(pool.adminPoolNaira)
+      : null;
+
+    let floor = 0;
+    try {
+      const cfgSnap =
+        await db.collection('app_config').doc('leaderboard_entry_config').get();
+      floor = Number(cfgSnap.data()?.guaranteedFloor) || 0;
+    } catch (err) {
+      console.warn(`[getPrizePoolStatus] floor read failed (ignored): ${err.message}`);
+    }
+
+    return {
+      success:    true,
+      weekId,
+      // Revenue figures — accounting only.
+      entryCodeRevenue: entryRevenue,
+      houseCutPotential: entryRevenue * 0.30,
+      // What the pool would be from sales alone (70%, floored).
+      revenueBasedPool: Math.max(revenueBased, floor),
+      guaranteedFloor:  floor,
+      // What it WILL be: the fixed amount if set, else revenue-based.
+      effectivePool:    fixedAmount != null ? fixedAmount : Math.max(revenueBased, floor),
+      isFixed:          fixedAmount != null,
+      adminPoolNaira:   fixedAmount,
+      poolSetBy:        pool.poolSetBy || null,
+      poolSetAt:        pool.poolSetAt?.toDate?.().toISOString?.() || null,
+      // Whether this week is still editable.
+      weekClosed:      cycleSnap.exists,
+      editableWeekId:  weekId,
+      maxPoolNaira:    MAX_POOL_NAIRA,
+    };
   }
 );
 
@@ -4170,6 +4317,25 @@ exports.submitQuizAnswers = onCall(
 
     const { sessionId, questionIds, selectedAnswers, timings } = request.data;
 
+    // ── Homepage solo difficulty (easy | medium | hard) ────────────────
+    // Selects the WP/AC reward table below. Legacy clients omit it → 'easy'
+    // (the pre-difficulty baseline), so old app versions see zero change.
+    // Mirrors kSoloDifficultyRewards in lib/core/constants/solo_economy.dart
+    // — change both together. Quick Match / Create Challenge use their own
+    // CFs and are unaffected.
+    const SOLO_DIFFICULTY_REWARDS = {
+      easy:   { wpFast: 8,  wpSlow: 15, completionWP: 20, perfectBonus: 10, ac: 8 },
+      medium: { wpFast: 12, wpSlow: 22, completionWP: 30, perfectBonus: 15, ac: 12 },
+      // Generous on purpose: hard runs burn AC on Timer Pause (20) / hints
+      // (10), so a strong clear must profit. Max raw: 10x40+50+30 = 480 WP.
+      hard:   { wpFast: 20, wpSlow: 40, completionWP: 50, perfectBonus: 30, ac: 35 },
+    };
+    const _rawDiff = typeof request.data?.soloDifficulty === 'string'
+      ? request.data.soloDifficulty.trim().toLowerCase()
+      : 'easy';
+    const soloDifficulty = SOLO_DIFFICULTY_REWARDS[_rawDiff] ? _rawDiff : 'easy';
+    const diffReward = SOLO_DIFFICULTY_REWARDS[soloDifficulty];
+
     if (typeof sessionId !== 'string' || !sessionId.trim()) {
       throw new Error('invalid_session_id');
     }
@@ -4262,14 +4428,14 @@ exports.submitQuizAnswers = onCall(
 
       if (isCorrect) {
         correctCount++;
-        baseWP += (timings[i] < 1.5) ? 8 : 15;
+        baseWP += (timings[i] < 1.5) ? diffReward.wpFast : diffReward.wpSlow;
       }
     }
 
-    const completionWP  = 20;
+    const completionWP  = diffReward.completionWP;
     const isPerfect     = correctCount === 10;
-    const perfectBonus  = isPerfect ? 10 : 0;
-    const acEarned      = 8;
+    const perfectBonus  = isPerfect ? diffReward.perfectBonus : 0;
+    const acEarned      = diffReward.ac;
     const todayWAT     = _watDateString();
 
     let totalWP;
@@ -4312,7 +4478,7 @@ exports.submitQuizAnswers = onCall(
       // E.g. perfect raw 180 at game 150 (0.5x): 90 �?18 past the soft cap.
       const decayedBaseWP = Math.max(1, Math.floor(
         (baseWP + completionWP + perfectBonus) * decayFactor));
-      // Same decay on the +8 AC award so volume farming cannot route around
+      // Same decay on the AC award so volume farming cannot route around
       // the WP decay into full-value AC (floored at 1 AC so games always
       // visibly reward something).
       const decayedAC = Math.max(1, Math.floor(acEarned * decayFactor));
@@ -4330,7 +4496,7 @@ exports.submitQuizAnswers = onCall(
       // earnings. It is also logged as its own `earn_achievement` ledger
       // entry below �?never silently merged into `earn_quiz`.
       let achievementAC = 0;
-      result = { correctCount, totalWP, acEarned: decayedAC, isPerfect, achievementAC };
+      result = { correctCount, totalWP, acEarned: decayedAC, isPerfect, achievementAC, soloDifficulty };
 
       const userUpdateFields = {
         weeklyPoints:   FieldValue.increment(awardedWP),
@@ -4401,7 +4567,7 @@ exports.submitQuizAnswers = onCall(
 
     console.log(
       `[submitQuizAnswers] uid=${uid} sessionId=${sessionId}` +
-      ` | correct=${correctCount}/10 baseWP=${baseWP} totalWP=${totalWP}` +
+      ` | diff=${soloDifficulty} correct=${correctCount}/10 baseWP=${baseWP} totalWP=${totalWP}` +
       ` isPerfect=${isPerfect} +${result.acEarned} AC`
     );
 
@@ -5547,6 +5713,11 @@ exports.submitQuickMatchResult = onCall(
         // "opponent" slot, so from the real player's own perspective a
         // challenge-level 'opponent_wins' is a personal 'lose'.
         let outcome, matchOutcome, wpEarned, acEarned;
+        // Declared OUTSIDE the transaction: it is read by the console.log and
+        // return statement below, after the tx callback has closed. Declaring
+        // it inside made those throw ReferenceError post-commit, so the client
+        // saw an error even though the match had been saved.
+        let achievementAC = 0;
         if (correctCount > ghostScore) {
           outcome = 'creator_wins';  matchOutcome = 'win';  wpEarned = QM_WP_WIN;  acEarned = QM_AC_WIN;
         } else if (correctCount === ghostScore) {
@@ -5616,7 +5787,7 @@ exports.submitQuickMatchResult = onCall(
           if (isPerfect) statDeltas.perfectQuizzes = 1;
 
           const achievements = _checkAchievementTiers(userData, statDeltas);
-          const achievementAC = achievements.acGranted || 0;
+          achievementAC = achievements.acGranted || 0;
 
           const totalAC = acEarned + achievementAC;
           if (totalAC > 0) {
@@ -6063,6 +6234,128 @@ const FLUTTERWAVE_PRODUCTS = {
   'AQ_LB_WEEK': { txToken: 'LBWK',  type: 'leaderboard_entry', value: 0,   amount: 500,  currency: 'NGN', title: 'Weekly Leaderboard Entry' },
 };
 
+// Shared: resolve a product from a tx_ref (prefix match, no meta trust).
+function _resolveProductFromTxRef(txRefStr) {
+  const s = typeof txRefStr === 'string' ? txRefStr : '';
+  const entry = Object.entries(FLUTTERWAVE_PRODUCTS)
+    .find(([, p]) => s.startsWith('AQ-' + p.txToken + '-'));
+  return entry ? { productId: entry[0], product: entry[1] } : { productId: '', product: null };
+}
+
+// Shared: verify a charge with Flutterwave by tx_ref. Used by getPurchasedCode
+// to self-heal a payment whose webhook was late, lost, or transiently rejected.
+// Throws on transport/auth errors so the caller can return a retryable status.
+async function _verifyFlutterwaveByTxRef(txRef) {
+  const resp = await fetch(
+    'https://api.flutterwave.com/v3/transactions?tx_ref=' + encodeURIComponent(txRef),
+    { headers: { Authorization: 'Bearer ' + FLW_SECRET_KEY.value() } }
+  );
+  const json = await resp.json();
+  if (!resp.ok || json.status !== 'success') {
+    throw new Error('Flutterwave verify HTTP ' + resp.status + ': ' + JSON.stringify(json).slice(0, 300));
+  }
+  return Array.isArray(json.data) ? json.data : [];
+}
+
+// Shared: mint the code for a CONFIRMED charge (single source of truth).
+// Both the webhook (flutterwaveWebhook) and the self-healing delivery path
+// (getPurchasedCode) funnel through here so a confirmed, price-checked payment
+// ALWAYS produces a code, idempotently, keyed on Flutterwave's transaction id.
+//
+// Returns { status, code, rejected, buyerEmail }:
+//   status 'fulfilled' -> a fresh code was minted (code set)
+//   status 'duplicate' -> this Flutterwave txn id was already fulfilled (code set)
+//   status 'rejected'  -> no trusted buyer email could be attributed (code null)
+//
+// buyerEmail (from the checkout paymentIntent) wins; fallbackEmail (Flutterwave's
+// customer.email, authoritative in live mode) is used only when the intent is
+// missing so a confirmed payment is never silently dropped.
+async function _mintCharge({
+  txRef, flwTxnId, amount, currency, product, productId, buyerEmail, fallbackEmail,
+}) {
+  const result = { status: 'rejected', code: null, rejected: null, buyerEmail: null };
+
+  await db.runTransaction(async (tx) => {
+    const processedRef = db.collection('processedTransactions').doc(flwTxnId);
+    const processedSnap = await tx.get(processedRef);
+    if (processedSnap.exists) {
+      const prev = processedSnap.data() || {};
+      result.status = 'duplicate';
+      result.code = prev.code || null;
+      result.rejected = null;
+      return;
+    }
+
+    const intentRef  = db.collection('paymentIntents').doc(txRef);
+    const intentSnap = await tx.get(intentRef);
+    const intent = intentSnap.exists ? intentSnap.data() : null;
+
+    const intentEmail = intent && typeof intent.email === 'string'
+      ? intent.email.trim().toLowerCase()
+      : '';
+    const fallback = typeof fallbackEmail === 'string'
+      ? fallbackEmail.trim().toLowerCase()
+      : '';
+    const email = intentEmail || fallback;
+
+    if (!email) {
+      result.status = 'rejected';
+      result.rejected = 'no verified buyer email (no paymentIntent and no usable fallback)';
+      return;
+    }
+
+    // Leaderboard entry codes embed the CURRENT week ID (not the static catalog
+    // value) so eligibility aligns with the weekly reset boundary.
+    const codeValue = product.type === 'leaderboard_entry'
+      ? currentWeekId()
+      : product.value;
+
+    const mintedCode = await _generateAndWriteCode(
+      {
+        type:      product.type,
+        value:     codeValue,
+        source:    'flutterwave_web',
+        createdBy: productId,
+        extra:     {
+          paidAmount: amount,
+          flwTxnId,
+          buyerEmail: email,
+          productId,
+          flwReportedEmail: fallback,
+        },
+      },
+      (code, doc) => { tx.set(db.collection('redemptionCodes').doc(code), doc); },
+      (code) => tx.get(db.collection('redemptionCodes').doc(code))
+    );
+
+    tx.set(processedRef, {
+      productId,
+      tx_ref:    txRef,
+      flwTxnId,
+      code:      mintedCode,
+      buyerEmail: email,
+      flwReportedEmail: fallback,
+      amount,
+      currency,
+      status:    'fulfilled',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // merge=true so a missing/partial intent can't abort the mint.
+    tx.set(intentRef, {
+      status:      'fulfilled',
+      fulfilledAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    result.status = 'fulfilled';
+    result.code = mintedCode;
+    result.buyerEmail = email;
+    result.rejected = null;
+  });
+
+  return result;
+}
+
 // ─── CORS helpers (open onRequest endpoints) ───────────────────────────────
 // The only browser-origin callers of the open HTTP endpoints are our own
 // Firebase Hosting pages (the static shop + success pages) and local dev.
@@ -6148,6 +6441,64 @@ function _rateLimited(ip) {
     }
   }
   return false;
+}
+
+// ─── Per-tx_ref rate limiter for getPurchasedCode ─────────────────────────
+// Stops random reference probing from burning the Flutterwave verify API quota.
+// Independent of the per-IP limiter above: an attacker rotating IPs still gets
+// blocked per reference, and a legit buyer's auto-poll (10 attempts over ~30s)
+// plus a few manual retries stay well under the cap.
+const _txRefLookupRate = new Map(); // tx_ref -> { hits, windowStart }
+const TXREF_RATE_LIMIT = {
+  windowMs: 60 * 1000,   // 1 minute
+  maxHits:  15,          // 15 lookups / min / tx_ref
+};
+
+function _txRefLookupLimited(txRef) {
+  if (!txRef) return false;
+  const now = Date.now();
+  let entry = _txRefLookupRate.get(txRef);
+  if (!entry) {
+    entry = { hits: 0, windowStart: now };
+    _txRefLookupRate.set(txRef, entry);
+  }
+  if (now - entry.windowStart > TXREF_RATE_LIMIT.windowMs) {
+    entry.hits = 0;
+    entry.windowStart = now;
+  }
+  entry.hits++;
+  if (_txRefLookupRate.size > 20000) {
+    for (const [k, v] of _txRefLookupRate) {
+      if (now - v.windowStart > TXREF_RATE_LIMIT.windowMs) _txRefLookupRate.delete(k);
+    }
+  }
+  return entry.hits > TXREF_RATE_LIMIT.maxHits;
+}
+
+// ─── Failed-verification cache for getPurchasedCode ────────────────────────
+// When a tx_ref verifies as NOT successfully charged (empty/pending/failed),
+// remember that for a short window so repeated probes of the same reference
+// don't hit the Flutterwave API every time. Success is never cached: a
+// confirmed charge is minted immediately, and a payment that only completes
+// after this cache window expires is re-verified fresh (so a late-arriving
+// success is still caught).
+const _verifyCache = new Map(); // tx_ref -> { untilMs, confirmed }
+const VERIFY_CACHE_MS = 30 * 1000; // 30s
+
+function _cachedVerifyResult(txRef) {
+  const e = _verifyCache.get(txRef);
+  if (e && e.untilMs > Date.now()) return e.confirmed;
+  return undefined; // not cached (or expired)
+}
+
+function _rememberVerifyResult(txRef, confirmed) {
+  _verifyCache.set(txRef, { untilMs: Date.now() + VERIFY_CACHE_MS, confirmed: !!confirmed });
+  if (_verifyCache.size > 20000) {
+    const now = Date.now();
+    for (const [k, v] of _verifyCache) {
+      if (v.untilMs <= now) _verifyCache.delete(k);
+    }
+  }
 }
 
 // Best-effort client IP from an Express-style onRequest handler (req.headers /
@@ -6415,236 +6766,49 @@ exports.setLeaderboardFloor = onCall(
   }
 );
 
-// ─── Admin: mark a cycle winner as paid (manual payout tracking) ────────────
-// Flips an entry in leaderboardCycles/{weekId}.ranked to paid after the
-// developer manually transfers the winnings. When every entry is paid the
-// whole cycle doc flips to status 'paid'. Payout is explicitly OUT OF SCOPE �?
-// this only records what a human needs to reconcile transfers.
-exports.markLeaderboardPayout = onCall(
-  { region: 'us-central1' },
-  async (request) => {
-    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
-      throw new HttpsError('permission-denied', 'Forbidden');
-    }
-    const { weekId, uid, paid, payoutMethod, payoutReference } = request.data || {};
-    if (typeof weekId !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) {
-      throw new HttpsError('invalid-argument', 'weekId must be a YYYY-MM-DD string');
-    }
-    if (typeof uid !== 'string' || !uid.trim()) {
-      throw new HttpsError('invalid-argument', 'uid is required');
-    }
-
-    const cycleRef  = db.collection('leaderboardCycles').doc(weekId);
-    const cycleSnap = await cycleRef.get();
-    if (!cycleSnap.exists) {
-      throw new HttpsError('not-found', 'No leaderboard cycle for that week');
-    }
-
-    const cycleData = cycleSnap.data();
-    const ranked    = Array.isArray(cycleData.ranked) ? cycleData.ranked : [];
-    const idx       = ranked.findIndex((r) => r && r.uid === uid);
-    if (idx === -1) {
-      throw new HttpsError('not-found', 'That user is not in this cycle\'s ranked list');
-    }
-
-    const markPaid  = paid === true;
-    const method    = (typeof payoutMethod === 'string' && payoutMethod.trim())
-      ? payoutMethod.trim() : (ranked[idx].payoutMethod || null);
-    const reference = (typeof payoutReference === 'string' && payoutReference.trim())
-      ? payoutReference.trim() : (ranked[idx].payoutReference || null);
-
-    const updated = ranked.map((r, i) =>
-      i === idx
-        ? { ...r, paid: markPaid, payoutMethod: method, payoutReference: reference }
-        : r
-    );
-
-    const allPaid = updated.every((r) => r.paid === true);
-
-    await cycleRef.set({
-      ...cycleData,
-      ranked:  updated,
-      status:  allPaid ? 'paid' : (cycleData.status || 'calculated'),
-      paidAt:  allPaid ? FieldValue.serverTimestamp() : (cycleData.paidAt || null),
-    }, { merge: true });
-
-    console.log(`[markLeaderboardPayout] week=${weekId} uid=${uid} paid=${markPaid} by ${request.auth.uid}`);
-    return { success: true, weekId, uid, paid: markPaid, allPaid };
-  }
-);
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ─── SECTION 2: LEADERBOARD PAYOUT SYSTEM ──────────────────────────────────
-// Hybrid semi-automated payout:
-//   submitPayoutDetails  �?winner submits bank account (in-app)
-//   approveLeaderboardPayout �?Praise approves; CF fires Flutterwave transfer
-//   payoutWebhook  �?Flutterwave confirms transfer completion
-//   checkPendingClaim �?daily: expire 14-day claims, roll unclaimed over
-//   exportPayoutLog �?admin CSV audit export
+// MANUAL payout — the app never moves money.
+//
+//   submitPayoutDetails  → winner submits bank account in-app
+//   markLeaderboardPayout→ admin records that they transferred it by hand
+//   checkPendingClaim    → daily: expire 3-day claims, forfeit the unclaimed
+//   exportPayoutLog      → admin CSV audit export
+//   listPayoutClaims     → admin read-only queue feed
 //
 // Collections:
-//   users/{uid}/payoutDetails            : reusable bank details (winner CRUDs)
 //   leaderboardCycles/{weekId}/pendingClaim/{uid} : per-cycle claim state
-//   leaderboardCycles/{weekId}/payouts/{id}      : immutable per-transfer audit
-//   payoutLedger/{ref}                  : idempotency, ref = "{weekId}_{uid}"
+//   users/{uid}/payoutDetails                     : reusable bank details
 //
-// State machine (payoutLedger/{ref}):
-//   'reserved'  �?approval clicked; Flutterwave NOT yet called.
-//   'submitted' �?transfer() returned 200; Flutterwave queued the transfer.
-//   'completed' �?payoutWebhook confirmed transfer.completed.
-//   'failed'    �?transfer failed (winner stays unpaid).
+// The admin transfers from their OWN bank app, then taps "Mark as paid" here.
+// This function only records that fact — it is the single and only state
+// transition that can set ranked[].paid = true.
 //
 // MONEY-FLOW RULES (never violated):
-//   1. Flutterwave call ONLY after reservation tx has fully committed.
-//   2. ranked[].paid = true ONLY after verified completion webhook.
-//   3. A timed-out Flutterwave response is NOT blindly retried.
-//   4. Amount ALWAYS server-derived from ranked[].share �?never client-supplied.
-//   5. Amount is whole NGN (Flutterwave confirmed: amount field is Naira, not kobo).
+//   1. No automated payment integration exists. The app NEVER initiates a
+//      bank transfer. There is no payment-provider secret in this section.
+//   2. ranked[].paid = true ONLY via markLeaderboardPayout (admin-gated).
+//   3. Amount is ALWAYS server-derived from ranked[].share — never from the
+//      client. The client sends {weekId, uid} and nothing else.
+//   4. A claim must exist and must not be expired before it can be marked
+//      paid. You cannot pay out to a destination the winner never supplied.
+//   5. Double-taps are prevented by a transaction; mark as paid is idempotent
+//      so a retry after a network timeout is safe.
+//
+// OPERATIONAL CAVEAT: because the transfer is manual, "paid" is a claim about
+// what a human did, not a settlement confirmation. Marking paid is a
+// bookkeeping step, not a guarantee. That is the deliberate trade for
+// removing the automated transfer engine.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Shared: resolve Nigerian bank account via Flutterwave ──────────────────
-// Returns { success, resolvedName, resolvedNumber, reason }.
-// Used as an anti-fraud control: resolved name is fuzzy-matched against the
-// submitted beneficiaryName before the claim is accepted.
-async function _resolveBankAccount(accountNumber, bankCode) {
-  try {
-    const resp = await fetch(
-      'https://api.flutterwave.com/v3/accounts/resolve',
-      {
-        method:  'POST',
-        headers: {
-          'Authorization': `Bearer ${FLW_SECRET_KEY.value()}`,
-          'Content-Type':  'application/json',
-        },
-        body: JSON.stringify({ account_number: accountNumber, account_bank: bankCode }),
-      }
-    );
-    if (!resp.ok) {
-  const errorBody = await resp.text();
-  console.warn(
-    `[payout] account resolution failed: http_${resp.status} body=${errorBody}`
-  );
-  return { success: false, reason: `http_${resp.status}` };
-}
-    const data = await resp.json();
-    if (data.status !== 'success') return { success: false, reason: data.message };
-    return {
-      success:        true,
-      resolvedName:   (data.data?.account_name   || '').trim(),
-      resolvedNumber: (data.data?.account_number || '').trim(),
-    };
-  } catch (err) {
-    return { success: false, reason: err.message };
-  }
-}
-
-// ── Shared: fire a Flutterwave bank transfer (called AFTER reservation tx commits) ─
-// Returns { success, status, flwTransferId, flwReference, fee, isQueued }.
-// isQueued === true means Flutterwave queued the transfer (status=NEW); this is
-// NOT the final state. payoutWebhook is required to confirm final settlement.
-// amountNaira is in whole Naira (Flutterwave confirmed: NOT kobo).
-async function _fireFlutterwaveTransfer({
-  accountNumber, bankCode, beneficiaryName,
-  amountNaira,   reference, weekId, rank,
-}) {
-  try {
-    const resp = await fetch(
-      'https://api.flutterwave.com/v3/transfers',
-      {
-        method:  'POST',
-        headers: {
-          'Authorization': `Bearer ${FLW_SECRET_KEY.value()}`,
-          'Content-Type':  'application/json',
-        },
-        body: JSON.stringify({
-          account_bank:    bankCode,
-          account_number:  accountNumber,
-          amount:          amountNaira,        // whole NGN, NOT kobo
-          currency:        'NGN',
-          reference,                           // idempotency key = "{weekId}_{uid}"
-          narration:       `Leaderboard prize �?Week of ${weekId}, Rank ${rank}`,
-          beneficiary_name: beneficiaryName,
-        }),
-      }
-    );
-    const json = await resp.json();
-    return {
-      success:       resp.ok && json.status === 'success',
-      status:        json.status || 'error',
-      flwTransferId: json.data?.id        ? String(json.data.id)        : null,
-      flwReference:  json.data?.reference  ? String(json.data.reference) : reference,
-      fee:           json.data?.fee        ? Number(json.data.fee)       : null,
-      isQueued:      json.data?.status === 'NEW', // queued �?NOT final settlement
-      raw:           json,
-    };
-  } catch (err) {
-    return {
-      success: false, status: err.message,
-      flwTransferId: null, flwReference: reference, fee: null, isQueued: false, raw: null,
-    };
-  }
-}
-
-// ── Shared: mark winner paid + purge bank details from payoutDetails ──────────
-// Called by payoutWebhook ONLY after verified Flutterwave completion.
-// Does NOT contact Flutterwave �?all reads first, then writes.
-async function _flipWinnerPaid({ weekId, uid, payoutMethod, payoutReference }) {
-  const cycleRef  = db.collection('leaderboardCycles').doc(weekId);
-  const cycleSnap = await cycleRef.get();
-  if (!cycleSnap.exists) return;
-
-  const cycleData = cycleSnap.data();
-  const ranked    = Array.isArray(cycleData.ranked) ? cycleData.ranked : [];
-  const idx       = ranked.findIndex((r) => r && r.uid === uid);
-  if (idx === -1) return;
-
-  const updated = ranked.map((r, i) =>
-    i === idx
-      ? {
-          ...r,
-          paid:            true,
-          payoutMethod:    payoutMethod   || r.payoutMethod   || 'bank_transfer',
-          payoutReference: payoutReference || r.payoutReference || null,
-        }
-      : r
-  );
-  const allPaid = updated.every((r) => r.paid === true);
-
-  await cycleRef.set({
-    ...cycleData,
-    ranked:  updated,
-    status:  allPaid ? 'paid' : (cycleData.status || 'calculated'),
-    paidAt:  allPaid ? FieldValue.serverTimestamp() : (cycleData.paidAt || null),
-  }, { merge: true });
-
-  // Purge sensitive fields from the reusable payoutDetails doc.
-  const detailSnap = await db.collection('users').doc(uid)
-    .collection('payoutDetails').limit(1).get();
-  if (!detailSnap.empty) {
-    const dRef  = detailSnap.docs[0].ref;
-    const dData = detailSnap.docs[0].data();
-    await dRef.set({
-      payoutMethod:   payoutMethod || 'bank_transfer',
-      accountMask:    dData.accountNumber ? `****${dData.accountNumber.slice(-4)}` : null,
-      accountNumber:  FieldValue.delete(),
-      bankCode:        FieldValue.delete(),
-      bankName:        FieldValue.delete(),
-      beneficiaryName: FieldValue.delete(),
-      updatedAt:       FieldValue.serverTimestamp(),
-    });
-  }
-
-  console.log(`[_flipWinnerPaid] week=${weekId} uid=${uid} allPaid=${allPaid}`);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.0 listNigerianBanks �?verified bank-name �?bank-code list for winners
+// 2.0 listNigerianBanks — verified bank-name → bank-code list for winners
 // ─────────────────────────────────────────────────────────────────────────────
 // Authenticated callable. Proxies Flutterwave `GET /v3/banks/NG` server-side
 // using the existing FLW_SECRET_KEY (never exposed to the client) and returns
 // ONLY [{ name, code }] pairs for the Flutter bank-selector sheet.
 // ~24h in-memory cache (module-level, same instance); no database/cache
-// infra. Fails safely (HttpsError 'unavailable') when Flutterwave is down �?
+// infra. Fails safely (HttpsError 'unavailable') when Flutterwave is down →
 // the client shows error/retry and never falls back to hardcoded codes.
 const _banksCache = { at: 0, banks: [] };
 exports.listNigerianBanks = onCall(
@@ -6694,17 +6858,26 @@ exports.listNigerianBanks = onCall(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.1 submitPayoutDetails �?winner submits bank account for a cycle
+// 2.1 submitPayoutDetails — winner submits bank account for a cycle
 // ─────────────────────────────────────────────────────────────────────────────
+// The ONLY player-facing payout callable. Records the destination account the
+// admin will later transfer to by hand.
+//
+// No payment-provider call happens here: no account-name resolution, no
+// transfer. The bank list itself (2.0) is still served from Flutterwave so
+// bank codes are always valid, but nothing is looked up per-submission.
+//
+// Privacy: bank details are stored so the admin can pay the winner. They are
+// NOT purged after payment — the winner may need them again for a future
+// week, and they are never exposed to any other player.
 exports.submitPayoutDetails = onCall(
-  { region: 'us-central1', secrets: [FLW_SECRET_KEY] },
+  { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
 
-    // Gate BEFORE the cycle read and before the Flutterwave account-resolution
-    // call: an outdated client must not be able to spend a transfer-fee credit
-    // on an account it is not allowed to pay out to.
+    // Gate BEFORE the cycle read: an outdated client must not be able to
+    // overwrite a destination account the admin is about to pay.
     await _assertClientBuildAllowed(request, 'submitPayoutDetails');
 
     const { weekId, accountNumber, bankCode, beneficiaryName } = request.data || {};
@@ -6749,49 +6922,39 @@ exports.submitPayoutDetails = onCall(
 
     if (claimSnap.exists) {
       const existing = claimSnap.data();
-      if (existing.status === 'approved') {
-        throw new HttpsError('failed-precondition', 'Your payout has already been approved and cannot be changed');
+      if (existing.status === 'marked') {
+        throw new HttpsError('failed-precondition',
+          'Your payout has already been marked as sent and cannot be changed');
       }
       if (existing.status === 'pending') {
         return {
-          success:          true,
-          status:           'already_submitted',
-          resolvedNameMatch: existing.resolvedNameMatch ?? null,
-          message:          'Your payout details were already submitted and are awaiting approval.',
+          success: true,
+          status:  'already_submitted',
+          message: 'Your payout details were already submitted. An admin will send your prize to this account.',
         };
       }
-      // 'expired' �?allow re-submission below.
+      // 'expired' → allow re-submission below.
     }
 
-    // ── Anti-fraud: verify account name via Flutterwave ─────────────────────
-    const resolved = await _resolveBankAccount(cleanAccount, cleanBank);
-if (!resolved.success) {
-  console.warn(
-    `[submitPayoutDetails] account resolution failed: ${resolved.reason}`
-  );
-}
-const resolvedNameMatch = resolved.success
-      ? (resolved.resolvedName.toLowerCase().includes(cleanName.toLowerCase())
-         || cleanName.toLowerCase().includes(resolved.resolvedName.toLowerCase()))
-      : null;
-
     // ── Write pendingClaim (tx: prevents double-submit race) ────────────────
+    // Re-submitting REPLACES the destination account. Allowed while unpaid so
+    // a winner who mistyped their account number can correct it before the
+    // admin pays.
     await db.runTransaction(async (tx) => {
       const fresh = await tx.get(claimRef);
       if (fresh.exists) {
         const s = fresh.data();
-        if (s.status === 'approved') {
+        if (s.status === 'marked') {
           throw new HttpsError('failed-precondition',
-            'Your payout was approved while you were submitting. Cannot change it.');
+            'Your payout was marked as sent while you were submitting. Cannot change it.');
         }
-        if (s.status === 'pending') return; // race lost �?idempotent ok
+        if (s.status === 'pending') return; // race lost → idempotent ok
       }
       tx.set(claimRef, {
         uid,
         accountNumber:   cleanAccount,
         bankCode:       cleanBank,
         beneficiaryName: cleanName,
-        resolvedNameMatch,
         submittedAt:    FieldValue.serverTimestamp(),
         status:         'pending',
       });
@@ -6804,14 +6967,15 @@ const resolvedNameMatch = resolved.success
 
     if (!existingDetail.empty) {
       await existingDetail.docs[0].ref.update({
-        bankCode,
+        bankCode: cleanBank,
+        bankName: '',
         beneficiaryName: cleanName,
-        updatedAt:       FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
     } else {
       await db.collection('users').doc(uid).collection('payoutDetails').add({
         accountNumber:   cleanAccount,
-        bankCode,
+        bankCode:        cleanBank,
         bankName:        '',
         beneficiaryName: cleanName,
         updatedAt:       FieldValue.serverTimestamp(),
@@ -6819,430 +6983,178 @@ const resolvedNameMatch = resolved.success
       });
     }
 
-    console.log(`[submitPayoutDetails] uid=${uid} week=${weekId} account=****${cleanAccount.slice(-4)} bank=${cleanBank} resolvedMatch=${resolvedNameMatch}`);
+    console.log(`[submitPayoutDetails] uid=${uid} week=${weekId} account=****${cleanAccount.slice(-4)} bank=${cleanBank}`);
     return {
-      success:           true,
-      status:            'pending',
-      resolvedNameMatch,
-      message:           resolved.success
-        ? 'Payout details submitted. Your prize will be paid to this account pending admin approval.'
-        : 'Payout details submitted, but account verification failed. An admin will review before approving.',
+      success: true,
+      status:  'pending',
+      message: 'Payout details submitted. An admin will transfer your prize to this account.',
     };
   }
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.2 approveLeaderboardPayout �?Praise approves; CF fires Flutterwave transfer
+// 2.2 markLeaderboardPayout — admin records a manual bank transfer
 // ─────────────────────────────────────────────────────────────────────────────
-exports.approveLeaderboardPayout = onCall(
-  { region: 'us-central1', secrets: [FLW_SECRET_KEY] },
+// THE ONLY function that can set ranked[].paid = true.
+//
+// The admin has already sent the money from their own bank before calling this.
+// This is bookkeeping: it records what a human did. There is no payment
+// provider, no webhook, and no transfer to confirm — "paid" is an assertion,
+// not a settlement proof.
+//
+// Transactional so two concurrent taps cannot both apply. Idempotent when
+// re-applied with the same value, so a retry after a client-side timeout is
+// safe and will NOT create a second payout record.
+//
+// Undo: pass paid=false to reverse a mistaken mark. Supported as long as the
+// cycle has not been fully settled — see the allPaid recomputation below.
+exports.markLeaderboardPayout = onCall(
+  { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
       throw new HttpsError('permission-denied', 'Forbidden');
     }
 
-    const { weekId, uid } = request.data || {};
+    const { weekId, uid, paid, payoutReference } = request.data || {};
     if (typeof weekId !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(weekId)) {
-      throw new HttpsError('invalid-argument', 'weekId must be YYYY-MM-DD');
+      throw new HttpsError('invalid-argument', 'weekId must be a YYYY-MM-DD string');
     }
     if (typeof uid !== 'string' || !uid.trim()) {
       throw new HttpsError('invalid-argument', 'uid is required');
     }
-
-    // ── A. Read + validate (all reads happen OUTSIDE the reservation tx) ─────
-    const cycleRef  = db.collection('leaderboardCycles').doc(weekId);
-    const cycleSnap = await cycleRef.get();
-    if (!cycleSnap.exists) throw new HttpsError('not-found', 'No leaderboard cycle for that week');
-
-    const cycleData = cycleSnap.data();
-    if (cycleData.status === 'paid') {
-      throw new HttpsError('failed-precondition', 'This cycle has already been fully paid out');
+    if (paid !== true && paid !== false) {
+      throw new HttpsError('invalid-argument', 'paid must be a boolean');
     }
 
-    const ranked = Array.isArray(cycleData.ranked) ? cycleData.ranked : [];
-    const idx    = ranked.findIndex((r) => r && r.uid === uid);
-    if (idx === -1) throw new HttpsError('not-found', 'That user is not in this cycle\'s ranked list');
+    const markPaid  = paid === true;
+    const reference = (typeof payoutReference === 'string' && payoutReference.trim())
+      ? payoutReference.trim().slice(0, 120)
+      : null;
 
-    const winner = ranked[idx];
-    if (winner.paid === true) {
-      throw new HttpsError('failed-precondition', 'This winner has already been paid');
-    }
+    const cycleRef = db.collection('leaderboardCycles').doc(weekId);
+    const claimRef = cycleRef.collection('pendingClaim').doc(uid);
 
-    const share = Number(winner.share) || 0;
-    if (share <= 0) {
-      throw new HttpsError('failed-precondition', 'Prize share is zero or invalid');
-    }
-
-    const claimRef  = cycleRef.collection('pendingClaim').doc(uid);
-    const claimSnap = await claimRef.get();
-    if (!claimSnap.exists) {
-      throw new HttpsError('failed-precondition',
-        'This winner has not submitted payout details yet. Ask them to claim first.');
-    }
-    const claim = claimSnap.data();
-    if (claim.status === 'approved') {
-      throw new HttpsError('failed-precondition', 'Payout has already been approved for this winner');
-    }
-    if (claim.status === 'expired') {
-      throw new HttpsError('failed-precondition',
-        'This winner\'s claim has expired �?their prize has rolled over to the next week\'s pool.');
-    }
-
-    const LEDGER_REF = `${weekId}_${uid}`;
-
-    // ── B. Reservation transaction (Flutterwave NEVER called inside) ─────────
-    // All reads first, then atomic write of the ledger reservation. This makes
-    // concurrent approvals impossible: the first to write 'reserved' wins.
-    let reservationOk  = false;
-    let existingStatus = null;
-    const ledgerRef    = db.collection('payoutLedger').doc(LEDGER_REF);
-
+    let result;
     await db.runTransaction(async (tx) => {
-      const ledgerSnap = await tx.get(ledgerRef);
-      if (ledgerSnap.exists) {
-        existingStatus = ledgerSnap.data().status;
-        if (['submitted', 'completed'].includes(existingStatus)) {
-          return; // another approval already fired the transfer
-        }
-        // 'reserved' = prior run timed out with AMBIGUOUS outcome �?the transfer
-        // MAY exist at Flutterwave. Duplicate-reference behavior is NOT
-        // documented by Flutterwave, so a blind re-fire could double-pay.
-        // Re-approval requires the admin to pass allowRefire=true AFTER they
-        // have checked the Flutterwave dashboard (search reference=LEDGER_REF)
-        // and confirmed no transfer exists. Never automatic.
-        if (existingStatus === 'reserved' && request.data?.allowRefire !== true) {
-          throw new HttpsError('failed-precondition',
-            `This payout is 'reserved' from an earlier attempt with an unknown outcome. ` +
-            `Check the Flutterwave dashboard for reference "${LEDGER_REF}" first. ` +
-            `If NO transfer exists there, re-approve with { allowRefire: true }.`);
-        }
+      // All reads first, then writes.
+      const cycleSnap = await tx.get(cycleRef);
+      if (!cycleSnap.exists) {
+        throw new HttpsError('not-found', 'No leaderboard cycle for that week');
       }
-      tx.set(ledgerRef, {
-        ref:        LEDGER_REF,
-        weekId,
-        uid,
-        rank:       winner.rank,
-        amount:     share,
-        status:     'reserved',
-        reservedBy: request.auth.uid,
-        reservedAt: FieldValue.serverTimestamp(),
-      });
-      reservationOk = true;
-    });
-
-    if (!reservationOk) {
-      // Either already submitted/completed, or a concurrent approval won.
-      if (['submitted', 'completed'].includes(existingStatus)) {
-        return {
-          success: true, duplicate: true, status: existingStatus,
-          message: 'A transfer was already initiated for this winner.',
-        };
+      const cycleData = cycleSnap.data();
+      const ranked    = Array.isArray(cycleData.ranked) ? cycleData.ranked : [];
+      const idx       = ranked.findIndex((r) => r && r.uid === uid);
+      if (idx === -1) {
+        throw new HttpsError('not-found', 'That user is not in this cycle\'s ranked list');
       }
-      throw new HttpsError('already-exists',
-        'A payout approval is already in progress for this winner. Please retry shortly.');
-    }
+      const winner = ranked[idx];
+      const share  = Number(winner.share) || 0;
 
-    console.log(`[approveLeaderboardPayout] RESERVED ${LEDGER_REF} share=�?{share} by ${request.auth.uid}`);
+      const claimSnap = await tx.get(claimRef);
+      const claim     = claimSnap.exists ? claimSnap.data() : null;
 
-    // ── C. Fire Flutterwave transfer �?AFTER the reservation tx COMMITTED ────
-    const transfer = await _fireFlutterwaveTransfer({
-      accountNumber:  claim.accountNumber,
-      bankCode:       claim.bankCode,
-      beneficiaryName: claim.beneficiaryName,
-      amountNaira:    share,                 // whole NGN from ranked[].share �?never client-supplied
-      reference:      LEDGER_REF,            // idempotency key = "{weekId}_{uid}"
-      weekId,
-      rank:           winner.rank,
-    });
-
-    if (!transfer.success) {
-      // Ambiguous outcome (timeout / no HTTP response received): Flutterwave
-      // may STILL have accepted the transfer. Never mark failed, never retry
-      // blindly �?leave the ledger 'reserved' for manual reconciliation against
-      // the deterministic reference (a future payoutWebhook or a Flutterwave
-      // dashboard lookup settles it; Flutterwave also dedupes on `reference`).
-      if (transfer.raw === null) {
-        console.error(`[approveLeaderboardPayout] AMBIGUOUS ${LEDGER_REF} �?network error (${transfer.status}); transfer MAY exist at Flutterwave. Ledger left 'reserved' for reconciliation. NO retry.`);
-        return {
-          success: false,
-          status:  'reserved',
-          message: 'The transfer request timed out before a response arrived. Do NOT re-approve. Reconcile against Flutterwave using reference ' + LEDGER_REF + ' before any retry.',
-        };
+      // A destination account must exist before money is recorded as sent.
+      // This is what stops a payout being marked against a winner who never
+      // actually supplied somewhere to send it.
+      if (markPaid && !claim) {
+        throw new HttpsError('failed-precondition',
+          'This winner has not submitted payout details yet. Ask them to claim first.');
       }
-      // Definitive rejection (HTTP response received). Winner stays unpaid.
-      await ledgerRef.update({ status: 'failed', failedAt: FieldValue.serverTimestamp() });
-      await cycleRef.collection('payouts').add({
-        weekId, uid, rank: winner.rank, amount: share, currency: 'NGN',
-        payoutMethod: 'bank_transfer',
-        status:       'failed',
-        flutterwaveReference: LEDGER_REF,
-        flutterwaveTransferId: transfer.flwTransferId,
-        fee:          transfer.fee,
-        approvedBy:   request.auth.uid,
-        approvedAt:   FieldValue.serverTimestamp(),
-        failedReason: transfer.status,
-        createdAt:    FieldValue.serverTimestamp(),
-      });
-      console.error(`[approveLeaderboardPayout] FAILED ${LEDGER_REF} status=${transfer.status} �?winner stays unpaid`);
-      return {
-        success: false,
-        message: 'Flutterwave rejected the transfer. The winner remains unpaid. See the payout log.',
-      };
-    }
+      if (markPaid && claim?.status === 'expired') {
+        throw new HttpsError('failed-precondition',
+          'This winner\'s claim expired and their prize was forfeited. '
+          + 'Expired claims are not paid and are not carried into a later week.');
+      }
+      if (markPaid && (!Number.isFinite(share) || share <= 0)) {
+        throw new HttpsError('failed-precondition', 'Prize share is zero or invalid');
+      }
 
-    // ── D. Persist transfer initiation result. Do NOT mark winner paid. ──────
-    await ledgerRef.update({
-      status: 'submitted',
-      flutterwaveTransferId: transfer.flwTransferId,
-      fee:    transfer.fee,
-      submittedAt: FieldValue.serverTimestamp(),
-    });
-    await cycleRef.collection('payouts').add({
-      weekId, uid, rank: winner.rank, amount: share, currency: 'NGN',
-      payoutMethod: 'bank_transfer',
-      status:       'submitted',           // awaiting completion confirmation
-      flutterwaveReference: LEDGER_REF,
-      flutterwaveTransferId: transfer.flwTransferId,
-      fee:          transfer.fee,
-      approvedBy:   request.auth.uid,
-      approvedAt:   FieldValue.serverTimestamp(),
-      createdAt:    FieldValue.serverTimestamp(),
-    });
-    // Lock the claim so the destination can no longer be changed.
-    await claimRef.update({ status: 'approved' });
-
-    console.log(`[approveLeaderboardPayout] SUBMITTED ${LEDGER_REF} flwId=${transfer.flwTransferId} queued=${transfer.isQueued} �?awaiting completion webhook`);
-    return {
-      success:   true,
-      status:    'submitted',
-      amount:    share,
-      flwTransferId: transfer.flwTransferId,
-      message:   'Transfer submitted. Winner will be marked paid once Flutterwave confirms completion.',
-    };
-  }
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2.3 payoutWebhook �?Flutterwave transfer status callback (authoritative)
-// ─────────────────────────────────────────────────────────────────────────────
-// Signature-verified with the SAME mechanism as flutterwaveWebhook (v3
-// verif-hash + v4 HMAC-SHA256). Transfer webhooks carry event.type
-// 'transfer.completed' / 'transfer.failed' and the transfer's `reference`
-// field �?which is our deterministic "{weekId}_{uid}" ledger key.
-//
-// THIS IS THE AUTHORITATIVE POINT FOR `ranked[].paid = true`. Transfer
-// initiation (approveLeaderboardPayout) is asynchronous (NEW/queued) and
-// never treated as proof of payment. Idempotent: a duplicate delivery only
-// ever transitions an already-completed payout to completed again (no-op).
-exports.payoutWebhook = onRequest(
-  { region: 'us-central1', timeoutSeconds: 60, secrets: [FLW_SECRET_KEY, FLW_SECRET_HASH] },
-  async (req, res) => {
-    if (req.method === 'OPTIONS') return _sendOptions(res, req);
-
-    const respond = (status, body) => {
-      console.log(`[payoutWebhook] RESPOND status=${status} body=${JSON.stringify(body)}`);
-      return _sendJson(res, status, body, req);
-    };
-
-    // ── 1. Signature verification (v3 + v4, same pattern as flutterwaveWebhook) ──
-    const rawBody = req.rawBody || Buffer.from(JSON.stringify(req.body || {}), 'utf8');
-    const secretHash = FLW_SECRET_HASH.value();
-
-    const v4Header = req.headers['flutterwave-signature'];
-    const v4Ok = v4Header != null
-      && _constantTimeEq(
-        createHmac('sha256', secretHash).update(rawBody).digest('base64'),
-        v4Header
+      const now = FieldValue.serverTimestamp();
+      const updated = ranked.map((r, i) =>
+        i === idx
+          ? {
+              ...r,
+              paid:            markPaid,
+              payoutMethod:    markPaid ? 'manual_bank_transfer' : null,
+              payoutReference: markPaid ? (reference || r.payoutReference || null) : null,
+            }
+          : r
       );
-    const v3Header = req.headers['verif-hash'];
-    const v3Ok = v3Header != null && _constantTimeEq(v3Header, secretHash);
+      const allPaid = updated.length > 0 && updated.every((r) => r.paid === true);
 
-    if (!v4Ok && !v3Ok) {
-      console.warn(`[payoutWebhook] Invalid signature �?rejected (v4Ok=${!!v4Ok} v3Ok=${v3Ok})`);
-      return respond(401, { error: 'Invalid signature' });
-    }
+      tx.set(cycleRef, {
+        ...cycleData,
+        ranked:  updated,
+        status:  allPaid ? 'paid' : (cycleData.status === 'paid' ? 'calculated' : (cycleData.status || 'calculated')),
+        paidAt:  allPaid ? now : null,
+      }, { merge: true });
 
-    try {
-      // v3 flat payloads put fields at top level; v4 wraps in `data`.
-      const body = req.body || {};
-      const data = body.data || {};
-      const pick = (k) => (k in body && body[k] !== null) ? body[k] : data[k];
-
-      const eventType = body['event.type'] || body.type || body.event
-                     || data['event.type'] || data.type || data.event;
-      const status     = String(pick('status') || '').toLowerCase();
-      const reference  = String(pick('reference') || '');
-      const flwId      = pick('id') != null ? String(pick('id')) : null;
-      const fee        = pick('fee') != null ? Number(pick('fee')) : null;
-
-      console.log(`[payoutWebhook] entry eventType=${JSON.stringify(eventType)} status=${JSON.stringify(status)} reference=${JSON.stringify(reference)} flwId=${JSON.stringify(String(pick('id') ?? ''))}`);
-
-      // Transfer events only �?this endpoint must never touch charge events.
-      const isTransfer = String(eventType).toLowerCase().includes('transfer');
-      if (!isTransfer) {
-        return respond(200, { ok: true, ignored: eventType });
-      }
-      if (!reference || !/^\d{4}-\d{2}-\d{2}_.+$/.test(reference)) {
-        console.warn(`[payoutWebhook] unrecognized transfer reference=${JSON.stringify(reference)}`);
-        return respond(200, { ok: true, ignored: 'no known reference' });
+      if (claim) {
+        tx.set(claimRef, {
+          ...claim,
+          status:           markPaid ? 'marked' : 'pending',
+          markedAt:         markPaid ? now : null,
+          markedBy:         markPaid ? request.auth.uid : null,
+          payoutReference:  markPaid ? (reference || claim.payoutReference || null) : null,
+          paidAmountNaira:  markPaid ? share : null,
+          updatedAt:        now,
+        }, { merge: true });
       }
 
-      const ledgerRef = db.collection('payoutLedger').doc(reference);
-      const ledgerSnap = await ledgerRef.get();
-      if (!ledgerSnap.exists) {
-        console.warn(`[payoutWebhook] no ledger entry for reference=${JSON.stringify(reference)}`);
-        return respond(200, { ok: true, ignored: 'unknown reference' });
-      }
-      const ledger = ledgerSnap.data();
-      const { weekId, uid } = ledger;
+      result = { share, allPaid, alreadyApplied: winner.paid === markPaid };
+    });
 
-      // ── Completion ───────────────────────────────────────────────────────
-      // 'successful' (v3) | 'completed' �?verified final settlement states.
-      if (status === 'successful' || status === 'completed') {
-        if (ledger.status === 'completed') {
-          // Idempotent: completion already processed �?ack, no state change.
-          console.log(`[payoutWebhook] duplicate completed delivery ref=${reference} �?no-op`);
-          return respond(200, { ok: true, duplicate: true });
-        }
-        if (!['submitted', 'reserved', 'failed'].includes(ledger.status)) {
-          console.warn(`[payoutWebhook] unexpected ledger state '${ledger.status}' for ref=${reference}`);
-        }
+    // Never log account numbers — masked only, and only at debug level.
+    console.log(`[markLeaderboardPayout] week=${weekId} uid=${uid} paid=${markPaid} ` +
+      `share=${result.share} allPaid=${result.allPaid} alreadyApplied=${result.alreadyApplied} ` +
+      `by ${request.auth.uid}`);
 
-        // Amount integrity guard (docs best practice: verify webhook data before
-        // giving value). The signed webhook amount MUST match the server-recorded
-        // ledger amount (whole NGN, both derived from ranked[].share). On mismatch
-        // DO NOT mark paid �?record an amount-mismatch failure for admin
-        // investigation and ack 200 (idempotency + signature checks unchanged).
-        const webhookAmount = pick('amount') != null ? Number(pick('amount')) : null;
-        const ledgerAmount  = Number(ledger.amount);
-        if (webhookAmount === null || Number.isNaN(webhookAmount) || webhookAmount !== ledgerAmount) {
-          console.error(`[payoutWebhook] AMOUNT-MISMATCH ref=${reference} webhook=${JSON.stringify(pick('amount'))} ledger=${ledger.amount} �?winner NOT marked paid; admin investigation required`);
-          if (ledger.status !== 'failed') {
-            await ledgerRef.update({
-              status:       'failed',
-              failedReason: `amount_mismatch: webhook=${webhookAmount} ledger=${ledgerAmount}`,
-              failedAt:     FieldValue.serverTimestamp(),
-            });
-          }
-          const mismatchSnap = await db.collection('leaderboardCycles').doc(weekId)
-            .collection('payouts')
-            .where('flutterwaveReference', '==', reference)
-            .orderBy('createdAt', 'desc').limit(1).get();
-          if (!mismatchSnap.empty && mismatchSnap.docs[0].data().status !== 'failed') {
-            await mismatchSnap.docs[0].ref.update({
-              status:       'failed',
-              failedReason: `amount_mismatch: webhook=${webhookAmount} ledger=${ledgerAmount}`,
-              failedAt:     FieldValue.serverTimestamp(),
-            });
-          }
-          for (const adminUid of ADMIN_UIDS) {
-            await sendToUser(adminUid, {
-              title: '⚠️ Payout amount mismatch',
-              body:  `Webhook for ${reference} reported �?{webhookAmount} but ledger recorded �?{ledgerAmount}. Winner NOT marked paid �?investigate before manual action.`,
-            });
-          }
-          return respond(200, { ok: true, amountMismatch: true });
-        }
-
-        await ledgerRef.update({
-          status: 'completed',
-          flutterwaveTransferId: String(pick('id') ?? ledger.flutterwaveTransferId ?? null),
-          fee:    fee ?? ledger.fee ?? null,
-          completedAt: FieldValue.serverTimestamp(),
-        });
-
-        const payoutSnap = await db.collection('leaderboardCycles').doc(weekId)
-          .collection('payouts')
-          .where('flutterwaveReference', '==', reference)
-          .orderBy('createdAt', 'desc').limit(1).get();
-        if (!payoutSnap.empty) {
-          await payoutSnap.docs[0].ref.update({
-            status: 'completed',
-            fee:    fee ?? null,
-            completedAt: FieldValue.serverTimestamp(),
-          });
-        }
-
-        // Authoritative paid-flip + sensitive-detail purge.
-        await _flipWinnerPaid({
-          weekId, uid,
-          payoutMethod:    'bank_transfer',
-          payoutReference: String(pick('id') ?? reference),
-        });
-
-        const amt = Number(ledger.amount) || 0;
-        await sendToUser(uid, {
-          title: '💰 Prize paid!',
-          body:  `Your �?{amt.toLocaleString()} leaderboard prize has been sent to your bank account.`,
-        });
-
-        console.log(`[payoutWebhook] COMPLETED ref=${reference} flwId=${pick('id')} �?winner marked paid`);
-        return respond(200, { ok: true, completed: true });
-      }
-
-      // ── Failure ──────────────────────────────────────────────────────────
-      if (['failed', 'error', 'cancelled', 'reversed'].includes(status)) {
-        if (ledger.status === 'failed' || ledger.status === 'completed') {
-          return respond(200, { ok: true, duplicate: true });
-        }
-        await ledgerRef.update({
-          status: 'failed',
-          failedReason: String(pick('complete_message') || status),
-          failedAt: FieldValue.serverTimestamp(),
-        });
-        const payoutSnap = await db.collection('leaderboardCycles').doc(weekId)
-          .collection('payouts')
-          .where('flutterwaveReference', '==', reference)
-          .orderBy('createdAt', 'desc').limit(1).get();
-        if (!payoutSnap.empty) {
-          await payoutSnap.docs[0].ref.update({
-            status: 'failed',
-            failedReason: String(pick('complete_message') || status),
-            failedAt: FieldValue.serverTimestamp(),
-          });
-        }
-        // Winner stays unpaid. Notify admin for investigation.
-        for (const adminUid of ADMIN_UIDS) {
-          await sendToUser(adminUid, {
-            title: '⚠️ Payout failed',
-            body:  `Transfer ${reference} (�?{ledger.amount}) failed: ${String(pick('complete_message') || status)}. Winner stays unpaid �?reconcile manually.`,
-          });
-        }
-        console.error(`[payoutWebhook] FAILED ref=${reference} reason=${JSON.stringify(pick('complete_message') || status)} �?winner stays unpaid`);
-        return respond(200, { ok: true, failed: true });
-      }
-
-      // 'new'/'processing'/etc �?intermediate state; wait for a final event.
-      return respond(200, { ok: true, ignored: status });
-    } catch (err) {
-      console.error('[payoutWebhook] ERROR:', err);
-      return respond(500, { error: 'Internal error' });
-    }
+    return {
+      success:    true,
+      weekId,
+      uid,
+      paid:       markPaid,
+      amount:     result.share,
+      allPaid:    result.allPaid,
+      unchanged:  result.alreadyApplied,
+      message: markPaid
+        ? (result.allPaid
+            ? 'Recorded as sent. Every winner in this week is now marked paid.'
+            : 'Recorded as sent.')
+        : 'Mark reverted. This winner is back in the payment queue.',
+    };
   }
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.4 checkPendingClaim �?daily 14-day claim expiry + rollover
+// 2.3 checkPendingClaim — daily 3-day claim expiry (NO rollover)
 // ─────────────────────────────────────────────────────────────────────────────
-// Runs daily. For each leaderboardCycles/{weekId} whose calculatedAt is �?4
-// days old and whose status is still 'calculated' (not 'paid'), any winner
-// whose pendingClaim is still 'pending' (never approved/paid) is expired and
-// their ranked[].share rolls into the CURRENT active week's prize-pool
-// accumulator (prize_pool/{currentWeekId()}.rolloverNaira).
+// Runs daily. For each leaderboardCycles/{weekId} whose calculatedAt is 3 days
+// old and whose status is still 'calculated' (not 'paid'), any winner whose
+// pendingClaim is still 'pending' (never marked as sent) is expired.
 //
-// Why the pool accumulator (evidence-based): runWeeklyReset computes the
-// leaderboard pool as entryRevenue*0.70 from prize_pool/{weekId}.entryCodeRevenue
-// (index.js runWeeklyReset). To include rollover WITHOUT double-applying the
-// 70% split (the share is already the net-of-house portion), the rollover is
-// carried as a separate `rolloverNaira` accumulator on the pool doc and added
-// to prizePool at the next close. runWeeklyReset reads it additively �?no
-// existing snapshot math is rewritten, and already-finalized cycles are never
-// touched. Idempotent: the claim flips 'pending'�?expired' inside the same
-// transaction that increments the accumulator, so a re-run cannot roll twice.
+// WHAT HAPPENS TO THE MONEY: nothing is paid and nothing is carried forward.
+// The share is FORFEITED — it stays inside that week already-snapshotted
+// prizePool and is never transferred to anyone. It is recorded on the cycle as
+// `forfeitedNaira` so the books still reconcile: every naira in the pool is
+// accounted for as either paid out or forfeited.
+//
+// There is deliberately NO rollover into a future week's pool. A previous
+// version carried expired shares forward via prize_pool.rolloverNaira, which
+// had two problems: it credited the money to whichever week happened to be live
+// rather than the week it was taken from, and it grew the pool without any
+// corresponding revenue. The accumulator is no longer read or written.
+//
+// The 3-day window is deliberately short: payouts are manual, so holding a
+// winner's prize hostage for two weeks while an admin catches up is unfair to
+// the rest of the pool. A player who misses it forfeits that week's share.
+//
+// Idempotent: a claim is only flipped while it is still 'pending' AND the
+// winner is still unpaid, both re-checked inside the transaction.
 exports.checkPendingClaim = onSchedule(
   { schedule: '0 9 * * *', timeZone: 'Africa/Lagos', region: 'us-central1' },
   async () => {
-    const CLAIM_WINDOW_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+    const CLAIM_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
     const cutoff = Timestamp.now().toMillis() - CLAIM_WINDOW_MS;
 
     const cyclesSnap = await db.collection('leaderboardCycles')
@@ -7250,11 +7162,11 @@ exports.checkPendingClaim = onSchedule(
       .get();
 
     let expiredCount = 0;
-    let rolledTotal  = 0;
+    let forfeitedTotal = 0;
 
     for (const cycleDoc of cyclesSnap.docs) {
-      const weekId  = cycleDoc.id;
-      const cycle   = cycleDoc.data();
+      const weekId = cycleDoc.id;
+      const cycle  = cycleDoc.data();
       if (cycle.status === 'paid') continue;
 
       const calculatedAt = cycle.calculatedAt;
@@ -7266,12 +7178,7 @@ exports.checkPendingClaim = onSchedule(
       const expirable = ranked.filter((r) => r && r.paid !== true && (Number(r.share) || 0) > 0);
       if (expirable.length === 0) continue;
 
-      // Rollover target = CURRENT active week's pool doc. Its accumulator is
-      // consumed by runWeeklyReset at that week's close.
-      const poolRef = db.collection('prize_pool').doc(currentWeekId());
-
-      let cycleExpired = 0;
-      let cycleRolled  = 0;
+      let cycleForfeited = 0;
 
       for (const winner of expirable) {
         const uid   = winner.uid;
@@ -7279,8 +7186,9 @@ exports.checkPendingClaim = onSchedule(
         const claimRef = cycleDoc.ref.collection('pendingClaim').doc(uid);
 
         // Read-before-write tx: re-read claim + live cycle; only expire if the
-        // claim is still 'pending' AND the winner is still unpaid. Claim flip
-        // and pool increment happen in the SAME tx �?no double rollover.
+        // claim is still 'pending' AND the winner is still unpaid. Both checks
+        // happen inside the tx so a concurrent mark-paid cannot be clobbered
+        // and a re-run cannot double-count the forfeiture.
         try {
           await db.runTransaction(async (tx) => {
             const freshClaim = await tx.get(claimRef);
@@ -7288,45 +7196,51 @@ exports.checkPendingClaim = onSchedule(
 
             // Re-check paid state inside the tx against the live cycle doc.
             const freshCycle = await tx.get(cycleDoc.ref);
-            const liveRanked = Array.isArray(freshCycle.data()?.ranked)
-              ? freshCycle.data().ranked : [];
+            const liveData   = freshCycle.data() || {};
+            const liveRanked = Array.isArray(liveData.ranked) ? liveData.ranked : [];
             const liveWinner = liveRanked.find((r) => r && r.uid === uid);
             if (!liveWinner || liveWinner.paid === true) return;
 
             tx.update(claimRef, {
               status:    'expired',
               expiredAt: FieldValue.serverTimestamp(),
+              forfeitedNaira: share,
             });
-            tx.set(poolRef, {
-              weekId:        currentWeekId(),
-              rolloverNaira: FieldValue.increment(share),
-            }, { merge: true });
+
+            // Accounting only — no pool is incremented and nothing is carried
+            // forward. This keeps prizePool reconcilable:
+            //   sum(paid shares) + forfeitedNaira === prizePool
+            tx.update(cycleDoc.ref, {
+              forfeitedNaira: FieldValue.increment(share),
+            });
           });
           expiredCount++;
-          cycleExpired++;
-          rolledTotal += share;
-          console.log(`[checkPendingClaim] EXPIRED week=${weekId} uid=${uid} share=�?{share} �?rolled to ${currentWeekId()}`);
+          cycleForfeited += share;
+          forfeitedTotal += share;
+          console.log(`[checkPendingClaim] EXPIRED week=${weekId} uid=${uid} share=${share} forfeited (not rolled over)`);
         } catch (err) {
-          console.warn(`[checkPendingClaim] roll ${weekId}/${uid} failed (will retry next run): ${err.message}`);
+          console.warn(`[checkPendingClaim] expire ${weekId}/${uid} failed (will retry next run): ${err.message}`);
         }
       }
 
-      if (cycleExpired > 0) {
-        console.log(`[checkPendingClaim] cycle ${weekId}: expired ${cycleExpired}, rolled �?{cycleRolled}`);
+      if (cycleForfeited > 0) {
+        console.log(`[checkPendingClaim] cycle ${weekId}: expired ${cycleForfeited} naira forfeited`);
       }
     }
 
-    console.log(`[checkPendingClaim] done. expired=${expiredCount} rolled=�?{rolledTotal}`);
+    console.log(`[checkPendingClaim] done. expired=${expiredCount} forfeited=${forfeitedTotal}`);
   }
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.5 exportPayoutLog �?admin CSV payout audit export
+// 2.4 exportPayoutLog — admin CSV payout audit export
 // ─────────────────────────────────────────────────────────────────────────────
-// Admin-only. Returns the payout audit trail as CSV text in the callable
-// response (no Cloud Storage infra exists in this project; result sets are
-// tiny at pre-launch scale, so inline CSV is the smallest secure approach).
-// NEVER includes bank account numbers �?only the audit fields.
+// Admin-only. Returns the payout record as CSV text in the callable response
+// (no Cloud Storage infra exists in this project; result sets are tiny at
+// pre-launch scale, so inline CSV is the smallest approach).
+//
+// NEVER includes bank account numbers or beneficiary names — bookkeeping only.
+// Account numbers stay inside the app's admin queue and are never bulk-exported.
 exports.exportPayoutLog = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -7348,34 +7262,44 @@ exports.exportPayoutLog = onCall(
     };
     const fmtTs = (ts) => (ts?.toMillis ? ts.toDate().toISOString() : '');
 
-    const HEADER = 'weekId,uid,rank,amount,currency,payoutMethod,flutterwaveTransferId,flutterwaveReference,fee,status,approvedBy,approvedAt,createdAt,completedAt,failedReason';
+    const HEADER = 'weekId,uid,username,rank,amount,currency,claimStatus,submittedAt,markedAt,markedBy,payoutReference,paid';
     const rows   = [HEADER];
     let rowCount = 0;
 
     const cyclesSnap = await query.get();
     for (const cycleDoc of cyclesSnap.docs) {
       const weekId = cycleDoc.id;
-      const payoutSnap = await cycleDoc.ref.collection('payouts')
-        .orderBy('createdAt', 'asc').get();
-      for (const p of payoutSnap.docs) {
-        const d = p.data();
-        // Bookkeeping fields only �?never account numbers or beneficiary names.
+      const cycle   = cycleDoc.data() || {};
+      const ranked  = Array.isArray(cycle.ranked) ? cycle.ranked : [];
+
+      for (const winner of ranked) {
+        if (!winner || !winner.uid) continue;
+
+        // One claim doc per winner. Absent doc = never submitted.
+        let claim = null;
+        try {
+          const snap = await cycleDoc.ref.collection('pendingClaim').doc(winner.uid).get();
+          if (snap.exists) claim = snap.data() || null;
+        } catch (err) {
+          console.warn(`[exportPayoutLog] claim read failed for ${weekId}/${winner.uid} (skipped): ${err.message}`);
+          continue;
+        }
+
+        const paid = winner.paid === true;
+        // Bookkeeping fields only — never account numbers or beneficiary names.
         const row = [
           weekId,
-          d.uid,
-          d.rank,
-          d.amount,
-          d.currency,
-          d.payoutMethod,
-          d.flutterwaveTransferId,
-          d.flutterwaveReference,
-          d.fee,
-          d.status,
-          d.approvedBy,
-          fmtTs(d.approvedAt),
-          fmtTs(d.createdAt),
-          fmtTs(d.completedAt),
-          d.failedReason || '',
+          winner.uid,
+          winner.username || '',
+          winner.rank ?? '',
+          Number(winner.share) || 0,
+          'NGN',
+          claim ? (claim.status || '') : 'not_submitted',
+          fmtTs(claim?.submittedAt),
+          fmtTs(claim?.markedAt),
+          paid ? (claim?.markedBy || '') : '',
+          paid ? (winner.payoutReference || claim?.payoutReference || '') : '',
+          paid,
         ].map(csvEscape).join(',');
         rows.push(row);
         rowCount++;
@@ -7388,25 +7312,25 @@ exports.exportPayoutLog = onCall(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.6 listPayoutClaims �?admin read-only payout queue (ADMIN UI SUPPORT)
+// 2.5 listPayoutClaims — admin read-only payout queue (ADMIN UI SUPPORT)
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin-only READ-ONLY helper for the Admin Payout Dashboard Flutter client.
 //
-// WHY THIS EXISTS (read-only data-access audit): firestore.rules intentionally
-// deny ALL client reads of leaderboardCycles/{weekId}/pendingClaim/*
-// (owner-only), leaderboardCycles/{weekId}/payouts/* (deny-all) and
-// payoutLedger/* (deny-all). The dashboard therefore cannot assemble the
-// review queue from direct Firestore reads without weakening those rules �?
-// which is forbidden. This callable exposes the same data the admin SDK
-// already sees, masked server-side, through the existing ADMIN_UIDS gate.
+// WHY THIS EXISTS (read-only data-access audit): firestore.rules deny ALL
+// client writes to pendingClaim/* and only let a winner read their own. The
+// dashboard therefore cannot assemble the review queue from direct Firestore
+// reads without weakening those rules — which is forbidden. This callable
+// exposes what the admin SDK already sees through the ADMIN_UIDS gate.
 //
-// SAFETY PROPERTIES (payout engine untouched):
-//   - READ-ONLY: zero Firestore writes, zero Flutterwave calls, zero secrets.
-//   - NEVER returns full bank account numbers �?only '****last4' masked values
-//     computed server-side. bankCode/beneficiaryName are returned because the
-//     admin must verify the destination before approving a real transfer.
-//   - Does NOT approve, reserve, transfer, mark paid, export, or expire
-//     anything. approveLeaderboardPayout remains the ONLY money-movement path.
+// SAFETY PROPERTIES:
+//   - READ-ONLY: zero Firestore writes, zero payment-provider calls, zero
+//     secrets. It cannot mark anything paid.
+//   - Returns the FULL account number. Payouts are manual, so the admin must
+//     be able to read the destination and type it into their banking app.
+//     This widens exposure versus a masked feed, so the ADMIN_UIDS gate and
+//     the deny-all client rules are what stand behind it. Access is limited to
+//     the single hardcoded admin account.
+//   - markLeaderboardPayout remains the ONLY state transition available here.
 // ─────────────────────────────────────────────────────────────────────────────
 exports.listPayoutClaims = onCall(
   { region: 'us-central1' },
@@ -7423,11 +7347,6 @@ exports.listPayoutClaims = onCall(
     if (!Number.isInteger(limit) || limit < 1 || limit > 12) limit = 8;
 
     const fmtTs = (ts) => (ts?.toMillis ? ts.toDate().toISOString() : null);
-    const maskAccount = (acct) => {
-      const digits = String(acct || '').replace(/\D/g, '');
-      if (digits.length < 4) return null;
-      return `****${digits.slice(-4)}`;
-    };
 
     let cycleDocs;
     if (validWeek(weekId)) {
@@ -7445,29 +7364,16 @@ exports.listPayoutClaims = onCall(
       const id = cycleDoc.id;
       const ranked = Array.isArray(c.ranked) ? c.ranked : [];
 
-      // All payouts for this cycle (tiny: one row per transfer attempt).
-      // Fetched once per cycle and matched in-memory �?no composite index.
-      let payoutsByUid = {};
-      try {
-        const payoutSnap = await cycleDoc.ref.collection('payouts')
-          .orderBy('createdAt', 'asc').get();
-        for (const p of payoutSnap.docs) {
-          const d = p.data() || {};
-          if (d.uid) payoutsByUid[d.uid] = d; // asc �?last write wins
-        }
-      } catch (err) {
-        console.warn(`[listPayoutClaims] payouts read failed for ${id} (ignored): ${err.message}`);
-      }
-
       const claims = [];
       let claimsSubmitted = 0;
-      let claimsApproved = 0;
-      let paidCount = 0;
+      let claimsMarked     = 0;
+      let paidCount         = 0;
 
-      // ── Phase 3 fraud advisory (additive, read-only) ───────────────────
+      // ── Fraud advisory (additive, read-only) ───────────────────────────
       // Stored fraudReviews/{weekId}_{uid} docs from scoreFraudForWeek, read
-      // in one batch. Missing doc �?nulls ("not scored yet"). Never blocks
-      // or influences claim/ledger/transfer state �?display only.
+      // in one batch. Missing doc → nulls ("not scored yet"). Never blocks or
+      // influences any state — display only, useful as a signal before sending
+      // money by hand.
       let fraudByUid = {};
       try {
         const fraudRefs = ranked
@@ -7499,29 +7405,18 @@ exports.listPayoutClaims = onCall(
 
         const claimStatus = claim ? (claim.status || null) : null;
         if (claimStatus === 'pending') claimsSubmitted++;
-        if (claimStatus === 'approved') claimsApproved++;
+        if (claimStatus === 'marked') claimsMarked++;
 
-        // Ledger state surfaces the 'reserved' (ambiguous-timeout) case that
-        // has no payouts row yet �?the admin needs it for reconciliation.
-        let ledgerStatus = null;
-        try {
-          const ledgerSnap = await db.collection('payoutLedger').doc(`${id}_${uid}`).get();
-          if (ledgerSnap.exists) ledgerStatus = ledgerSnap.data()?.status || null;
-        } catch (err) {
-          console.warn(`[listPayoutClaims] ledger read failed for ${id}_${uid} (ignored): ${err.message}`);
-        }
-
-        const payout = payoutsByUid[uid] || null;
         const fraud = fraudByUid[uid] || null;
 
         claims.push({
           uid,
-          rank:     r.rank ?? null,
-          username: r.username || 'Anonymous',
-          share:    Number(r.share) || 0,
+          rank:        r.rank ?? null,
+          username:    r.username || 'Anonymous',
+          share:       Number(r.share) || 0,
           paid,
-          // Phase 3 fraud advisory �?null when scoreFraudForWeek has not run
-          // for this week yet. Advisory only; the approve path ignores it.
+          // Fraud advisory — null when scoreFraudForWeek has not run for this
+          // week yet. Advisory only; marking paid ignores it.
           fraudScore:   fraud && Number.isFinite(Number(fraud.score)) ? Number(fraud.score) : null,
           fraudBand:    fraud ? (fraud.band || null) : null,
           fraudReasons: fraud && Array.isArray(fraud.reasons) ? fraud.reasons : [],
@@ -7529,25 +7424,14 @@ exports.listPayoutClaims = onCall(
           // Claim state (null when the winner never submitted).
           claimStatus,
           bankCode:        claim ? (claim.bankCode || null) : null,
-          maskedAccount:   claim ? maskAccount(claim.accountNumber) : null,
+          // FULL account number: the admin needs it to send the money.
+          accountNumber:   claim ? (claim.accountNumber || null) : null,
           beneficiaryName: claim ? (claim.beneficiaryName || null) : null,
-          // NOTE: submitPayoutDetails persists only the match boolean, not the
-          // Flutterwave-resolved name itself �?there is no resolved name to
-          // return here. true=MATCH, false=REVIEW REQUIRED, null=UNAVAILABLE.
-          resolvedNameMatch: claim
-            ? (typeof claim.resolvedNameMatch === 'boolean' ? claim.resolvedNameMatch : null)
-            : null,
-          submittedAt: claim ? fmtTs(claim.submittedAt) : null,
-          // Transfer state (authoritative for Paid display = paid above).
-          ledgerStatus,
-          payoutStatus:          payout ? (payout.status || null) : null,
-          flutterwaveReference:  payout ? (payout.flutterwaveReference || `${id}_${uid}`) : `${id}_${uid}`,
-          flutterwaveTransferId: payout ? (payout.flutterwaveTransferId || null) : null,
-          fee:                   payout && payout.fee != null ? Number(payout.fee) : null,
-          approvedBy:            payout ? (payout.approvedBy || null) : null,
-          approvedAt:            payout ? fmtTs(payout.approvedAt) : null,
-          completedAt:           payout ? fmtTs(payout.completedAt) : null,
-          failedReason:          payout ? (payout.failedReason || null) : null,
+          submittedAt:     claim ? fmtTs(claim.submittedAt) : null,
+          // Manual-transfer record (authoritative for Paid display = paid above).
+          markedAt:        claim ? fmtTs(claim.markedAt) : null,
+          markedBy:        claim ? (claim.markedBy || null) : null,
+          payoutReference: r.payoutReference || (claim ? (claim.payoutReference || null) : null),
         });
       }
 
@@ -7565,13 +7449,13 @@ exports.listPayoutClaims = onCall(
         paidAt:           fmtTs(c.paidAt),
         notes:            typeof c.notes === 'string' ? c.notes : '',
         claimsSubmitted,
-        claimsApproved,
+        claimsMarked,
         paidCount,
         claims,
       });
     }
 
-    // Never log account data �?counts only.
+    // Never log account data — counts only.
     const totalClaims = cycles.reduce((n, c) => n + c.claims.length, 0);
     console.log(`[listPayoutClaims] by ${request.auth.uid} cycles=${cycles.length} claims=${totalClaims}`);
     return { success: true, cycles };
@@ -7791,10 +7675,9 @@ exports.flutterwaveWebhook = onRequest(
       // generated at checkout �?`AQ-{txToken}-{uuid}` �?so match the token
       // prefix back to the catalog instead of trusting meta.product_id.
       const txRefStr = typeof txRef === 'string' ? txRef : '';
-      const fromPrefix = Object.entries(FLUTTERWAVE_PRODUCTS)
-        .find(([, p]) => txRefStr.startsWith(`AQ-${p.txToken}-`));
-      const productId = fromPrefix ? fromPrefix[0] : '';
-      const product   = fromPrefix ? fromPrefix[1] : null;
+      const resolved = _resolveProductFromTxRef(txRefStr);
+      const productId = resolved.productId;
+      const product   = resolved.product;
 
       console.log(`[flutterwaveWebhook] normalized flwTxnId=${JSON.stringify(flwTxnId)} txRef=${JSON.stringify(txRef)} amount=${amount} currency=${JSON.stringify(currency)} productId=${JSON.stringify(productId)} flwReportedEmail=${JSON.stringify(flwReportedEmail)}`);
 
@@ -7808,117 +7691,38 @@ exports.flutterwaveWebhook = onRequest(
         return respond(400, { error: 'Amount/currency mismatch' });
       }
 
-      // ── 2c. Idempotency + mint, in ONE transaction ─────────────────────
-      // (a) assert the processed doc is absent, (b) write the processed doc,
-      // (c) write the new code doc �?so a retried delivery can't double-mint.
-      let minted = false;
-      let mintedCode = null;
-      let rejected = null;
-      let buyerEmail = '';
-
-      await db.runTransaction(async (tx) => {
-        const processedRef = db.collection('processedTransactions').doc(flwTxnId);
-        const processedSnap = await tx.get(processedRef);
-        if (processedSnap.exists) {
-          // Already handled by a previous delivery �?duplicate, ack it.
-          const prev = processedSnap.data();
-          console.log(`[flutterwaveWebhook] idempotency hit txn=${flwTxnId} alreadyProcessed=true (code=${prev.code || 'none'} status=${prev.status || 'none'})`);
-          return;
-        }
-
-        // ── 2d. Authoritative email from the checkout-time intent ─────────
-        // paymentIntents/{txRef} was written by requestPaymentLink when the
-        // buyer checked out, BEFORE Flutterwave ever saw this transaction, so
-        // its `email` is the address the buyer actually submitted on our site.
-        // Flutterwave's customer.email (flwReportedEmail) is NOT used for the
-        // getPurchasedCode match �?sandbox/tests substitute a generated
-        // ravesb_... address, and live mode may differ too. All reads happen
-        // before any writes below (same ordering rule as before).
-        const intentRef  = db.collection('paymentIntents').doc(txRef);
-        const intentSnap = await tx.get(intentRef);
-        const intent = intentSnap.exists ? intentSnap.data() : null;
-        buyerEmail = intent && typeof intent.email === 'string'
-          ? intent.email.trim().toLowerCase()
-          : '';
-
-        if (!intent || !buyerEmail) {
-          // No checkout record �?this wasn't a purchase our own site initiated
-          // (or requestPaymentLink's write failed). There is no verified
-          // recipient, so minting a code for it has no trustworthy owner. Reject
-          // the mint entirely rather than falling back to Flutterwave's email.
-          rejected = intentSnap.exists
-            ? `paymentIntent exists but has no valid email: ${JSON.stringify(intent && intent.email)}`
-            : 'no paymentIntent for tx_ref';
-          console.warn(`[flutterwaveWebhook] REJECT txRef=${JSON.stringify(txRef)} reason=${rejected} �?refusing to mint`);
-          return;
-        }
-
-        console.log(`[flutterwaveWebhook] buyerEmail=${JSON.stringify(buyerEmail)} (from paymentIntent; flwReportedEmail=${JSON.stringify(flwReportedEmail)})`);
-
-        // Leaderboard entry codes embed the CURRENT week ID (not the static
-        // catalog value) so eligibility aligns with the weekly reset boundary
-        // rather than a rolling 7 days from purchase.
-        const codeValue = product.type === 'leaderboard_entry'
-          ? currentWeekId()
-          : product.value;
-
-        // Mint the code via the shared core, writing BOTH docs inside this tx.
-        mintedCode = await _generateAndWriteCode(
-          {
-            type:      product.type,
-            value:     codeValue,
-            source:    'flutterwave_web',
-            createdBy: productId,
-            extra:     {
-              paidAmount: amount,
-              flwTxnId,
-              buyerEmail,
-              productId,
-              flwReportedEmail,
-            },
-          },
-          // write hook: add the code doc to THIS transaction
-          (code, doc) => { tx.set(db.collection('redemptionCodes').doc(code), doc); },
-          // read hook: collision-check within this transaction
-          (code) => tx.get(db.collection('redemptionCodes').doc(code))
-        );
-
-        tx.set(processedRef, {
-          productId,
-          tx_ref:    txRef,
-          flwTxnId,
-          code:      mintedCode,
-          buyerEmail,
-          flwReportedEmail,
-          amount,
-          currency,
-          status:    'fulfilled',
-          createdAt: FieldValue.serverTimestamp(),
-        });
-
-        // merge=true so a missing/partial intent (e.g. created before this code
-        // shipped, or checkout bookkeeping that never wrote) can't abort the mint.
-        tx.set(intentRef, {
-          status:     'fulfilled',
-          fulfilledAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-
-        minted = true;
+      // 2c. Idempotent mint, in ONE transaction.
+      // _mintCharge asserts the processed doc is absent, writes the processed
+      // doc, and writes the new code doc so a retried delivery can never
+      // double-mint. A confirmed charge ALWAYS produces a code: if the checkout
+      // paymentIntent is missing (requestPaymentLink write failed or raced) the
+      // mint falls back to Flutterwave's customer.email instead of silently
+      // dropping a paid purchase, which is what left buyers with a confirmed
+      // payment and no way to retrieve a code.
+      const mint = await _mintCharge({
+        txRef,
+        flwTxnId,
+        amount,
+        currency,
+        product,
+        productId,
+        fallbackEmail: flwReportedEmail,
       });
 
-      if (rejected) {
+      if (mint.status === 'rejected') {
         // 200 with ack so Flutterwave does not retry; no code was minted and
         // nothing was written (the whole transaction was a no-op).
-        return respond(200, { ok: true, minted: false, rejected });
+        console.warn(`[flutterwaveWebhook] REJECT txRef=${JSON.stringify(txRef)} reason=${mint.rejected} refusing to mint`);
+        return respond(200, { ok: true, minted: false, rejected: mint.rejected });
       }
-      if (minted) {
-        console.log(`[flutterwaveWebhook] MINTED code=${mintedCode} txn=${flwTxnId} product=${productId} email=${buyerEmail}`);
+      if (mint.status === 'fulfilled') {
+        console.log(`[flutterwaveWebhook] MINTED code=${mint.code} txn=${flwTxnId} product=${productId} email=${mint.buyerEmail || flwReportedEmail}`);
       } else {
-        console.log(`[flutterwaveWebhook] duplicate txn=${flwTxnId} �?no code minted`);
+        console.log(`[flutterwaveWebhook] duplicate txn=${flwTxnId} no code minted (code=${mint.code || 'none'})`);
       }
 
-      // ── 4. Respond 200 quickly (Flutterwave treats non-200 as failure). ─
-      return respond(200, { ok: true, minted, code: mintedCode });
+      // 4. Respond 200 quickly (Flutterwave treats non-200 as failure).
+      return respond(200, { ok: true, minted: mint.status === 'fulfilled', code: mint.code });
     } catch (err) {
       console.error('[flutterwaveWebhook] ERROR:', err);
       // Do NOT return non-200 here for a genuine, already-handled txn; but a
@@ -7930,10 +7734,17 @@ exports.flutterwaveWebhook = onRequest(
 
 // ─── (3) Deliver the code to the buyer (success page) ─────────────────────
 // Open endpoint (buyer isn't logged in). Returns the code ONLY when BOTH the
-// recorded tx_ref AND the buyer's checkout email match �?a bare tx_ref is not
+// recorded tx_ref AND the buyer's checkout email match: a bare tx_ref is not
 // enough. Recoverable: any later visit with the same tx_ref+email re-fetches it.
+//
+// SELF-HEALING: if no processedTransactions record exists yet (webhook late,
+// lost, or transiently rejected), the charge is verified directly with
+// Flutterwave by tx_ref and minted on demand. A confirmed, price-checked
+// payment therefore ALWAYS yields a code even when the webhook never fires.
+// Buyers who previously saw "No processed transaction for that reference" can
+// retrieve their code from this endpoint (or re-visit success.html).
 exports.getPurchasedCode = onRequest(
-  { region: 'us-central1', timeoutSeconds: 30 },
+  { region: 'us-central1', timeoutSeconds: 60, secrets: [FLW_SECRET_KEY] },
   async (req, res) => {
     if (req.method === 'OPTIONS') return _sendOptions(res, req);
 
@@ -7957,33 +7768,146 @@ exports.getPurchasedCode = onRequest(
       if (typeof tx_ref !== 'string' || !tx_ref.trim()) {
         return _sendJson(res, 400, { error: 'tx_ref is required' }, req);
       }
+      const txRef = tx_ref.trim();
       const buyerEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
       if (!_isValidEmail(buyerEmail)) {
         return _sendJson(res, 400, { error: 'A valid email is required' }, req);
       }
 
+      // Fast path: the code was already minted (webhook delivered).
       const snap = await db.collection('processedTransactions')
-        .where('tx_ref', '==', tx_ref.trim())
+        .where('tx_ref', '==', txRef)
         .limit(1)
         .get();
 
-      if (snap.empty) {
-        return _sendJson(res, 404, { error: 'No processed transaction for that reference' }, req);
+      if (!snap.empty) {
+        const rec = snap.docs[0].data();
+        if (rec.buyerEmail !== buyerEmail) {
+          // Same tx_ref but wrong email: don't leak the code to a stranger.
+          return _sendJson(res, 403, { error: 'Email does not match the buyer' }, req);
+        }
+        const p = rec.productId ? FLUTTERWAVE_PRODUCTS[rec.productId] : null;
+        return _sendJson(res, 200, {
+          success: true,
+          code:    rec.code,
+          type:    p ? p.type : undefined,
+          value:   p ? p.value : undefined,
+        }, req);
       }
 
-      const rec = snap.docs[0].data();
-      if (rec.buyerEmail !== buyerEmail) {
-        // Same tx_ref but wrong email �?don't leak the code to a stranger.
-        return _sendJson(res, 403, { error: 'Email does not match the buyer' }, req);
+      // Self-heal: no code minted yet. The payment may still be confirmed
+      // (webhook late / lost / transiently rejected), so verify the charge
+      // directly with Flutterwave by tx_ref and mint on demand. This is the
+      // guarantee that a confirmed payment ALWAYS delivers a code, even if the
+      // webhook never fires.
+      //
+      // Anti-abuse before touching Flutterwave:
+      //  (1) a short-lived failure cache means a known-bad/unconfirmed ref does
+      //      not repeatedly hit the API,
+      //  (2) a per-tx_ref limiter (in addition to per-IP above) caps probes of a
+      //      single reference so random refs can't burn the verify quota.
+      const cached = _cachedVerifyResult(txRef);
+      if (cached === false) {
+        return _sendJson(res, 404, { error: 'No processed transaction for that reference yet - try again shortly' }, req);
+      }
+      if (_txRefLookupLimited(txRef)) {
+        return _sendJson(res, 429, { error: 'Too many requests for this reference - try again shortly' }, req);
       }
 
-      const p = rec.productId ? FLUTTERWAVE_PRODUCTS[rec.productId] : null;
-      return _sendJson(res, 200, {
-        success: true,
-        code:    rec.code,
-        type:    p ? p.type : undefined,
-        value:   p ? p.value : undefined,
-      }, req);
+      let txns;
+      try {
+        txns = await _verifyFlutterwaveByTxRef(txRef);
+      } catch (err) {
+        console.error(`[getPurchasedCode] Flutterwave verify failed txRef=${txRef}: ${err.message}`);
+        return _sendJson(res, 503, { error: 'Payment status is temporarily unavailable - please try again shortly' }, req);
+      }
+
+      const confirmed = txns.find((t) => {
+        // Only an explicitly "successful" charge may mint. Flutterwave's API
+        // uses "successful"/"failed"/"pending" — never trust anything else.
+        const s = String(t && t.status || '').toLowerCase();
+        return s === 'successful';
+      });
+
+      if (!confirmed) {
+        // Remember the failure briefly so repeated probes of this ref do not
+        // hammer the API; the cache expires and a late success is re-verified.
+        _rememberVerifyResult(txRef, false);
+        const terminal = txns.some((t) => {
+          const s = String(t && t.status || '').toLowerCase();
+          return s === 'failed' || s === 'cancelled';
+        });
+        return _sendJson(res, terminal ? 402 : 404, {
+          error: terminal
+            ? 'This payment was not successful - no code was issued'
+            : 'No processed transaction for that reference yet - your payment is still being confirmed, try again shortly'
+        }, req);
+      }
+
+      const resolved = _resolveProductFromTxRef(txRef);
+      const product   = resolved.product;
+      const productId = resolved.productId;
+      if (!product) {
+        return _sendJson(res, 400, { error: 'Unknown product' }, req);
+      }
+
+      // Price/currency integrity from Flutterwave's verified record. Amount and
+      // currency both come from the API response; the expected price/currency
+      // come from the server-side product table. An underpayment (amount below
+      // the expected price) or a currency mismatch is a rejected charge and must
+      // never mint. Overpayment is accepted (the buyer paid at least the price).
+      const amount = Number(confirmed.amount);
+      const currency = String(confirmed.currency || '').toUpperCase();
+      if (!Number.isFinite(amount) || amount < product.amount || currency !== product.currency) {
+        console.warn(`[getPurchasedCode] PRICE-MISMATCH txRef=${txRef} expected >=${product.amount} ${product.currency} got ${amount} ${currency}`);
+        return _sendJson(res, 400, { error: 'Amount/currency mismatch' }, req);
+      }
+
+      // Flutterwave's customer.email is authoritative in live mode (it is the
+      // address the buyer typed at checkout on Flutterwave's page, which we
+      // seeded from our own form). The buyer must match the checkout intent
+      // email OR Flutterwave's recorded email before we mint.
+      const flwEmail = String(confirmed.customer && confirmed.customer.email || '').trim().toLowerCase();
+      const intentSnap = await db.collection('paymentIntents').doc(txRef).get();
+      const intent = intentSnap.exists ? intentSnap.data() : null;
+      const intentEmail = intent && typeof intent.email === 'string'
+        ? intent.email.trim().toLowerCase()
+        : '';
+
+      if ((intentEmail && intentEmail === buyerEmail) || (flwEmail && flwEmail === buyerEmail)) {
+        // Attribution OK. Mint idempotently: races with the webhook are
+        // resolved by _mintCharge keying on Flutterwave's transaction id.
+        const mint = await _mintCharge({
+          txRef,
+          flwTxnId: String(confirmed.id),
+          amount,
+          currency,
+          product,
+          productId,
+          buyerEmail,
+          fallbackEmail: flwEmail,
+        });
+        if (mint.status === 'rejected') {
+          console.error(`[getPurchasedCode] mint rejected txRef=${txRef} reason=${mint.rejected}`);
+          return _sendJson(res, 502, { error: 'Unable to issue your code - please contact support' }, req);
+        }
+        if (mint.status === 'fulfilled') {
+          console.log(`[getPurchasedCode] self-heal MINTED txRef=${txRef} flwTxnId=${confirmed.id} product=${productId} email=${buyerEmail}`);
+        } else {
+          console.log(`[getPurchasedCode] self-heal duplicate txRef=${txRef} flwTxnId=${confirmed.id} code=${mint.code}`);
+        }
+        return _sendJson(res, 200, {
+          success: true,
+          code:    mint.code,
+          type:    product.type,
+          value:   product.value,
+        }, req);
+      }
+
+      // Confirmed payment but the claimed identity matches neither the
+      // checkout intent nor Flutterwave's customer record. Don't mint.
+      console.warn(`[getPurchasedCode] EMAIL MISMATCH txRef=${txRef} claimed=${buyerEmail} intent=${intentEmail} flw=${flwEmail}`);
+      return _sendJson(res, 403, { error: 'Email does not match the buyer for this payment' }, req);
     } catch (err) {
       console.error('[getPurchasedCode] ERROR:', err);
       return _sendJson(res, 500, { error: 'Internal error' }, req);
@@ -8811,11 +8735,10 @@ exports.resetSeenPool = onCall(
 // entrants; cleared 2026-09-21 via scripts/purge_users.js).
 //
 // DELIBERATELY UNTOUCHED (audit/financial trail):
-//   leaderboardCycles ranked[] snapshots, leaderboardCycles/*/payouts,
-//   payoutLedger, prize_pool. Cycle-scoped payout data is admin-visible
-//   only and must survive account deletion.
-// PAYOUT ENGINE UNTOUCHED: this trigger never calls transfer/approval/
-// webhook logic and never writes paid state.
+//   leaderboardCycles ranked[] snapshots, leaderboardCycles/*/pendingClaim,
+//   prize_pool. Cycle-scoped payout data is admin-visible only and must
+//   survive account deletion.
+// PAYOUT STATE UNTOUCHED: this trigger never writes paid state.
 //
 // v2 identity onUserDeleted (Eventarc, global trigger): the v2 SDK exposes
 // no other Auth onDelete, and the v1 builder chain no longer exists in
