@@ -21,9 +21,11 @@ import '../auth/auth_service.dart';
 import '../quiz/questions_page.dart';
 import '../quiz/quiz_controller.dart' show kGauntletQuestionCount;
 import '../../core/constants/gauntlet_economy.dart';
+import '../../core/constants/solo_economy.dart';
 import '../player/pi_page.dart';
 import '../../features/multiplayer/multiplayer_hub_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
+import '../leaderboard/widgets/leaderboard_pool_card.dart';
 import '../premium/premium_upsell_screen.dart';
 
 // ─── Anime grid filter (client-side only, no backend calls) ───────────────
@@ -43,18 +45,32 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
 
-  static const List<Widget> _pages = <Widget>[
-    _HomeTab(),
-    MultiplayerHubPage(),
-    WeeklyLeaderboardPage(),
-    PInform(),
+  // Built lazily. The previous `static const` list meant an IndexedStack laid
+  // out and mounted all four tabs at app launch, so the leaderboard opened two
+  // Firestore listeners and started a timer for every session whether or not
+  // the player ever looked at Rankings. Each tab is now constructed on first
+  // visit and kept alive afterwards, which is the point of the IndexedStack.
+  late final List<Widget> _pages = <Widget>[
+    const _HomeTab(),
+    const MultiplayerHubPage(),
+    const WeeklyLeaderboardPage(),
+    const PInform(),
   ];
+  final Set<int> _visited = <int>{0};
 
   @override
   Widget build(BuildContext context) {
+    _visited.add(_tab);
+
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
-      body: IndexedStack(index: _tab, children: _pages),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          for (var i = 0; i < _pages.length; i++)
+            if (_visited.contains(i)) _pages[i] else const SizedBox.shrink(),
+        ],
+      ),
       bottomNavigationBar: _AppBottomNav(
         current: _tab,
         onSelect: (i) => setState(() => _tab = i),
@@ -170,6 +186,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   final Map<String, DateTime> _locks = {};
   Set<String> _unlockedForever = {};
   _AnimeFilter _filter = _AnimeFilter.all;
+  // Homepage solo difficulty — drives the question mix (weighted) and the
+  // server-side WP/AC table. Defaults to easy (the pre-difficulty baseline)
+  // so existing behavior is unchanged until the player opts into harder.
+  String _selectedDifficulty = 'easy';
   late Timer _lockTimer;
   late AnimationController _entranceCtrl;
   late Animation<double> _entranceFade;
@@ -349,6 +369,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     final titlesToPlay = titles ?? _selected.toList();
     if (titlesToPlay.length < 2 || !_prefsReady) return;
 
+    // Capture the selected difficulty now — the tray clears _selected but
+    // must not reset the difficulty choice.
+    final difficultyToPlay = normalizeSoloDifficulty(_selectedDifficulty);
+
     setState(() => _selected.clear());
 
     // Cooldown by lineup size: picking more titles locks each for less time.
@@ -381,6 +405,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           opacity: a,
           child: QuestionsPage(
             selectedTitles: titlesToPlay,
+            soloDifficulty: difficultyToPlay,
             isDailyChallenge: isDailyChallenge,
             onRetryLockCleared: () {
               if (mounted) {
@@ -1115,6 +1140,19 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                   ),
                 ),
 
+                // ── Difficulty selector (homepage solo only) ─────────────
+                // Quick Match / Create Challenge (Battle tab) are untouched.
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                    child: _DifficultySelector(
+                      selected: _selectedDifficulty,
+                      onChanged: (d) =>
+                          setState(() => _selectedDifficulty = d),
+                    ),
+                  ),
+                ),
+
                 // ── Filter chips ───────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
@@ -1186,6 +1224,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 opacity: hasSelection ? 1 : 0,
                 child: _LineupTray(
                   selected: _selected.toList(),
+                  difficulty: _selectedDifficulty,
                   onStart: () => _startQuiz(),
                   onClearAll: () => setState(() => _selected.clear()),
                 ),
@@ -1402,10 +1441,21 @@ class _TodayPrizeCard extends StatefulWidget {
 class _TodayPrizeCardState extends State<_TodayPrizeCard> {
   late final Stream<Map<String, dynamic>> _stream;
 
+  double _guaranteedFloor = 0;
+
   @override
   void initState() {
     super.initState();
     _stream = FirestoreService.instance.prizePoolStream();
+    // Same projection inputs the leaderboard uses, so the home card and the
+    // leaderboard can never advertise different pools.
+    _loadFloor();
+  }
+
+  Future<void> _loadFloor() async {
+    final floor = await FirestoreService.instance.guaranteedFloor();
+    if (!mounted) return;
+    setState(() => _guaranteedFloor = floor);
   }
 
   @override
@@ -1413,9 +1463,15 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
     return StreamBuilder<Map<String, dynamic>>(
       stream: _stream,
       builder: (context, snap) {
-        final pool = snap.data ?? {};
-        final totalNaira = (pool['totalNaira'] as num?)?.toDouble() ?? 0.0;
-        final timeLeft = PrizePoolService.timeUntilReset();
+        final pool = snap.data ?? const <String, dynamic>{};
+        // Derived from entry revenue (or the admin's fixed figure), never from
+        // `totalNaira` - that is legacy ad revenue the weekly reset ignores, so
+        // showing it here quoted players a number they would never be paid.
+        final projection = PrizePoolService.projectPrizePool(
+          entryCodeRevenue: pool['entryCodeRevenue'] as num?,
+          adminPoolNaira: pool['adminPoolNaira'] as num?,
+          guaranteedFloor: _guaranteedFloor,
+        );
 
         return Container(
           width: 120,
@@ -1435,15 +1491,16 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
             children: [
               Row(
                 children: [
-                  const Text(
-                    '🏆',
-                    style: TextStyle(fontSize: 11),
+                  const Icon(
+                    Icons.emoji_events_rounded,
+                    size: 11,
+                    color: AppColors.accent,
                   ),
                   const SizedBox(width: 4),
                   Text(
                     'PRIZE POOL',
                     style: TextStyle(
-                      color: AppColors.accent.withOpacity(0.9),
+                      color: AppColors.accent.withValues(alpha: 0.9),
                       fontSize: 7.5,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.6,
@@ -1453,7 +1510,7 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
               ),
               const SizedBox(height: 5),
               Text(
-                PrizePoolService.formatNaira(totalNaira),
+                PrizePoolService.formatNaira(projection.amount),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -1463,27 +1520,12 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
                 ),
               ),
               const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.schedule_rounded,
-                    size: 10,
-                    color: AppColors.textMuted,
-                  ),
-                  const SizedBox(width: 3),
-                  Expanded(
-                    child: Text(
-                      PrizePoolService.formatCountdown(timeLeft),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
+              // Self-ticking: this card used to recompute the countdown on
+              // every build and only visibly updated when an ancestor happened
+              // to rebuild, so the timer routinely lagged by minutes.
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: CountdownChip(compact: true),
               ),
             ],
           ),
@@ -1657,10 +1699,28 @@ class _AnimeCardState extends State<_AnimeCard>
   String get _timerLabel =>
       _secs >= 60 ? '${_secs ~/ 60}m ${_secs % 60}s' : '${_secs}s';
 
-  // ── Safe tile art (no copyrighted anime imagery) ──────────────────────
-  // Mirrors the gradient+emoji tile pattern from anime_select_page.dart so
-  // the home grid no longer depends on unlicensed franchise artwork. The
-  // emoji + colour per title are derived deterministically.
+  // ── Tile art (original franchise artwork) ─────────────────────────────
+  // Poster path is derived from the title (assets/<title>.jpg, the exact
+  // filenames in assets/), with the emoji+gradient pattern as a fallback only
+  // when the image is missing. Emoji + colour per title are derived
+  // deterministically.
+  static String? _assetPathFor(String title) {
+    final key = title.toLowerCase().trim();
+    const available = {
+      'attack on titan',
+      'bleach',
+      'death note',
+      'demon slayer',
+      'dragon ball z',
+      'jujutsu kaisen',
+      'my hero academia',
+      'naruto',
+      'one piece',
+      'one punch man',
+    };
+    return available.contains(key) ? 'assets/$key.jpg' : null;
+  }
+
   static const Map<String, String> _emojiMap = {
     'naruto': '🍜',
     'one piece': '🏴‍☠️',
@@ -1700,6 +1760,35 @@ class _AnimeCardState extends State<_AnimeCard>
     final index = widget.title.codeUnits.fold<int>(0, (sum, value) => sum + value) %
         _palettes.length;
     return _palettes[index];
+  }
+
+  /// Poster from assets/ when one exists for this title, otherwise the
+  /// deterministic emoji + gradient tile.
+  Widget _tileArt() {
+    final fallback = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: _palette,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          _emoji,
+          style: const TextStyle(fontSize: 52),
+        ),
+      ),
+    );
+
+    final path = _assetPathFor(widget.title);
+    if (path == null) return fallback;
+
+    return Image.asset(
+      path,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => fallback,
+    );
   }
 
   @override
@@ -1746,22 +1835,8 @@ class _AnimeCardState extends State<_AnimeCard>
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // ── Tile art (gradient + emoji — no copyrighted artwork) ──
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: _palette,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      _emoji,
-                      style: const TextStyle(fontSize: 52),
-                    ),
-                  ),
-                ),
+                // ── Tile art (original franchise artwork) ────────────────
+                _tileArt(),
                 // ── Bottom scrim for text contrast ───────────────────
                 Positioned(
                   left: 0,
@@ -2033,14 +2108,172 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
+// ─── Difficulty selector (homepage solo only) ───────────────────────────────
+// Three weighted tiers. Rewards preview shows the max raw haul (perfect
+// all-slow run, before solo decay + daily soft cap) so hard's generosity is
+// visible up front: hard should feel worth the Timer Pause / hint AC spent
+// mid-run. Quick Match + Create Challenge (Battle tab) are untouched.
+// ─────────────────────────────────────────────────────────────────────────────
+class _DifficultySelector extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  const _DifficultySelector({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  static const _meta = {
+    'easy': ('🌱', 'Easy', Color(0xFF34D399), '7E·2M·1H'),
+    'medium': ('⚔️', 'Medium', Color(0xFFF59E0B), '3E·4M·3H'),
+    'hard': ('🔥', 'Hard', Color(0xFFEF4444), '1E·2M·7H'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Choose difficulty',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 2),
+        const Text(
+          'Harder mixes pay more WP + AC — hard is built to cover your power-up spend.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            for (final id in kSoloDifficulties) ...[
+              if (id != kSoloDifficulties.first) const SizedBox(width: 8),
+              Expanded(child: _DifficultyCard(
+                id: id,
+                selected: selected == id,
+                onTap: () => onChanged(id),
+              )),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DifficultyCard extends StatelessWidget {
+  final String id;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _DifficultyCard({
+    required this.id,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = _DifficultySelector._meta[id]!;
+    final emoji = meta.$1;
+    final name = meta.$2;
+    final color = meta.$3;
+    final mix = meta.$4;
+    final reward = kSoloDifficultyRewards[id]!;
+    final maxWP = soloDifficultyMaxWP(id);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? color.withOpacity(0.14)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? color : AppColors.divider,
+            width: selected ? 2 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: color.withOpacity(0.25),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(height: 4),
+            Text(
+              name,
+              style: TextStyle(
+                color: selected ? color : AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              mix,
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: selected
+                    ? color.withOpacity(0.16)
+                    : AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: selected
+                      ? color.withOpacity(0.5)
+                      : AppColors.divider,
+                ),
+              ),
+              child: Text(
+                '↑$maxWP WP · +${reward.acEarned} AC',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? color : AppColors.textSecondary,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Lineup tray (compact: header + start button, no chips) ─────────────────
 class _LineupTray extends StatelessWidget {
   final List<String> selected;
+  final String difficulty;
   final VoidCallback onStart;
   final VoidCallback onClearAll;
 
   const _LineupTray({
     required this.selected,
+    this.difficulty = 'easy',
     required this.onStart,
     required this.onClearAll,
   });
@@ -2048,6 +2281,8 @@ class _LineupTray extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ready = selected.length >= 2;
+    final diffLabel = normalizeSoloDifficulty(difficulty);
+    final diffName = diffLabel[0].toUpperCase() + diffLabel.substring(1);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
@@ -2117,7 +2352,7 @@ class _LineupTray extends StatelessWidget {
           const SizedBox(height: 10),
           GradientButton(
             label: ready
-                ? 'Start Quiz  (${selected.length} picked)'
+                ? 'Start $diffName Quiz  (${selected.length} picked)'
                 : 'Pick ${2 - selected.length} more to begin',
             onTap: ready ? onStart : null,
             icon: ready ? Icons.play_arrow_rounded : null,

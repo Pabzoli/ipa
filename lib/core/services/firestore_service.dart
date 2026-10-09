@@ -7,7 +7,10 @@ import 'package:flutter/foundation.dart';
 
 import '../../features/quiz/questions.dart';
 import '../../features/multiplayer/challenge_model.dart';
+import '../../features/leaderboard/leaderboard_models.dart';
+import '../constants/solo_economy.dart';
 import 'app_update_service.dart';
+import 'prize_pool_service.dart';
 
 // ─── Exceptions ───────────────────────────────────────────────────────────────
 
@@ -95,6 +98,74 @@ class LastWeekResult {
   });
 }
 
+// ─── Weekly standing (live rank beyond the visible board) ───────────────────
+
+/// Where the signed-in player currently stands on the paid weekly board.
+///
+/// Produced by [FirestoreService.weeklyStanding]. Exists because the visible
+/// board is capped at 100 rows: without this, an eligible player ranked #150
+/// was shown "#—" on a page whose entire purpose is telling them their rank.
+/// Every field is optional because any single query may fail — callers must
+/// degrade to the board's own numbers rather than showing a wrong figure.
+class WeeklyStanding {
+  /// 1-based position within the cohort, matching the board's own sequential
+  /// ranking (ties resolved by document order, exactly as `_mapBoardEntries`
+  /// does). `0` when the player is not on the board at all.
+  final int rank;
+
+  /// Number of players in the cohort.
+  final int totalPlayers;
+
+  /// The player's own weekly points.
+  final int myPoints;
+
+  /// Weekly points the player ranked directly above has — i.e. the target to
+  /// overtake. `null` at rank 1, when unranked, or when the query failed.
+  final int? pointsToNextRank;
+
+  /// Username of the player in [pointsToNextRank]'s slot, for "beat X" copy.
+  final String? nextRankUsername;
+
+  /// Username of the player directly below, for the "hold off Y" nudge.
+  final String? belowRankUsername;
+
+  const WeeklyStanding({
+    required this.rank,
+    required this.totalPlayers,
+    required this.myPoints,
+    this.pointsToNextRank,
+    this.nextRankUsername,
+    this.belowRankUsername,
+  });
+
+  /// Percentile bucket (1–99) this rank represents, or `null` when it cannot
+  /// be computed meaningfully (no cohort size, or the player is not ranked).
+  ///
+  /// Ceiled so "Top 5%" never over-claims, and clamped so it never renders as
+  /// "Top 100%" or "Top 0%".
+  int? get topPercent {
+    if (rank <= 0 || totalPlayers <= 1) return null;
+    final pct = ((rank / totalPlayers) * 100).ceil().clamp(1, 99);
+    return pct;
+  }
+
+  /// Points needed to overtake the player above, floored at 1.
+  ///
+  /// Ties cost nothing here (shared ranks both display), but reporting "0
+  /// points needed" would read as a bug, so anything non-positive becomes 1.
+  int? get pointsToOvertake {
+    final target = pointsToNextRank;
+    if (rank <= 0 || target == null) return null;
+    final delta = target - myPoints + 1;
+    return delta < 1 ? 1 : delta;
+  }
+
+  /// Empty result for a player who has no entry, is unauthenticated, or whose
+  /// query failed — callers fall back to local data instead of inventing a rank.
+  static const WeeklyStanding none =
+      WeeklyStanding(rank: 0, totalPlayers: 0, myPoints: 0);
+}
+
 // ─── Leaderboard Payout Claim Models (Phase 3 — client contract) ─────────────
 // The server is authoritative for eligibility, prize amount, account
 // verification, approval, payout status, and `paid`. These models only carry
@@ -123,18 +194,17 @@ class NigerianBank {
 ///
 /// [status] is `'pending'` (new submission) or `'already_submitted'`
 /// (a pending claim already exists — idempotent no-op server-side).
-/// [resolvedNameMatch] is the server's Flutterwave account-name check result
-/// (`true`/`false`, or `null` when verification itself failed).
+///
+/// Payouts are manual, so there is no automated account verification and this
+/// payload carries no verification result.
 class PayoutClaimResult {
   final bool success;
   final String status;
-  final bool? resolvedNameMatch;
   final String message;
 
   const PayoutClaimResult({
     required this.success,
     required this.status,
-    required this.resolvedNameMatch,
     required this.message,
   });
 
@@ -142,7 +212,7 @@ class PayoutClaimResult {
 }
 
 /// Thrown by [FirestoreService.submitPayoutDetails] for callable errors so the
-/// claim UI can map server codes (already paid / approved / not a winner /
+/// claim UI can map server codes (already paid / marked as sent / not a winner /
 /// invalid input / network) without parsing raw exceptions.
 class PayoutClaimException implements Exception {
   final String code;
@@ -157,7 +227,7 @@ class PayoutClaimException implements Exception {
 /// One leaderboard cycle where the current user is in `ranked[]`, joined with
 /// their own `pendingClaim` status (if any).
 ///
-/// [claimStatus] is `'pending' | 'approved' | 'expired'`, or `null` when the
+/// [claimStatus] is `'pending' | 'marked' | 'expired'`, or `null` when the
 /// winner has never submitted for this cycle. [paid] mirrors
 /// `ranked[].paid` — the ONLY source the UI may use for a "Paid" label.
 class WinnerClaimSummary {
@@ -613,13 +683,18 @@ class FirestoreService {
     return snap.docs.map((doc) => AnimeQuestion.fromDoc(doc)).toList();
   }
 
-  // ─── Difficulty-aware question pools (Step 4) ─────────────────────────────
+  // ─── Difficulty-aware question pools (Step 4 + homepage difficulty) ───
   //
   // Mix ratios:
-  //   Solo (10Q):    4 Easy / 3 Medium / 3 Hard, interleaved E,M,H round-robin.
+  //   Solo homepage (10Q, weighted by selected difficulty — see
+  //     lib/core/constants/solo_economy.dart):
+  //     easy   → 7 Easy / 2 Medium / 1 Hard
+  //     medium → 3 Easy / 4 Medium / 3 Hard
+  //     hard   → 1 Easy / 2 Medium / 7 Hard
   //   Gauntlet (7Q): 3 Easy / 2 Medium / 2 Hard, positional E,E,E,M,M,H,H to
   //                  align with kGauntletTiers (15,15,15,20,20,25,25).
   //   Challenge/QM (10Q, createChallenge CF): 3 Easy / 4 Medium / 3 Hard.
+  //   (Quick Match + Create Challenge are untouched by homepage difficulty.)
   //
   // Query shape: EQUALITY-ONLY filters —
   //   .where('animeTitle', whereIn: chunk).where('difficulty', isEqualTo: tier)
@@ -635,7 +710,10 @@ class FirestoreService {
   // skew Medium until difficulty-tagged seeds land. Zero docs total keeps
   // throwing the original exceptions (callers already handle those).
 
-  /// Fixed per-tier needs for a 10-question Solo session.
+  /// Fixed per-tier needs for a legacy 10-question Solo session.
+  /// Kept for backwards compat — new code resolves the mix from
+  /// [kSoloDifficultyMixes] via the `difficulty` param of
+  /// [fetchQuestionsForTitles].
   static const int kSoloEasyCount = 4;
   static const int kSoloMediumCount = 3;
   static const int kSoloHardCount = 3;
@@ -1034,12 +1112,31 @@ class FirestoreService {
     return out;
   }
 
+  /// Homepage solo fetch — 10 questions with a WEIGHTED mix leaning toward
+  /// [difficulty] ('easy' | 'medium' | 'hard', see [kSoloDifficultyMixes]).
+  /// Quick Match / Create Challenge never call this (they use server-side
+  /// mixes + their own CFs) and are unaffected.
+  ///
+  /// Short pools backfill from legacy untagged docs first, then cross-tier
+  /// tagged surpluses — so a thin hard pool still returns 10 playable
+  /// questions rather than failing. Rewards stay at the SELECTED tier
+  /// (server trusts the difficulty flag), so seed enough hard questions to
+  /// keep hard runs honest.
   Future<List<AnimeQuestion>> fetchQuestionsForTitles(
-      List<String> titles) async {
+    List<String> titles, {
+    String difficulty = 'easy',
+  }) async {
     final normalized = _normalizeTitles(titles);
     if (normalized.isEmpty) {
       throw Exception('No anime titles provided.');
     }
+
+    final mix =
+        kSoloDifficultyMixes[normalizeSoloDifficulty(difficulty)]!;
+    final easyNeed = mix['easy']!;
+    final mediumNeed = mix['medium']!;
+    final hardNeed = mix['hard']!;
+    final need = easyNeed + mediumNeed + hardNeed;
 
     // Phase 0: seen buckets ({} on signed-out/offline → full pools).
     Map<String, Set<String>> seen = {};
@@ -1059,27 +1156,26 @@ class FirestoreService {
       'medium': await _fetchTierPool(normalized, 'medium', seenBuckets: seen),
       'hard': await _fetchTierPool(normalized, 'hard', seenBuckets: seen),
     };
-    const need = kSoloEasyCount + kSoloMediumCount + kSoloHardCount;
     await _resetTierBucketIfShort(
-        titles: normalized, tier: 'easy', need: kSoloEasyCount,
+        titles: normalized, tier: 'easy', need: easyNeed,
         tagged: tagged, seen: seen);
     await _resetTierBucketIfShort(
-        titles: normalized, tier: 'medium', need: kSoloMediumCount,
+        titles: normalized, tier: 'medium', need: mediumNeed,
         tagged: tagged, seen: seen);
     await _resetTierBucketIfShort(
-        titles: normalized, tier: 'hard', need: kSoloHardCount,
+        titles: normalized, tier: 'hard', need: hardNeed,
         tagged: tagged, seen: seen);
 
     // Interleaved deal order: E,M,H round-robin (starts easy, ends easy).
     final slotOrder = <String>[
       for (int i = 0;
           i <
-              [kSoloEasyCount, kSoloMediumCount, kSoloHardCount]
+              [easyNeed, mediumNeed, hardNeed]
                   .reduce((a, b) => a > b ? a : b);
           i++) ...[
-        if (i < kSoloEasyCount) 'easy',
-        if (i < kSoloMediumCount) 'medium',
-        if (i < kSoloHardCount) 'hard',
+        if (i < easyNeed) 'easy',
+        if (i < mediumNeed) 'medium',
+        if (i < hardNeed) 'hard',
       ],
     ];
 
@@ -1351,47 +1447,135 @@ class FirestoreService {
 
   // ─── Leaderboard ────────────────────────────────────────────────────────────
 
-  Stream<List<Map<String, dynamic>>> leaderboardStream() {
-    return _db
-        .collection('users')
-        .orderBy('totalScore', descending: true)
-        .limit(100)
-        .snapshots()
-        .map((snap) {
-      return snap.docs.asMap().entries.map((entry) {
-        final data = entry.value.data();
-        return {
-          'rank': entry.key + 1,
-          'uid': entry.value.id,
-          'username': (data['username'] as String?) ?? 'Anonymous',
-          'totalScore': (data['totalScore'] as int?) ?? 0,
-          'isCurrentUser': entry.value.id == _uid,
-        };
-      }).toList();
-    });
-  }
+  // REMOVED: leaderboardStream() and getCurrentUserRank().
+  //
+  // Both were legacy, lifetime-score ("totalScore") queries with NO cohort
+  // filter, so under the current `users` read rule they fail wholesale with
+  // permission-denied for anyone but the payout admin (they would match docs
+  // the caller may not read). Neither had a call site. The weekly board below
+  // is the only ranking the app shows.
 
-  Future<int> getCurrentUserRank() async {
-    if (_uid == null) return -1;
-    final myDoc = await _userDoc.get();
-    final myScore = (myDoc.data()?['totalScore'] as int?) ?? 0;
+  // ─── Weekly standing (A5) ───────────────────────────────────────────────
 
-    final above = await _db
-        .collection('users')
-        .where('totalScore', isGreaterThan: myScore)
-        .count()
-        .get();
-
-    return (above.count ?? 0) + 1;
-  }
-
-  /// Returns the current user's rank on the **paid weekly board** (1-based),
-  /// counting only users who entered the same week ([entryWeekId]).
+  /// Resolves the caller's live position on the paid weekly cohort board,
+  /// including ranks beyond the visible top-100 window.
   ///
-  /// Returns `0` when the user is unauthenticated, not currently eligible,
-  /// or has no weekly points yet. Pass the viewer's own entry week and
-  /// eligibility from [UserDataProvider]; unfiltered counting is no longer
-  /// permitted by the `users` read rule.
+  /// Rank must match the board's own sequential numbering (`_mapBoardEntries`
+  /// assigns `++eRank` down the `weeklyPoints desc` ordering), so this walks
+  /// that same ordering rather than inferring a rank from an aggregate.
+  ///
+  /// Walking is what makes it tie-safe. A COUNT of "strictly greater than me"
+  /// is a lower bound only: when other players share my score, a single
+  /// `limit(count + 1)` prefix need not reach my own row, and inferring the
+  /// rank from the count would report "not ranked" for someone who is
+  /// visibly on the board. So we page down the ordering and stop as soon as
+  /// we have passed our own row, keeping the immediately-preceding row as the
+  /// overtake target and the next one as the lead to hold.
+  ///
+  /// Queries are cohort-filtered, satisfying the `users` read rule. Requires
+  /// the `(leaderboardEntryWeekId ASC, weeklyPoints DESC)` composite index
+  /// (firestore.indexes.json).
+  ///
+  /// Never throws: any failure returns [WeeklyStanding.none] and the UI falls
+  /// back to the board it already has.
+  Future<WeeklyStanding> weeklyStanding({
+    String? entryWeekId,
+    bool eligible = false,
+  }) async {
+    final week = entryWeekId ?? '';
+    if (_uid == null || week.isEmpty || !eligible) return WeeklyStanding.none;
+
+    try {
+      final uid = _uid!;
+      final mySnap = await _userDoc.get();
+      final myPts = (mySnap.data()?['weeklyPoints'] as int?) ?? 0;
+
+      final totalSnap = await _db
+          .collection('users')
+          .where('leaderboardEntryWeekId', isEqualTo: week)
+          .count()
+          .get();
+      final total = totalSnap.count ?? 0;
+      if (total == 0) return WeeklyStanding.none;
+
+      var rank = 0;
+      int? pointsToNextRank;
+      String? nextRankUsername;
+      String? belowRankUsername;
+
+      // Score/name of the highest row we have walked past — becomes the
+      // overtake target once we reach our own row.
+      int? prevPoints;
+      String? prevName;
+
+      var found = false;
+      var sawBelow = false;
+      DocumentSnapshot<Map<String, dynamic>>? cursor;
+
+      // Bounded so a pathological cohort cannot spin: 40 pages of 50 is 2000
+      // rows, far beyond any plausible weekly cohort.
+      for (var page = 0; page < 40; page++) {
+        var query = _db
+            .collection('users')
+            .where('leaderboardEntryWeekId', isEqualTo: week)
+            .orderBy('weeklyPoints', descending: true);
+        if (cursor != null) query = query.startAfterDocument(cursor);
+        final snap = await query.limit(50).get();
+        if (snap.docs.isEmpty) break;
+        cursor = snap.docs.last;
+
+        for (final doc in snap.docs) {
+          if (kBoardHiddenUids.contains(doc.id)) continue;
+          final data = doc.data();
+          final pts = (data['weeklyPoints'] as int?) ?? 0;
+          final name = (data['username'] as String?) ?? 'Anonymous';
+
+          if (found) {
+            // First row past our own — the gap we are protecting.
+            if (!sawBelow) {
+              belowRankUsername = name;
+              sawBelow = true;
+            }
+            continue;
+          }
+
+          if (doc.id == uid) {
+            found = true;
+            pointsToNextRank = prevPoints;
+            nextRankUsername = prevName;
+            prevPoints = pts;
+            prevName = name;
+            continue;
+          }
+
+          rank++;
+          prevPoints = pts;
+          prevName = name;
+        }
+
+        // Enough once we have our row AND the one below it.
+        if (sawBelow) break;
+      }
+
+      if (!found) return WeeklyStanding.none;
+
+      return WeeklyStanding(
+        rank: rank + 1,
+        totalPlayers: total,
+        myPoints: myPts,
+        pointsToNextRank: pointsToNextRank,
+        nextRankUsername: nextRankUsername,
+        belowRankUsername: belowRankUsername,
+      );
+    } catch (e) {
+      debugPrint('[FirestoreService] weeklyStanding error: $e');
+      return WeeklyStanding.none;
+    }
+  }
+
+  /// Convenience wrapper kept for the existing callers (home header pill,
+  /// profile). Unlike [weeklyStanding] it reports `0` for a player with no
+  /// points yet, which those surfaces render as "—" rather than a real rank.
   ///
   /// Requires the `(leaderboardEntryWeekId ASC, weeklyPoints DESC)`
   /// composite index (firestore.indexes.json).
@@ -1447,19 +1631,19 @@ class FirestoreService {
   /// admin can evaluate this query (any other caller gets permission-denied
   /// because unreadable docs would be in the result set). The Rankings page
   /// uses this solely for the admin account; normal players use
-  /// [eligibleWeeklyLeaderboardStream].
+  /// [fetchEligibleWeeklyLeaderboard].
   ///
-  /// Broadcast: tab switches and stream swaps re-listen across rebuilds, and
-  /// a second listener on a single-subscription stream throws. The hidden
-  /// admin account (see [kBoardHiddenUids]) is filtered before rank mapping.
-  Stream<List<Map<String, dynamic>>> weeklyLeaderboardStream() {
-    return _db
+  /// One-shot, not a live listener: the board is polled on a 6-hour cadence
+  /// (see kLeaderboardRefreshInterval), so an open Firestore stream per board
+  /// would keep a websocket open indefinitely to deliver updates nobody reads
+  /// that often. [kBoardHiddenUids] is filtered before rank assignment.
+  Future<List<BoardEntry>> fetchWeeklyLeaderboard() async {
+    final snap = await _db
         .collection('users')
         .orderBy('weeklyPoints', descending: true)
         .limit(100)
-        .snapshots()
-        .map(_mapBoardEntries)
-        .asBroadcastStream();
+        .get();
+    return _mapBoardEntries(snap);
   }
 
   /// Empty board stream that survives tab disposal/remount cycles.
@@ -1468,36 +1652,28 @@ class FirestoreService {
   /// single-subscription streams throw "already been listened to" on the
   /// second listen even after the first subscription was cancelled (exactly
   /// what tab switches do). `Stream.multi` invokes its callback per
-  /// listener, so every subscription — first or fifth — gets `[]` + done.
-  Stream<List<Map<String, dynamic>>> emptyBoardStream() =>
-      Stream<List<Map<String, dynamic>>>.multi((c) {
-        c.add(<Map<String, dynamic>>[]);
-        c.close();
-      });
-
   /// Cohort board for normal players: only users who entered the SAME
   /// leaderboard week ([entryWeekId]).
   ///
   /// Matches the `users` read rule exactly — every returned doc is one the
   /// caller may read, so the query never fails wholesale. For a current-week
-  /// payer this IS the live paid board. Pass the viewer's own entry week;
-  /// an empty week emits `[]` with no query (a non-entrant may read nobody
-  /// but themselves, and the page merges their own doc client-side).
+  /// payer this IS the live paid board. Pass the viewer's own entry week; an
+  /// empty week resolves to `[]` with no query at all (a non-entrant may read
+  /// nobody but themselves, and the page merges their own doc client-side).
   ///
   /// Requires the `(leaderboardEntryWeekId ASC, weeklyPoints DESC)`
   /// composite index (firestore.indexes.json).
-  Stream<List<Map<String, dynamic>>> eligibleWeeklyLeaderboardStream(
+  Future<List<BoardEntry>> fetchEligibleWeeklyLeaderboard(
     String entryWeekId,
-  ) {
-    if (entryWeekId.isEmpty) return emptyBoardStream();
-    return _db
+  ) async {
+    if (entryWeekId.isEmpty) return const <BoardEntry>[];
+    final snap = await _db
         .collection('users')
         .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
         .orderBy('weeklyPoints', descending: true)
         .limit(100)
-        .snapshots()
-        .map(_mapBoardEntries)
-        .asBroadcastStream();
+        .get();
+    return _mapBoardEntries(snap);
   }
 
   /// Accounts that must NEVER appear on player-visible boards: invisible to
@@ -1514,25 +1690,25 @@ class FirestoreService {
     'owMNkXmb6QSzO0xfHkSgMlx0zSJ3',
   ];
 
-  List<Map<String, dynamic>> _mapBoardEntries(
+  List<BoardEntry> _mapBoardEntries(
     QuerySnapshot<Map<String, dynamic>> snap,
   ) {
     final weekId = FirestoreService.currentWeekId();
     var eRank = 0;
-    final out = <Map<String, dynamic>>[];
+    final out = <BoardEntry>[];
     for (final entry in snap.docs) {
       if (kBoardHiddenUids.contains(entry.id)) continue;
       final data = entry.data();
       final eligible = data['leaderboardEntryWeekId'] == weekId;
-      out.add({
-        'rank': eligible ? ++eRank : null,
-        'uid': entry.id,
-        'username': (data['username'] as String?) ?? 'Anonymous',
-        'university': (data['university'] as String?) ?? '',
-        'weeklyPoints': (data['weeklyPoints'] as int?) ?? 0,
-        'isCurrentUser': entry.id == _uid,
-        'leaderboardEntryWeekId': data['leaderboardEntryWeekId'] as String?,
-      });
+      out.add(BoardEntry(
+        rank: eligible ? ++eRank : null,
+        uid: entry.id,
+        username: (data['username'] as String?) ?? 'Anonymous',
+        university: (data['university'] as String?) ?? '',
+        weeklyPoints: (data['weeklyPoints'] as int?) ?? 0,
+        isCurrentUser: entry.id == _uid,
+        entryWeekId: data['leaderboardEntryWeekId'] as String?,
+      ));
     }
     return out;
   }
@@ -1595,80 +1771,27 @@ class FirestoreService {
     }
   }
 
-  /// Returns the leaderboard entry for the user ranked exactly one position
-  /// above the current user — their "Rival" — or `null` if:
-  ///   • the user is not authenticated
-  ///   • the user has 0 weeklyPoints (not on the board yet)
-  ///   • the user is already rank 1
-  ///   • the user is outside the visible top-100 window
-  ///
-  /// Implementation notes:
-  ///   1. A COUNT aggregation cheaply tells us how many users have strictly
-  ///      more weeklyPoints than the current user (`countAbove`).
-  ///   2. The rival sits at position `countAbove` in the desc-ordered list,
-  ///      so we fetch exactly `countAbove` docs and take the last one.
-  ///   3. We cap at 99 — a user outside the top-100 leaderboard widget has
-  ///      no visible rival row to tap, so there is nothing to tag.
-  Future<Map<String, dynamic>?> getRivalForUser() async {
-    if (_uid == null) return null;
-
-    // 1. Read current user's weekly points.
-    final mySnap = await _userDoc.get();
-    final myPts = (mySnap.data()?['weeklyPoints'] as int?) ?? 0;
-
-    // Not on the board yet.
-    if (myPts == 0) return null;
-
-    // 2. Count users with strictly higher points.
-    final countSnap = await _db
-        .collection('users')
-        .where('weeklyPoints', isGreaterThan: myPts)
-        .count()
-        .get();
-
-    final countAbove = countSnap.count ?? 0;
-
-    // Already rank 1 — no one to rival.
-    if (countAbove == 0) return null;
-
-    // Outside the visible top-100 — no rival shown in the leaderboard widget.
-    if (countAbove >= 100) return null;
-
-    // 3. Fetch the top `countAbove` users; the last document is the rival
-    //    (the person ranked immediately above the current user).
-    final snap = await _db
-        .collection('users')
-        .orderBy('weeklyPoints', descending: true)
-        .limit(countAbove)
-        .get();
-
-    if (snap.docs.isEmpty) return null;
-
-    final rivalDoc = snap.docs.last;
-    final rivalData = rivalDoc.data();
-
-    return {
-      'uid': rivalDoc.id,
-      'username': (rivalData['username'] as String?) ?? 'Anonymous',
-      'university': (rivalData['university'] as String?) ?? '',
-      'weeklyPoints': (rivalData['weeklyPoints'] as int?) ?? 0,
-      'rank': countAbove, // their rank equals countAbove
-    };
-  }
+  // REMOVED: getRivalForUser().
+  //
+  // It counted and fetched over ALL users with no cohort filter, so under the
+  // current `users` read rule it permission-fails for everyone but the payout
+  // admin. It also had no call site — the leaderboard derives its rival from
+  // the cohort board it already has, which is both cheaper and guaranteed to
+  // be a row the user can actually see and tap.
 
   // ─── Campus Leaderboard ──────────────────────────────────────────────────────
 
-  Stream<List<Map<String, dynamic>>> weeklyCampusLeaderboardStream(
+  Future<List<BoardEntry>> fetchCampusLeaderboard(
     String university, {
     String entryWeekId = '',
     bool includeAll = false,
-  }) {
-    if (university.isEmpty) return emptyBoardStream();
+  }) async {
+    if (university.isEmpty) return const <BoardEntry>[];
     // Non-entrants may read nobody but themselves: issuing the unfiltered
     // query would fail wholesale with permission-denied (it WOULD match
-    // unreadable docs), so emit [] with no query instead. The admin path
+    // unreadable docs), so resolve to [] with no query instead. The admin path
     // passes includeAll:true explicitly.
-    if (!includeAll && entryWeekId.isEmpty) return emptyBoardStream();
+    if (!includeAll && entryWeekId.isEmpty) return const <BoardEntry>[];
 
     // Cohort filter matches the `users` read rule: an empty [entryWeekId]
     // means "no cohort constraint" — only the payout admin may evaluate
@@ -1687,31 +1810,14 @@ class FirestoreService {
       query =
           query.where('leaderboardEntryWeekId', isEqualTo: entryWeekId);
     }
-    return query
+    final snap = await query
         .orderBy('weeklyPoints', descending: true)
         .limit(50)
-        .snapshots()
-        .map((snap) {
-      final weekId = FirestoreService.currentWeekId();
-      var eRank = 0;
-      final out = <Map<String, dynamic>>[];
-      for (final entry in snap.docs) {
-        // Hidden admin account: invisible and rank-free (see
-        // [kBoardHiddenUids]).
-        if (kBoardHiddenUids.contains(entry.id)) continue;
-        final data = entry.data();
-        final eligible = data['leaderboardEntryWeekId'] == weekId;
-        out.add({
-          'rank': eligible ? ++eRank : null,
-          'uid': entry.id,
-          'username': (data['username'] as String?) ?? 'Anonymous',
-          'weeklyPoints': (data['weeklyPoints'] as int?) ?? 0,
-          'isCurrentUser': entry.id == _uid,
-          'leaderboardEntryWeekId': data['leaderboardEntryWeekId'] as String?,
-        });
-      }
-      return out;
-    }).asBroadcastStream();
+        .get();
+    // Shared with the global board: one ranking implementation, so a campus
+    // rank and a global rank can never be numbered differently. The campus
+    // query used to inline its own copy of this loop.
+    return _mapBoardEntries(snap);
   }
 
   // ─── University Helpers ──────────────────────────────────────────────────────
@@ -1785,22 +1891,158 @@ class FirestoreService {
         '${d.day.toString().padLeft(2, '0')}';
   }
 
-  Stream<Map<String, dynamic>> prizePoolStream() {
-    return _db.collection('prize_pool').doc(currentWeekId()).snapshots().map(
-        (s) =>
-            s.data() ??
-            {'totalNaira': 0.0, 'weekId': currentWeekId(), 'status': 'active'});
+  /// The week id immediately before the current one — the last cycle that has
+  /// been finalised by `runWeeklyReset` (subject to the admin having run it).
+  static String previousWeekId() {
+    final monday = PrizePoolService.weekStartUtc();
+    final prev = monday.subtract(const Duration(days: 7));
+    return '${prev.year}-${prev.month.toString().padLeft(2, '0')}-'
+        '${prev.day.toString().padLeft(2, '0')}';
   }
 
-  Future<void> incrementPrizePool(double nairaPerView) async {
-    final ref = _db.collection('prize_pool').doc(currentWeekId());
-    await ref.set({
-      'totalNaira': FieldValue.increment(nairaPerView),
-      'adViewCount': FieldValue.increment(1),
-      'weekId': currentWeekId(),
-      'status': 'active',
-    }, SetOptions(merge: true));
+/// One-shot read of `prize_pool/{currentWeek}`.
+  ///
+  /// Carries the three inputs the weekly reset actually pools from:
+  /// `entryCodeRevenue` (accrued by redeemCode), `adminPoolNaira` (optional
+  /// admin override) and `status`. Feed these into
+  /// [PrizePoolService.projectPrizePool] rather than showing `totalNaira` —
+  /// `totalNaira` is legacy ad revenue that the reset never reads, so it is
+  /// NOT the number anyone is paid.
+  ///
+  /// A missing doc is reported as `status: 'missing'` rather than `'active'`:
+  /// faking an active week with a zero pool made the board claim a prize was
+  /// running before the pool doc existed.
+  ///
+  /// One-shot so the leaderboard's 6-hourly poll does not need an open stream.
+  /// Never throws: an unreadable pool degrades to a zeroed "missing" pool so
+  /// the board still renders, because a pool read failure must not blank the
+  /// whole leaderboard.
+  Future<Map<String, dynamic>> fetchPrizePool() async {
+    try {
+      final snap = await _db
+          .collection('prize_pool')
+          .doc(currentWeekId())
+          .get();
+      return snap.data() ??
+          <String, dynamic>{
+            'totalNaira': 0.0,
+            'entryCodeRevenue': 0.0,
+            'adminPoolNaira': null,
+            'weekId': currentWeekId(),
+            'status': 'missing',
+          };
+    } catch (e) {
+      debugPrint('[FirestoreService] fetchPrizePool error: $e');
+      return <String, dynamic>{
+        'entryCodeRevenue': 0.0,
+        'adminPoolNaira': null,
+        'weekId': currentWeekId(),
+        'status': 'missing',
+      };
+    }
   }
+
+  /// Live `prize_pool/{currentWeek}` document, for the home page's compact
+  /// pool card where a single always-on listener for one small document is
+  /// proportionate. The leaderboard uses [fetchPrizePool] instead.
+  Stream<Map<String, dynamic>> prizePoolStream() {
+    return _db.collection('prize_pool').doc(currentWeekId()).snapshots().map(
+          (s) =>
+              s.data() ??
+              {
+                'totalNaira': 0.0,
+                'entryCodeRevenue': 0.0,
+                'adminPoolNaira': null,
+                'weekId': currentWeekId(),
+                'status': 'missing',
+              },
+        );
+  }
+
+  // ─── Guaranteed entry floor (app_config/leaderboard_entry_config) ─────────
+
+  static double? _floorCache;
+  static DateTime? _floorCacheTime;
+
+  /// `app_config/leaderboard_entry_config.guaranteedFloor` — the
+  /// developer-funded minimum weekly pool, set by `setLeaderboardFloor`.
+  ///
+  /// Readable by any authenticated client (firestore.rules). It is an
+  /// admin-set constant that changes rarely, so it is cached for 30 minutes
+  /// rather than held open as a second live listener.
+  Future<double> guaranteedFloor() async {
+    final cached = _floorCache;
+    final at = _floorCacheTime;
+    if (cached != null &&
+        at != null &&
+        DateTime.now().difference(at).inMinutes < 30) {
+      return cached;
+    }
+    try {
+      final snap = await _db
+          .collection('app_config')
+          .doc('leaderboard_entry_config')
+          .get();
+      final value = (snap.data()?['guaranteedFloor'] as num?)?.toDouble() ?? 0;
+      _floorCache = value.isFinite && value > 0 ? value : 0;
+      _floorCacheTime = DateTime.now();
+      return _floorCache!;
+    } catch (e) {
+      debugPrint('[FirestoreService] guaranteedFloor error: $e');
+      return cached ?? 0;
+    }
+  }
+
+  // ─── Last finalised pool (trust anchor) ──────────────────────────────────
+
+  static double? _lastPoolCache;
+  static String? _lastPoolCacheWeek;
+  static DateTime? _lastPoolCacheTime;
+
+  /// The prize pool that was actually allocated last week, read from
+  /// `leaderboardCycles/{previousWeekId}.prizePool`.
+  ///
+  /// Shown beneath the live projection purely as a reference so players can
+  /// see the projected figure is tracking something real, and can compare it
+  /// to what was genuinely paid out. Returns `null` when no cycle has been
+  /// calculated yet (e.g. the very first week). Cached for an hour: the value
+  /// only changes when the admin runs the next reset.
+  Future<double?> lastFinalisedPool() async {
+    final week = previousWeekId();
+    final cached = _lastPoolCache;
+    final at = _lastPoolCacheTime;
+    if (_lastPoolCacheWeek == week &&
+        cached != null &&
+        at != null &&
+        DateTime.now().difference(at).inMinutes < 60) {
+      return cached;
+    }
+    try {
+      final snap =
+          await _db.collection('leaderboardCycles').doc(week).get();
+      if (!snap.exists) {
+        _lastPoolCacheWeek = week;
+        _lastPoolCache = null;
+        _lastPoolCacheTime = DateTime.now();
+        return null;
+      }
+      final value = (snap.data()?['prizePool'] as num?)?.toDouble();
+      _lastPoolCacheWeek = week;
+      _lastPoolCache = (value != null && value.isFinite) ? value : null;
+      _lastPoolCacheTime = DateTime.now();
+      return _lastPoolCache;
+    } catch (e) {
+      debugPrint('[FirestoreService] lastFinalisedPool error: $e');
+      return cached;
+    }
+  }
+
+  // REMOVED: incrementPrizePool(nairaPerView).
+  //
+  // This wrote prize_pool/{weekId}.totalNaira directly from the client. It was
+  // doubly broken: weeklyReset never read totalNaira, and firestore.rules deny
+  // client writes to prize_pool, so every call threw. The prize pool is now set
+  // by the admin through the setPrizePool Cloud Function.
 
   // ─── Last Week Winners ───────────────────────────────────────────────────────
 
@@ -2069,20 +2311,23 @@ class FirestoreService {
     return docs.take(count).map((d) => d.id).toList();
   }
 
-  // ─── Leaderboard Payout Claim (Phase 3 — client contract) ──────────────────
+  // ─── Leaderboard Payout Claim (client contract) ────────────────────────────
   //
-  // Server is authoritative for eligibility, prize amount, account
-  // verification, approval, payout status, and `paid`. The client only
-  // submits bank details via the callable and reads back claim state.
-  // No prize maths and no payout-security logic live here.
+  // Payouts are MANUAL: the app never moves money. The player submits bank
+  // details; an admin transfers from their own bank and records it.
+  //
+  // Server is authoritative for eligibility, prize amount, payout status, and
+  // `paid`. The client only submits bank details via the callable and reads
+  // back claim state. No prize maths and no payout-security logic live here.
 
-  /// Cached result of [listNigerianBanks] (contract: proposed CF, NOT yet
-  /// deployed). Mirrors the existing [_weeklyPlayerCountCache] convention.
+  /// Cached result of [listNigerianBanks]. Mirrors the existing
+  /// [_weeklyPlayerCountCache] convention.
   static List<NigerianBank>? _banksCache;
   static DateTime? _banksCacheTime;
 
   /// Returns the verified Nigerian bank list from the `listNigerianBanks`
-  /// callable (PROPOSED contract — see [NigerianBank]).
+  /// callable. Kept because the player must be able to select a valid bank
+  /// code for the admin to transfer to.
   ///
   /// Throws [FirebaseFunctionsException] when the callable is missing or
   /// Flutterwave is unavailable — the caller shows an error/retry state and
@@ -2117,13 +2362,13 @@ class FirestoreService {
   }
 
   /// Submits the winner's bank details for [weekId] via the
-  /// `submitPayoutDetails` callable. The server resolves the account via
-  /// Flutterwave and determines the verified account name.
+  /// `submitPayoutDetails` callable. The admin later transfers to this
+  /// account by hand — no automated verification or payment happens.
   ///
   /// Returns [PayoutClaimResult] on success (including idempotent
   /// `'already_submitted'`). Throws [PayoutClaimException] for server
-  /// rejections (already paid / approved / expired / not a winner / invalid
-  /// input) so the UI can render each state distinctly.
+  /// rejections (already paid / marked as sent / expired / not a winner /
+  /// invalid input) so the UI can render each state distinctly.
   Future<PayoutClaimResult> submitPayoutDetails({
     required String weekId,
     required String accountNumber,
@@ -2139,16 +2384,14 @@ class FirestoreService {
         'bankCode': bankCode,
         'beneficiaryName': beneficiaryName,
         // Forced-update gate: the server refuses an outdated Android client
-        // before it resolves the bank account, so a walled build cannot spend
-        // a transfer-fee credit. Web clients report platform 'web' and are
-        // exempt.
+        // so a walled build cannot overwrite a destination account the admin
+        // is about to pay. Web clients report platform 'web' and are exempt.
         ...AppUpdateService.instance.clientBuildStamp,
       });
       final data = Map<String, dynamic>.from(res.data as Map);
       return PayoutClaimResult(
         success: data['success'] == true,
         status: (data['status'] as String?) ?? 'pending',
-        resolvedNameMatch: data['resolvedNameMatch'] as bool?,
         message: (data['message'] as String?) ?? '',
       );
     } on FirebaseFunctionsException catch (e) {

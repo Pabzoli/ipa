@@ -1,16 +1,14 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
-/// Player-policy-safe website reference: renders the shop URL as plain,
-/// non-interactive text. The only tappable element is the [TextButton.icon]
-/// "Copy" button, which copies the URL string and never launches a browser.
-/// Do not wrap the URL [Text] in a gesture detector or call `url_launcher`
-/// from this widget — the in-app UI must not navigate users to the checkout.
+/// Website shop reference: shows the shop URL with an "Open" button that
+/// launches the website in the external browser (works on Android and web).
+/// If no browser is available the URL is copied to the clipboard instead.
 class ShopLinkNote extends StatelessWidget {
   const ShopLinkNote({super.key, this.compact = false});
 
@@ -19,11 +17,6 @@ class ShopLinkNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The website shop is web-only (Play Billing policy: the Play-distributed
-    // Android app must not expose any external purchase path). On non-web
-    // platforms this widget renders nothing so no shop reference is visible.
-    if (!kIsWeb) return const SizedBox.shrink();
-
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
@@ -41,20 +34,24 @@ class ShopLinkNote extends StatelessWidget {
               size: 16.r, color: AppColors.textMuted),
           SizedBox(width: 8.w),
           Expanded(
-            child: Text(
-              kShopUrl,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontFamily: 'Nunito',
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w600,
+            child: GestureDetector(
+              onTap: () => _open(context),
+              child: Text(
+                kShopUrl,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontFamily: 'Nunito',
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w600,
+                  decoration: TextDecoration.underline,
+                ),
               ),
             ),
           ),
           TextButton.icon(
-            onPressed: () => _copy(context),
+            onPressed: () => _open(context),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.primary,
               padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
@@ -66,24 +63,30 @@ class ShopLinkNote extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-            icon: Icon(Icons.content_copy_rounded,
+            icon: Icon(Icons.open_in_new_rounded,
                 size: 14.r, color: AppColors.primary),
-            label: const Text('Copy'),
+            label: const Text('Open'),
           ),
         ],
       ),
     );
   }
 
-  void _copy(BuildContext context) {
-    Clipboard.setData(const ClipboardData(text: kShopUrl));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(
-          'Website link copied — open it in your browser.',
-          style: TextStyle(fontFamily: 'Nunito'),
-        ),
-      ),
-    );
+  Future<void> _open(BuildContext context) async {
+    final uri = Uri.parse(kShopUrl);
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      await Clipboard.setData(const ClipboardData(text: kShopUrl));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Couldn\'t open the browser — website link copied instead.',
+              style: const TextStyle(fontFamily: 'Nunito'),
+            ),
+          ),
+        );
+      }
+    }
   }
 }

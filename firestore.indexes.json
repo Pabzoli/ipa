@@ -77,6 +77,21 @@
         { "fieldPath": "animeTitle", "order": "ASCENDING" },
         { "fieldPath": "difficulty", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "prize_pool",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "weekId", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "leaderboardCycles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
