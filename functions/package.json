@@ -6,7 +6,9 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "test": "node --test functions/test/*.test.js",
+    "test:rules": "node --test functions/test/rules.test.js"
   },
   "engines": {
     "node": "24"
@@ -17,6 +19,7 @@
     "firebase-functions": "^7.3.2"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
     "firebase-functions-test": "^3.4.1"
   },
   "private": true

@@ -26,6 +26,7 @@ class SoloSummaryPage extends StatefulWidget {
   final int correctCount;
   final int totalQuestions;
   final List<String> selectedTitles;
+  final String soloDifficulty;
   final int coinsEarned;
   final int wpEarned;
 
@@ -44,6 +45,7 @@ class SoloSummaryPage extends StatefulWidget {
     required this.correctCount,
     required this.totalQuestions,
     required this.selectedTitles,
+    this.soloDifficulty = 'easy',
     this.coinsEarned = 0,
     this.wpEarned = 0,
     this.achievementCoins = 0,
@@ -202,6 +204,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
         AppPageRoute(
           builder: (_) => QuestionsPage(
             selectedTitles: widget.selectedTitles,
+            soloDifficulty: widget.soloDifficulty,
             isDailyChallenge: false,
             onRetryLockCleared: widget.onRetryLockCleared,
           ),
@@ -272,6 +275,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                       isGauntlet: widget.isGauntlet,
                       isDailyChallenge: widget.isDailyChallenge,
                       titles: widget.selectedTitles,
+                      soloDifficulty: widget.soloDifficulty,
                     ),
 
                     // ── Achievement bonus (distinct UI) ───────────────
@@ -514,6 +518,7 @@ class _StatsCard extends StatelessWidget {
   final bool isGauntlet;
   final bool isDailyChallenge;
   final List<String> titles;
+  final String soloDifficulty;
 
   const _StatsCard({
     required this.tier,
@@ -525,6 +530,7 @@ class _StatsCard extends StatelessWidget {
     required this.isGauntlet,
     required this.isDailyChallenge,
     required this.titles,
+    this.soloDifficulty = 'easy',
   });
 
   @override
@@ -542,6 +548,10 @@ class _StatsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ── Difficulty badge (solo only) ────────────────────────
+          if (!isGauntlet)
+            _DifficultyPill(difficulty: soloDifficulty),
+          if (!isGauntlet) SizedBox(height: 14.h),
           // ── Accuracy ────────────────────────────────────────────
           Row(
             children: [
@@ -666,6 +676,48 @@ class _StatsCard extends StatelessWidget {
               }).toList(),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Difficulty pill — shows which homepage tier this solo run was played on
+// ═══════════════════════════════════════════════════════════════════════════
+class _DifficultyPill extends StatelessWidget {
+  final String difficulty;
+  const _DifficultyPill({required this.difficulty});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = difficulty.trim().toLowerCase();
+    final (emoji, label, color) = switch (d) {
+      'hard' => ('🔥', 'HARD', const Color(0xFFEF4444)),
+      'medium' => ('⚔️', 'MEDIUM', const Color(0xFFF59E0B)),
+      _ => ('🌱', 'EASY', const Color(0xFF34D399)),
+    };
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12.r),
+        border: Border.all(color: color.withOpacity(0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(emoji, style: TextStyle(fontSize: 14.sp)),
+          SizedBox(width: 8.w),
+          Text(
+            '$label MODE',
+            style: TextStyle(
+              color: color,
+              fontSize: 11.sp,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.0,
+            ),
+          ),
         ],
       ),
     );

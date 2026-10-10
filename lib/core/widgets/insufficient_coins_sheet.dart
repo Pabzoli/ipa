@@ -8,6 +8,7 @@ import '../../features/coins/earn_coins_screen.dart';
 import 'app_button.dart';
 import 'app_page_route.dart';
 import 'app_sheet.dart';
+import 'no_refunds_note.dart';
 
 Future<void> showInsufficientCoinsSheet(
   BuildContext context, {
@@ -129,6 +130,8 @@ class _InsufficientCoinsSheet extends StatelessWidget {
               },
             ),
           ),
+          const SizedBox(height: 12),
+          const NoRefundsNote(compact: true, showPolicyLink: true),
         ],
       ),
     );

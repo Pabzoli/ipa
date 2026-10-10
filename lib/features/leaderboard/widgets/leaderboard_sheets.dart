@@ -13,14 +13,14 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/no_refunds_note.dart';
 import '../../auth/auth_service.dart';
-import '../../multiplayer/anime_select_page.dart';
+import '../../multiplayer/rivalry_page.dart';
 import '../leaderboard_models.dart';
 import 'leaderboard_pool_card.dart';
 
 /// Opens the rival sheet for [rival].
 ///
 /// [parentContext] must be the context of the *caller*, not the sheet's. The
-/// challenge button dismisses the sheet and immediately pushes a route, and
+/// rivalry button dismisses the sheet and immediately pushes a route, and
 /// doing that on the sheet's own context means pushing on a widget that is
 /// mid-teardown.
 void showRivalSheet(
@@ -35,12 +35,14 @@ void showRivalSheet(
     builder: (_) => _RivalSheet(
       rival: rival,
       currentUid: currentUid,
-      // Captured now, used after the sheet is gone.
+      // Captured now, used after the sheet is gone. Sparring is always
+      // available, so this button never gates on cooldown — duel
+      // availability lives on the rivalry page.
       pushChallenge: () => Navigator.of(parentContext).push(
         MaterialPageRoute<void>(
-          builder: (_) => AnimeSelectPage(
-            opponentUid: rival.uid,
-            opponentUsername: rival.username,
+          builder: (_) => RivalryPage(
+            rivalUid: rival.uid,
+            rivalUsername: rival.username,
           ),
         ),
       ),
@@ -91,24 +93,7 @@ class _RivalSheetState extends State<_RivalSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final udp = context.watch<UserDataProvider>();
     final rival = widget.rival;
-
-    final onCooldown =
-        !udp.canChallengeRival(rival.uid) &&
-            udp.lastRivalUid == rival.uid &&
-            udp.lastRivalChallenge != null;
-
-    String? cooldownText;
-    if (onCooldown) {
-      final diff = DateTime.now().difference(udp.lastRivalChallenge!);
-      final cooldownHours = udp.premiumActive ? 6 : 12;
-      final remainingMinutes =
-          (cooldownHours * 60 - diff.inMinutes).clamp(0, cooldownHours * 60);
-      final hours = remainingMinutes ~/ 60;
-      final minutes = remainingMinutes % 60;
-      cooldownText = hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
-    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,33 +220,29 @@ class _RivalSheetState extends State<_RivalSheet> {
         ),
         SizedBox(height: 16.h),
 
-        // ── Challenge ────────────────────────────────────────────────
+        // ── Rivalry ────────────────────────────────────────────────
+        // Sparring is always open, so this never gates on the ranked
+        // rematch cooldown — duel availability is previewed on the
+        // rivalry page instead.
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: cooldownText == null
-                  ? AppColors.primary
-                  : AppColors.surfaceAlt,
-              foregroundColor:
-                  cooldownText == null ? Colors.white : AppColors.textMuted,
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(vertical: 14.r),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(13.r),
               ),
             ),
-            onPressed: cooldownText != null
-                ? null
-                : () {
-                    // Dismiss first, then push on the caller's context.
-                    Navigator.of(context).pop();
-                    widget.pushChallenge();
-                  },
+            onPressed: () {
+              // Dismiss first, then push on the caller's context.
+              Navigator.of(context).pop();
+              widget.pushChallenge();
+            },
             child: Text(
-              cooldownText == null
-                  ? 'Challenge rival'
-                  : 'Cooldown · $cooldownText',
+              'Open rivalry',
               style: TextStyle(
                 fontSize: 15.sp,
                 fontWeight: FontWeight.w800,

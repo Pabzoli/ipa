@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../quiz/questions_page.dart';
@@ -30,14 +31,16 @@ const kAcStakeStep = 10;
 const kAcMaxStakeFree = 2000;
 const kAcMaxStakePremium = 5000;
 const kWpMinStake = 5;
-const kWpMaxStakeFree = 100;
-const kWpMaxStakePremium = 200;
-const kWpDailyCapFree = 150;
-const kWpDailyCapPremium = 300;
+const kWpMaxStakeFree = 200;
+const kWpMaxStakePremium = 400;
+const kWpDailyCapFree = 300;
+const kWpDailyCapPremium = 500;
 const kActiveChallengesFree = 3;
 const kActiveChallengesPremium = 5;
-const kDailyCreateFree = 3;
-const kDailyCreatePremium = 5;
+const kDailyCreateFree = 5;
+const kDailyCreatePremium = 8;
+const kDailyJoinFree = 5;
+const kDailyJoinPremium = 8;
 
 class StakeScreen extends StatefulWidget {
   final String animeTitle;
@@ -279,6 +282,9 @@ class _StakeScreenState extends State<StakeScreen> {
       'daily_challenge_limit_reached' =>
         'Daily limit reached — maximum $kDailyCreatePremium challenges per day',
 
+      'daily_spar_limit_reached' =>
+        'Daily spar limit reached — come back tomorrow for friendlies',
+
       'too_many_active_challenges' =>
         'You already have $kActiveChallengesPremium active challenges',
       'stake_below_minimum' =>
@@ -392,6 +398,9 @@ class _StakeScreenState extends State<StakeScreen> {
         payload['opponentUsername'] = opponentUsername;
         payload['wpStake'] = _wpStake;
       }
+
+      // Forced-update gate stamp (server rejects outdated Android builds).
+      payload.addAll(AppUpdateService.instance.clientBuildStamp);
 
       debugPrint(
         '══════════════════════════════════════',
@@ -689,7 +698,7 @@ ${e.details}
                             ctrl: _wpCtrl,
                             enabled: !_creating && !dailyLimitReached,
                             inlineError: wpError,
-                            quickStakes: premiumActive ? const [10, 25, 50, 100, 200] : const [10, 25, 50],
+                            quickStakes: premiumActive ? const [25, 50, 100, 200, 400] : const [10, 25, 50, 100, 200],
                             maxStake: maxWPStake,
                             minStake: kWpMinStake,
                             step: 5,
@@ -1584,9 +1593,9 @@ class _ChallengeRules extends StatelessWidget {
                           n: '4',
                           text:
                               'Up to $kDailyCreateFree challenges created per day '
-                              '(5 with Premium) and up to '
+                              '($kDailyCreatePremium with Premium) and up to '
                               '$kActiveChallengesFree active at once '
-                              '(5 with Premium).',
+                              '($kActiveChallengesPremium with Premium).',
                           last: true,
                         ),
                       ],

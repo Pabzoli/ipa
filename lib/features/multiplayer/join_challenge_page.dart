@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/providers/user_data_provider.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
@@ -31,6 +32,7 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   ChallengeModel? _found;
   bool _looking = false;
   bool _joining = false;
+  bool _declining = false;
   String? _error;
 
   StreamSubscription<int>? _joinCountSub;
@@ -229,6 +231,7 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
         'You already have $_maxJoinsPerDay active challenges',
       'challenge_not_waiting' => 'This challenge is no longer available',
       'cannot_join_own_challenge' => "That's your own challenge!",
+      'not_friends' => 'Add them as a friend to spar.',
       _ => s.isEmpty ? 'Something went wrong. Please try again.' : s,
     };
   }
@@ -261,7 +264,10 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
 try {
         await FirebaseFunctions.instanceFor(region: 'us-central1')
             .httpsCallable('joinChallenge')
-            .call({'challengeId': _found!.challengeId});
+            .call({
+          'challengeId': _found!.challengeId,
+          ...AppUpdateService.instance.clientBuildStamp,
+        });
 
         if (!mounted) return;
 
@@ -293,12 +299,96 @@ try {
     }
   }
 
+  String _friendlyDeclineError(String raw) {
+    final s = raw.replaceFirst('Exception: ', '').trim();
+    return switch (s) {
+      'challenge_not_pending' => 'This challenge is no longer pending.',
+      'not_the_invited_opponent' => 'You can\'t decline this challenge.',
+      _ => s.isEmpty ? 'Something went wrong. Please try again.' : s,
+    };
+  }
+
+  /// Declines an INVITED rival challenge looked up by code.
+  ///
+  /// Only shown when the looked-up challenge names the current user as its
+  /// invited opponent (opponentUid == me, status waiting) — the exact gate
+  /// declineChallenge enforces server-side. Open code challenges
+  /// (opponentUid null) never show this button.
+  Future<void> _decline() async {
+    if (_found == null || _declining || _joining || _looking) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Decline challenge?',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+        content: const Text(
+          'Their stake will be refunded to them. This can\'t be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Decline',
+                style: TextStyle(
+                    color: AppColors.wrong, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _declining = true;
+      _error = null;
+    });
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('declineChallenge')
+          .call({'challengeId': _found!.challengeId});
+      if (!mounted) return;
+      setState(() {
+        _declining = false;
+        _found = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Challenge declined.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _declining = false;
+        _error = _friendlyDeclineError(e.message ?? e.code);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _declining = false;
+        _error = _friendlyDeclineError(e.toString());
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final balance = context.watch<UserDataProvider>().animeCoins;
-    final busy = _looking || _joining;
+    final busy = _looking || _joining || _declining;
     final canAfford =
         _found != null && balance >= _found!.stakeAmount;
+    final uid = FirestoreService.instance.currentUid;
+    final canDecline = _found != null &&
+        !_joining &&
+        !_looking &&
+        !_declining &&
+        _found!.status == ChallengeStatus.waiting &&
+        _found!.opponentUid != null &&
+        _found!.opponentUid == uid;
     final canAccept =
         _found != null &&
         !_joining &&
@@ -400,6 +490,41 @@ try {
                                     size: AppButtonSize.large,
                                     height: 52.h,
                                   ),
+                                  if (canDecline) ...[
+                                    SizedBox(height: 10.h),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      height: 48.h,
+                                      child: OutlinedButton(
+                                        onPressed: _declining ? null : _decline,
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: AppColors.wrong,
+                                          side: BorderSide(
+                                              color: AppColors.wrong
+                                                  .withOpacity(0.45)),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(14.r),
+                                          ),
+                                        ),
+                                        child: _declining
+                                            ? SizedBox(
+                                                width: 18.w,
+                                                height: 18.h,
+                                                child:
+                                                    const CircularProgressIndicator(
+                                                        strokeWidth: 2),
+                                              )
+                                            : Text(
+                                                'Decline',
+                                                style: TextStyle(
+                                                    fontSize: 14.sp,
+                                                    fontWeight:
+                                                        FontWeight.w800),
+                                              ),
+                                      ),
+                                    ),
+                                  ],
                                   SizedBox(height: 8.h),
                                   Text(
                                     canAfford

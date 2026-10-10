@@ -50,6 +50,7 @@ export 'quiz_controller.dart' show QuizMode;
 class QuestionsPage extends StatefulWidget {
   final QuizMode mode;
   final List<String> selectedTitles;
+  final String soloDifficulty;
   final List<String>? questionIds;
   final String? challengeId;
   final bool isCreator;
@@ -71,6 +72,7 @@ class QuestionsPage extends StatefulWidget {
     super.key,
     this.mode = QuizMode.solo,
     this.selectedTitles = const [],
+    this.soloDifficulty = 'easy',
     this.questionIds,
     this.challengeId,
     this.isCreator = true,
@@ -118,6 +120,7 @@ class _QuestionsPageState extends State<QuestionsPage>
     _controller = QuizController(
       mode: widget.mode,
       selectedTitles: widget.selectedTitles,
+      soloDifficulty: widget.soloDifficulty,
       questionIds: widget.questionIds,
       challengeId: widget.challengeId,
       isCreator: widget.isCreator,
@@ -144,6 +147,7 @@ class _QuestionsPageState extends State<QuestionsPage>
               correctCount: correct,
               totalQuestions: total,
               selectedTitles: widget.selectedTitles,
+              soloDifficulty: widget.soloDifficulty,
               coinsEarned: coins,
               wpEarned: wp,
               achievementCoins: achievementCoins,

@@ -10,14 +10,24 @@ import '../../core/services/prize_pool_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../admin/admin_payout_service.dart';
 import '../auth/auth_service.dart';
+import '../friends/add_friend_page.dart';
 import 'leaderboard_models.dart';
-import 'widgets/leaderboard_campus.dart';
+import 'widgets/campus_picker_card.dart';
+import 'widgets/friends_board_tab.dart';
 import 'widgets/leaderboard_pool_card.dart';
 import 'widgets/leaderboard_position.dart';
 import 'widgets/leaderboard_prizes.dart';
 import 'widgets/leaderboard_rows.dart';
 import 'widgets/leaderboard_sheets.dart';
 import 'widgets/leaderboard_states.dart';
+
+/// Small campus-chip payload: the campus name plus the COUNT-derived rank,
+/// or null rank when the count failed (chip then shows the campus only).
+class CampusChipData {
+  final String university;
+  final int? rank;
+  const CampusChipData({required this.university, required this.rank});
+}
 
 /// The paid weekly leaderboard ("Rankings").
 ///
@@ -26,19 +36,22 @@ import 'widgets/leaderboard_states.dart';
 /// header only offers a back affordance in the second case, so a tab never
 /// shows a button that would do nothing.
 ///
-/// DATA FRESHNESS
-/// The board is polled every [kLeaderboardRefreshInterval] (six hours, four
-/// times a day) rather than subscribed. Live snapshots held an open Firestore
-/// websocket per board for the whole time the page was mounted, streaming every
-/// cohort member's `weeklyPoints` write — for a weekly ranking, updates nobody
-/// reads that fast.
+/// DATA FRESHNESS (locked design, amended)
+/// The board rows are polled every [kLeaderboardRefreshInterval] (six hours,
+/// four times a day) rather than subscribed — one shared per-device cadence
+/// for Global, Friends and the campus chip. Live snapshots held an open
+/// Firestore websocket per board for the whole time the page was mounted,
+/// streaming every cohort member's `weeklyPoints` write — for a weekly
+/// ranking, updates nobody reads that fast.
 ///
-/// Two things refresh ahead of that cadence, because staleness there is
-/// actually harmful rather than merely stale:
-///   * the signed-in player's own weekly points, which arrive live via
-///     [UserDataProvider] and trigger an immediate re-read;
-///   * a resume, if the cache has aged past the refresh interval;
-///   * an explicit retry, only after the board fetch failed.
+/// Two things stay live AHEAD of that cadence, deliberately, at zero extra
+/// reads: the signed-in player's own weekly points (arrive live via
+/// [UserDataProvider]) and their own rank (recomputed from the stored
+/// snapshot against those live points). Everything else — other players'
+/// rows, friend rows, the campus-chip number — waits for the next refresh.
+/// Also refreshing ahead of cadence: a resume, if the cache has aged past
+/// the refresh interval; an explicit retry, only after the board fetch
+/// failed; an entry-week change (it swaps the cohort being queried).
 ///
 /// Nothing else triggers a read. In particular, scoring more points does NOT:
 /// the player's own points and rank are derived from the stored snapshot, so
@@ -66,6 +79,15 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
 
   /// True rank past the 100-row window, read at fetch time only.
   Future<WeeklyStanding> _standingFuture = Future.value(WeeklyStanding.none);
+
+  /// Friends board (getFriendsBoard callable, 6h client cache inside the
+  /// service). Assigned on the same cadence as the global snapshot.
+  Future<FriendsBoardData> _friendsFuture =
+      Future.value(const FriendsBoardData(friends: [], fetchedAt: null));
+
+  /// Campus chip (one COUNT query). Null rank hides the number, never errors.
+  Future<CampusChipData> _campusChipFuture =
+      Future.value(const CampusChipData(university: '', rank: null));
 
   /// When the current snapshot was READ. Set only on success, so a failed
   /// fetch leaves the page "stale" and a later resume retries it.
@@ -232,6 +254,14 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
       // The failure is rendered by the FutureBuilder's error state; swallowing
       // it here keeps it from escaping as an unhandled async error.
     }
+    // Retry also bypasses the friends cache so a failed friends fetch heals
+    // on tap rather than waiting out the 6h window.
+    if (_canRebuild) {
+      setState(() {
+        _friendsFuture =
+            FirestoreService.instance.fetchFriendsBoard(force: true);
+      });
+    }
   }
 
   Future<void> _refreshAndWait() => refreshAndWait();
@@ -259,6 +289,7 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
     final provider = _lastKnownProvider;
     final entryWeek = provider?.leaderboardEntryWeekId ?? '';
     final university = _userUniversity ?? '';
+    final myPoints = provider?.weeklyPoints ?? 0;
     final service = FirestoreService.instance;
 
     _prizesNonce++;
@@ -266,7 +297,6 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
     final snapshot = _fetchSnapshot(
       admin: isAdminUid(),
       entryWeek: entryWeek,
-      university: university,
     );
 
     // Arm the next refresh only once this one actually lands. A failure instead
@@ -293,18 +323,46 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
             entryWeek.isNotEmpty
         ? service.weeklyStanding(entryWeekId: entryWeek, eligible: true)
         : Future.value(WeeklyStanding.none);
+
+    // Friends + campus chip ride the same 6h cadence. Neither blocks nor
+    // fails the global snapshot: both degrade (empty / numberless) on error.
+    _friendsFuture = service.fetchFriendsBoard();
+    _campusChipFuture = _fetchCampusChip(
+      university: university,
+      entryWeek: entryWeek,
+      myPoints: myPoints,
+    );
   }
 
-  /// Reads the board, pool, floor, last finalised pool and campus board
-  /// concurrently into one snapshot.
+  /// One COUNT query (no 50-row board fetch): 1 + players above me on campus.
+  /// Null rank when campus unset, not entered, or the count failed.
+  Future<CampusChipData> _fetchCampusChip({
+    required String university,
+    required String entryWeek,
+    required int myPoints,
+  }) async {
+    if (university.isEmpty || entryWeek.isEmpty) {
+      return CampusChipData(university: university, rank: null);
+    }
+    final rank = await FirestoreService.instance.campusRankCount(
+      university: university,
+      entryWeekId: entryWeek,
+      myPoints: myPoints,
+    );
+    return CampusChipData(university: university, rank: rank);
+  }
+
+  /// Reads the board, pool, floor and last finalised pool concurrently into
+  /// one snapshot. The old 50-row campus board fetch is gone (replaced by
+  /// the campus-chip COUNT above): it cost up to 50 doc reads per refresh
+  /// for a tab nobody paid for.
   ///
-  /// Only the BOARD is allowed to fail the snapshot. Campus, pool, floor and
-  /// last-week reads each degrade to a safe default, because a failure in any of
-  /// them must not blank an otherwise-healthy Global tab.
+  /// Only the BOARD is allowed to fail the snapshot. Pool, floor and
+  /// last-week reads each degrade to a safe default, because a failure in any
+  /// of them must not blank an otherwise-healthy Global tab.
   Future<LeaderboardSnapshot> _fetchSnapshot({
     required bool admin,
     required String entryWeek,
-    required String university,
   }) async {
     final service = FirestoreService.instance;
 
@@ -318,21 +376,13 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
       service.fetchPrizePool().catchError((Object _) => const <String, dynamic>{}),
       service.guaranteedFloor().catchError((Object _) => 0.0),
       service.lastFinalisedPool().catchError((Object _) => null),
-      (university.isEmpty
-              ? Future.value(const <BoardEntry>[])
-              : service.fetchCampusLeaderboard(
-                  university,
-                  entryWeekId: admin ? '' : entryWeek,
-                  includeAll: admin,
-                ))
-          .catchError((Object _) => const <BoardEntry>[]),
     ]);
 
     final board = results[0]! as List<BoardEntry>;
 
     return LeaderboardSnapshot(
       global: board,
-      campus: results[4]! as List<BoardEntry>,
+      campus: const <BoardEntry>[],
       pool: results[1]! as Map<String, dynamic>,
       guaranteedFloor: (results[2]! as num).toDouble(),
       lastWeekPool: (results[3]! as num?)?.toDouble(),
@@ -354,26 +404,17 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
         _userUniversity = uni ?? '';
         _universityLoaded = true;
       });
-      // The campus board depends on the university, so re-read now.
+      // The campus chip depends on the university, so re-read now.
       _refresh();
     } catch (_) {
-      // Never leave the campus tab on an infinite spinner: a failed read
-      // (offline / permission) still unblocks the UI, which then offers the
-      // in-tab picker.
+      // Never leave the chip on an infinite spinner: a failed read
+      // (offline / permission) still unblocks the UI.
       if (!mounted) return;
       setState(() {
         _userUniversity = _userUniversity ?? '';
         _universityLoaded = true;
       });
     }
-  }
-
-  void _onUniversitySaved(String uni) {
-    setState(() {
-      _userUniversity = uni;
-      _universityLoaded = true;
-    });
-    _refresh();
   }
 
   @override
@@ -459,29 +500,127 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
               child: _RankingTabs(controller: _tabCtrl),
             ),
 
+            Padding(
+              padding: EdgeInsets.fromLTRB(20.r, 10.r, 20.r, 0.r),
+              child: _CampusChip(
+                chipFuture: _campusChipFuture,
+                universityLoaded: _universityLoaded,
+                entryWeek: provider?.leaderboardEntryWeekId ?? '',
+              ),
+            ),
+
             SizedBox(height: 4.h),
 
             Expanded(
               child: TabBarView(
                 controller: _tabCtrl,
                 children: [
-_GlobalLeaderboardTab(
+                  _GlobalLeaderboardTab(
                     snapshotFuture: _snapshotFuture,
                     standingFuture: _standingFuture,
                     prizesNonce: _prizesNonce,
                     onRetry: _refreshAndWait,
                   ),
-                  CampusLeaderboardTab(
-                    snapshotFuture: _snapshotFuture,
-                    university: _userUniversity,
-                    universityLoaded: _universityLoaded,
-                    onUniversitySaved: _onUniversitySaved,
+                  FriendsBoardTab(
+                    friendsFuture: _friendsFuture,
                     onRetry: _refreshAndWait,
+                    onAddFriend: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => const AddFriendPage()),
+                    ),
                   ),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Campus chip: "UNILAG · #N on campus" (one COUNT query, same 6h cadence).
+/// No number when the count failed; "Pick your campus" when unset;
+/// "UNILAG · join board to rank" when not entered. Tap opens the picker
+/// sheet (same card as Profile > Stats).
+class _CampusChip extends StatelessWidget {
+  final Future<CampusChipData> chipFuture;
+  final bool universityLoaded;
+  final String entryWeek;
+
+  const _CampusChip({
+    required this.chipFuture,
+    required this.universityLoaded,
+    required this.entryWeek,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!universityLoaded) return const SizedBox.shrink();
+    return FutureBuilder<CampusChipData>(
+      future: chipFuture,
+      builder: (context, snap) {
+        final data = snap.data;
+        final uni = data?.university ?? '';
+        if (uni.isEmpty) {
+          return _ChipShell(
+            label: 'Pick your campus',
+            onTap: () => openCampusPickerSheet(context),
+          );
+        }
+        final rank = data?.rank;
+        final label = entryWeek.isEmpty
+            ? '$uni · join board to rank'
+            : (rank == null ? uni : '$uni · #$rank on campus');
+        return _ChipShell(
+          label: label,
+          onTap: () => openCampusPickerSheet(context),
+        );
+      },
+    );
+  }
+}
+
+class _ChipShell extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _ChipShell({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding:
+              EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
+          decoration: BoxDecoration(
+            color: AppColors.secondary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20.r),
+            border: Border.all(
+                color: AppColors.secondary.withValues(alpha: 0.38)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.school_rounded,
+                  color: AppColors.secondary, size: 13.r),
+              SizedBox(width: 6.w),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.secondary,
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -521,7 +660,7 @@ class _RankingTabs extends StatelessWidget {
         ),
         tabs: const [
           Tab(text: 'Global'),
-          Tab(text: 'My Campus'),
+          Tab(text: 'Friends'),
         ],
       ),
     );

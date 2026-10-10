@@ -255,6 +255,46 @@ class WinnerClaimSummary {
       !paid && (claimStatus == null || claimStatus == 'expired');
 }
 
+/// One named rival distilled from match history: running record, most
+/// recent meeting, and whether that meeting was a loss (revenge affordance).
+class RivalSummary {
+  final String uid;
+  final String username;
+  int wins;
+  int losses;
+  int draws;
+  final DateTime lastPlayed;
+  final bool lastWasLoss;
+
+  RivalSummary({
+    required this.uid,
+    required this.username,
+    this.wins = 0,
+    this.losses = 0,
+    this.draws = 0,
+    required this.lastPlayed,
+    this.lastWasLoss = false,
+  });
+
+  int get total => wins + losses + draws;
+}
+
+/// A discoverable future rival (campus board row): identity + current
+/// weekly points for the bounty/suggested-rank context.
+class RivalCandidate {
+  final String uid;
+  final String username;
+  final int weeklyPoints;
+  final String university;
+
+  const RivalCandidate({
+    required this.uid,
+    required this.username,
+    required this.weeklyPoints,
+    required this.university,
+  });
+}
+
 // ─── Firestore Service ────────────────────────────────────────────────────────
 
 /// One picked question doc plus the mix slot it fills. [slot] is the tier
@@ -2294,6 +2334,134 @@ class FirestoreService {
     return {'wins': wins, 'losses': losses, 'draws': draws};
   }
 
+  // ─── Rivalries ──────────────────────────────────────────────────────────────
+  //
+  // The rivalry overhaul organises multiplayer around PEOPLE, not modes:
+  //   • rivalry docs (rivalries/{sortedUidPair}) hold best-of-5 series state,
+  //     maintained server-side in _resolveChallengeCore (ranked duels only).
+  //   • recentRivals() derives the "Your Rivalries" list from match history
+  //     (one query, grouped client-side — no N+1 head-to-head reads).
+  //   • Spars are created through the same createChallenge callable with
+  //     challengeType 'spar' and zero stakes.
+
+  /// Stable doc id for the rivalry between two users (order-independent).
+  /// Mirrors the server's `${aUid}_${bUid}` construction in
+  /// _resolveChallengeCore — change both together.
+  static String rivalryDocId(String uid1, String uid2) {
+    final pair = [uid1.trim(), uid2.trim()]..sort();
+    return '${pair[0]}_${pair[1]}';
+  }
+
+  /// Live series state for the rivalry with [otherUid], or null when no
+  /// ranked duel has ever been played between the pair (series start 1-0).
+  /// firestore.rules permits reads only to the two participants.
+  Stream<Map<String, dynamic>?> rivalryStream(String otherUid) {
+    if (_uid == null || otherUid.isEmpty) return Stream.value(null);
+    return _db
+        .collection('rivalries')
+        .doc(rivalryDocId(_uid!, otherUid))
+        .snapshots()
+        .map((s) => s.data());
+  }
+
+  /// Creates a friendly spar (zero stakes) vs a named rival. Returns the
+  /// server payload `{ challengeId, questionIds }` — the caller takes the
+  /// creator straight into the quiz page, exactly like the stake screen
+  /// does for staked duels.
+  ///
+  /// Throws [FirebaseFunctionsException] with `resource-exhausted` /
+  /// `daily_spar_limit_reached` when the daily spar budget is spent.
+  Future<Map<String, dynamic>> createSparChallenge({
+    required String animeTitle,
+    required String opponentUid,
+    required String opponentUsername,
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('createChallenge');
+    final res = await callable.call({
+      'animeTitle': animeTitle.trim().toLowerCase(),
+      'stakeAmount': 0,
+      'wpStake': 0,
+      'opponentUid': opponentUid,
+      'opponentUsername': opponentUsername,
+      'challengeType': 'spar',
+      ...AppUpdateService.instance.clientBuildStamp,
+    });
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  /// Recent named rivals derived from ONE match-history query (no N+1).
+  /// Ghost sessions (no opponentUid) are skipped. Sorted by most recent
+  /// duel first. Each entry carries the running W/L/D vs that rival plus
+  /// whether the last meeting was a loss (drives the "revenge" affordance).
+  Future<List<RivalSummary>> recentRivals({int limit = 30}) async {
+    if (_uid == null) return [];
+    final snap = await _userDoc
+        .collection('matches')
+        .orderBy('timestamp', descending: true)
+        .limit(limit)
+        .get();
+    final byUid = <String, RivalSummary>{};
+    final order = <String>[];
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final rUid = (data['opponentUid'] as String?) ?? '';
+      if (rUid.isEmpty || rUid == 'ghost') continue;
+      final name = (data['opponent'] as String?) ?? 'Rival';
+      final outcome = data['outcome'] as String?;
+      final ts =
+          (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+      var entry = byUid[rUid];
+      if (entry == null) {
+        entry = RivalSummary(
+          uid: rUid,
+          username: name,
+          lastPlayed: ts,
+          lastWasLoss: outcome == 'lose',
+        );
+        byUid[rUid] = entry;
+        order.add(rUid);
+      }
+      if (outcome == 'win') {
+        entry.wins++;
+      } else if (outcome == 'lose') {
+        entry.losses++;
+      } else if (outcome == 'draw') {
+        entry.draws++;
+      }
+    }
+    return [for (final uid in order) byUid[uid]!];
+  }
+
+  /// Same-university, same-week players for the discovery sheet's Campus
+  /// tab. Both filters satisfy the users read rule (same-week entrants).
+  Future<List<RivalCandidate>> campusRivals({
+    required String university,
+    required String weekId,
+    int limit = 20,
+  }) async {
+    if (_uid == null || university.isEmpty || weekId.isEmpty) return [];
+    final snap = await _db
+        .collection('users')
+        .where('university', isEqualTo: university)
+        .where('leaderboardEntryWeekId', isEqualTo: weekId)
+        .limit(limit)
+        .get();
+    final out = <RivalCandidate>[];
+    for (final doc in snap.docs) {
+      if (doc.id == _uid) continue;
+      final data = doc.data();
+      out.add(RivalCandidate(
+        uid: doc.id,
+        username: (data['username'] as String?) ?? 'Rival',
+        weeklyPoints: (data['weeklyPoints'] as num?)?.toInt() ?? 0,
+        university: (data['university'] as String?) ?? '',
+      ));
+    }
+    out.sort((a, b) => b.weeklyPoints.compareTo(a.weeklyPoints));
+    return out;
+  }
+
   Future<List<String>> _pickRandomQuestionIds(
     String animeTitle,
     int count,
@@ -2561,6 +2729,224 @@ class FirestoreService {
       await _userDoc.set({'fcmToken': token}, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[FirestoreService] saveFcmToken error (ignored): $e');
+    }
+  }
+
+  // ─── Friends (callables only; reads of friendLinks are owner-direct) ─────
+  //
+  // All friendship writes go through the friend callables (Admin SDK bypasses
+  // rules; firestore.rules denies client writes to friendships/friendLinks/
+  // friendCodes). Every payload includes the client build stamp so the
+  // server's Android gate applies (same pattern as submitPayoutDetails).
+
+  Map<String, dynamic> _friendStamp(Map<String, dynamic> payload) => {
+        ...payload,
+        ...AppUpdateService.instance.clientBuildStamp,
+      };
+
+  Future<String> getMyFriendCode() async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('getMyFriendCode');
+    final res = await callable.call(_friendStamp({}));
+    final data = Map<String, dynamic>.from(res.data as Map);
+    return (data['friendCode'] as String?) ?? '';
+  }
+
+  Future<void> sendFriendRequest({String? code, String? uid}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('sendFriendRequest');
+    await callable.call(_friendStamp({
+      if (code != null) 'code': code,
+      if (uid != null) 'uid': uid,
+    }));
+  }
+
+  Future<void> respondFriendRequest({
+    required String otherUid,
+    required bool accept,
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('respondFriendRequest');
+    await callable.call(_friendStamp({'otherUid': otherUid, 'accept': accept}));
+  }
+
+  Future<void> cancelFriendRequest({required String otherUid}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('cancelFriendRequest');
+    await callable.call(_friendStamp({'otherUid': otherUid}));
+  }
+
+  Future<void> blockUser({required String otherUid}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('blockUser');
+    await callable.call(_friendStamp({'otherUid': otherUid}));
+  }
+
+  Future<void> unblockUser({required String otherUid}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('unblockUser');
+    await callable.call(_friendStamp({'otherUid': otherUid}));
+  }
+
+  Future<void> removeFriend({required String otherUid}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('removeFriend');
+    await callable.call(_friendStamp({'otherUid': otherUid}));
+  }
+
+  /// All link uids the caller has in ANY state (friend/incoming/outgoing/
+  /// blocked). Used to exclude people from campus suggestions. One query,
+  /// no listener.
+  Future<Set<String>> getFriendLinkIds() async {
+    if (_uid == null) return {};
+    final snap = await _userDoc.collection('friendLinks').get();
+    return {for (final d in snap.docs) d.id};
+  }
+
+  /// Owner-direct reads of friendLinks by status (incoming/outgoing/blocked).
+  /// Friends themselves come from the getFriendsBoard callable (Sec C
+  /// override: no mirrors). One-shot, no listener.
+  Future<List<Map<String, dynamic>>> getFriendLinksByStatus(
+    String status,
+  ) async {
+    if (_uid == null) return [];
+    final snap = await _userDoc
+        .collection('friendLinks')
+        .where('status', isEqualTo: status)
+        .get();
+    return [
+      for (final d in snap.docs) {'uid': d.id, ...d.data()}
+    ];
+  }
+
+  /// Campus chip rank: 1 + count of same-campus, same-week players above me.
+  /// Returns null on any failure (chip then shows the campus without a
+  /// number — never an error state). Uses the existing
+  /// (university, entryWeek, weeklyPoints DESC) composite index.
+  Future<int?> campusRankCount({
+    required String university,
+    required String entryWeekId,
+    required int myPoints,
+  }) async {
+    if (_uid == null || university.isEmpty || entryWeekId.isEmpty) return null;
+    try {
+      final snap = await _db
+          .collection('users')
+          .where('university', isEqualTo: university)
+          .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
+          .where('weeklyPoints', isGreaterThan: myPoints)
+          .count()
+          .get();
+      return (snap.count ?? 0) + 1;
+    } catch (e) {
+      debugPrint('[FirestoreService] campusRankCount error: $e');
+      return null;
+    }
+  }
+
+  /// Preset nudge ("Your turn!" ping, server-templated text, no free text).
+  /// Pass [challengeId] when known (challenge cards); omit it and the server
+  /// nudges the pair's latest their-turn duel (Friends rows).
+  /// Throws [FirebaseFunctionsException]: not_friends / not_their_turn /
+  /// nothing_to_nudge / nudge_limit_reached.
+  Future<void> nudgeFriend({required String friendUid, String? challengeId}) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('nudgeFriend');
+    await callable.call(_friendStamp({
+      'friendUid': friendUid,
+      if (challengeId != null) 'challengeId': challengeId,
+    }));
+  }
+
+  /// One fixed-emoji reaction per user per settled challenge (CF-only write
+  /// to challenges/{id}.reactions.{uid}). Emoji must be one of 👏 🔥 😅 GG.
+  Future<void> reactToChallenge({
+    required String challengeId,
+    required String emoji,
+  }) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('reactToChallenge');
+    await callable.call(_friendStamp({
+      'challengeId': challengeId,
+      'emoji': emoji,
+    }));
+  }
+}
+
+/// Sanitized friend row returned by the getFriendsBoard callable.
+///
+/// weeklyPoints is null when the friend has no entry for the current week —
+/// the tab renders "-" and sorts those rows last (same convention as the
+/// Global tab's unranked rows).
+class FriendBoardEntry {
+  final String uid;
+  final String username;
+  final String university;
+  final int? weeklyPoints;
+  final String? entryWeekId;
+
+  const FriendBoardEntry({
+    required this.uid,
+    required this.username,
+    required this.university,
+    required this.weeklyPoints,
+    required this.entryWeekId,
+  });
+
+  factory FriendBoardEntry.fromMap(Map<String, dynamic> map) =>
+      FriendBoardEntry(
+        uid: (map['uid'] as String?) ?? '',
+        username: (map['username'] as String?) ?? 'Deleted user',
+        university: (map['university'] as String?) ?? '',
+        weeklyPoints: (map['weeklyPoints'] as num?)?.toInt(),
+        entryWeekId: map['entryWeekId'] as String?,
+      );
+}
+
+/// One cached fetch of the friends board: friend rows + when it was read.
+/// Assembled by [fetchFriendsBoard]; the weekly page holds it as a
+/// reassignable future on the same 6h cadence as the global snapshot.
+class FriendsBoardData {
+  final List<FriendBoardEntry> friends;
+  final DateTime? fetchedAt;
+
+  const FriendsBoardData({required this.friends, required this.fetchedAt});
+}
+
+extension FriendsBoardFetch on FirestoreService {
+  static List<FriendBoardEntry>? _friendsCache;
+  static DateTime? _friendsCacheAt;
+
+  /// Calls getFriendsBoard (zero writes server-side) and caches for 6h.
+  /// A forced call (retry) bypasses the cache. Never throws: failures yield
+  /// an empty list with a null fetchedAt so the tab shows its error state.
+  Future<FriendsBoardData> fetchFriendsBoard({bool force = false}) async {
+    final now = DateTime.now();
+    if (!force &&
+        _friendsCache != null &&
+        _friendsCacheAt != null &&
+        now.difference(_friendsCacheAt!).inHours < 6) {
+      return FriendsBoardData(
+          friends: _friendsCache!, fetchedAt: _friendsCacheAt);
+    }
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('getFriendsBoard');
+      final res = await callable.call(
+          {...AppUpdateService.instance.clientBuildStamp});
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final raw = (data['friends'] as List?) ?? const [];
+      final friends = raw
+          .map((e) =>
+              FriendBoardEntry.fromMap(Map<String, dynamic>.from(e as Map)))
+          .where((e) => e.uid.isNotEmpty)
+          .toList();
+      _friendsCache = friends;
+      _friendsCacheAt = now;
+      return FriendsBoardData(friends: friends, fetchedAt: now);
+    } catch (e) {
+      debugPrint('[FirestoreService] fetchFriendsBoard error: $e');
+      return const FriendsBoardData(friends: [], fetchedAt: null);
     }
   }
 }

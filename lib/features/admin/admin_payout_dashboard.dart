@@ -1,19 +1,21 @@
 // lib/features/admin/admin_payout_dashboard.dart
 //
-// Admin Payout Dashboard — manual review + approval of weekly leaderboard
-// payout claims.
+// Admin Payout Dashboard — manual payment of weekly leaderboard prizes.
 //
-// WHAT THIS IS: a thin administrative UI around the EXISTING backend. The
-// only money-movement path is the existing `approveLeaderboardPayout`
-// callable (server-derived amounts, server-side reservation/idempotency,
-// Flutterwave transfer, webhook-confirmed paid). This page never calls
-// Flutterwave, never writes payoutLedger / payouts / paid=true, never sends
-// an amount, and never displays full bank account numbers (server-masked
-// ****last4 only).
+// PAYOUTS ARE MANUAL. The app never moves money. The admin transfers from
+// their own bank app using the details shown here, then taps "Mark as paid"
+// to record it. This page's entire job is: who needs paying, what are their
+// exact bank details, and tick them off.
 //
-// Paid is displayed ONLY when the backend says ranked[].paid == true. A
-// successful approval shows "Transfer submitted / awaiting Flutterwave
-// confirmation" — never "Paid".
+// The only state-changing call is `markLeaderboardPayout`, which sends just
+// {weekId, uid, paid} — never an amount. The backend derives the amount from
+// ranked[].share.
+//
+// Account numbers are shown UNMASKED here because the admin has to type them
+// into a banking app. This is the one meaningful widening of exposure versus
+// a masked feed, so it must never happen outside the admin-gated callable.
+//
+// Paid is displayed ONLY when the backend says ranked[].paid == true.
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -71,17 +73,22 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
   List<AdminPayoutCycle> _cycles = [];
   Map<String, String> _bankNames = {};
   String? _selectedWeekId;
-  String _filter = 'Needs approval';
+  String _filter = 'Awaiting payment';
   bool _refreshing = false;
   bool _exporting = false;
   bool _scoring = false;
 
+  /// Live prize-pool state for the CURRENT week (independent of which cycle
+  /// is selected in the list below — a pool can only be set for the live week).
+  PrizePoolStatus? _pool;
+  bool _poolSaving = false;
+  bool _poolLoading = true;
+
   static const _filters = <String>[
-    'Needs approval',
-    'All',
-    'Approved',
+    'Awaiting payment',
     'Paid',
-    'Attention',
+    'Expired',
+    'All',
   ];
 
   @override
@@ -137,6 +144,9 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
         _selectedWeekId ??= cycles.isNotEmpty ? cycles.first.weekId : null;
         _state = _LoadState.ready;
       });
+      // Pool state is independent of the cycle list and must not fail the
+      // whole dashboard — a non-admin already returned above.
+      await _loadPool();
     } on AdminPayoutException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -154,9 +164,62 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
     }
   }
 
+  /// Loads the live prize-pool card. Failures degrade to a retry banner rather
+  /// than blocking the payout queue, which is the part that must always work.
+  Future<void> _loadPool() async {
+    try {
+      final pool = await AdminPayoutService.instance.getPrizePoolStatus();
+      if (!mounted) return;
+      setState(() {
+        _pool = pool;
+        _poolLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _poolLoading = false);
+    }
+  }
+
+  Future<void> _savePool(int amount) async {
+    if (_poolSaving) return;
+    setState(() => _poolSaving = true);
+    try {
+      final pool =
+          await AdminPayoutService.instance.setPrizePool(amount);
+      if (!mounted) return;
+      setState(() => _pool = pool);
+      _snack('Prize pool for ${pool.weekId} fixed at '
+          '${formatNaira(amount.toDouble())}.');
+    } on AdminPayoutException catch (e) {
+      if (mounted) _snack(e.message);
+    } catch (_) {
+      if (mounted) _snack('Could not set the pool. Check your connection.');
+    } finally {
+      if (mounted) setState(() => _poolSaving = false);
+    }
+  }
+
+  Future<void> _clearPool() async {
+    if (_poolSaving) return;
+    setState(() => _poolSaving = true);
+    try {
+      final pool = await AdminPayoutService.instance.clearPrizePool();
+      if (!mounted) return;
+      setState(() => _pool = pool);
+      _snack('Reverted to the revenue-based pool.');
+    } on AdminPayoutException catch (e) {
+      if (mounted) _snack(e.message);
+    } catch (_) {
+      if (mounted) _snack('Could not revert the pool.');
+    } finally {
+      if (mounted) setState(() => _poolSaving = false);
+    }
+  }
+
   Future<void> _refresh() async {
     if (_refreshing) return;
     setState(() => _refreshing = true);
+    await _loadPool();
     try {
       final results = await Future.wait([
         AdminPayoutService.instance
@@ -188,7 +251,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
   }
 
   /// Runs server-side fraud scoring for the selected week, then reloads so
-  /// the fresh advisory scores render inline. Approval is never gated on
+  /// the fresh advisory scores render inline. Marking paid is never gated on
   /// this — scores are display-only.
   Future<void> _scoreFraud() async {
     if (_scoring) return;
@@ -200,7 +263,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
           await AdminPayoutService.instance.scoreFraudForWeek(weekId: week);
       if (!mounted) return;
       _snack('Fraud scoring complete: ${result.scored} account(s) scored. '
-          'Scores are advisory — review before approving.');
+          'Scores are advisory — check them before sending money.');
       await _refresh();
     } on AdminPayoutException catch (e) {
       if (mounted) _snack(e.message);
@@ -217,7 +280,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
     if (week == null) return;
     setState(() => _exporting = true);
     try {
-      // Existing exportPayoutLog callable, unchanged — scoped to the cycle.
+      // Bookkeeping CSV scoped to the cycle. Contains no account numbers.
       final result = await AdminPayoutService.instance.exportPayoutLog(
         fromWeekId: week,
         toWeekId: week,
@@ -255,23 +318,15 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
   List<AdminClaimInfo> _visibleClaims(AdminPayoutCycle cycle) {
     final claims = cycle.claims;
     switch (_filter) {
-      case 'Needs approval':
-        return claims.where((c) => c.needsApproval).toList();
-      case 'Approved':
-        return claims
-            .where((c) =>
-                c.queueState == AdminQueueState.approvedAwaiting)
-            .toList();
+      case 'Awaiting payment':
+        return claims.where((c) => c.needsPayment).toList();
       case 'Paid':
         return claims
             .where((c) => c.queueState == AdminQueueState.paid)
             .toList();
-      case 'Attention':
+      case 'Expired':
         return claims
-            .where((c) =>
-                c.queueState == AdminQueueState.failed ||
-                c.queueState == AdminQueueState.reservedNeedsReview ||
-                c.queueState == AdminQueueState.expired)
+            .where((c) => c.queueState == AdminQueueState.expired)
             .toList();
       case 'All':
       default:
@@ -285,11 +340,11 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _ReviewDialog(
+      builder: (_) => _PaymentDialog(
         weekId: cycle.weekId,
         claim: claim,
         bankDisplay: _bankDisplay(claim.bankCode),
-        onApproved: _refresh,
+        onChanged: _refresh,
       ),
     );
   }
@@ -389,6 +444,14 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
       child: ListView(
         padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 32.r),
         children: [
+          _PrizePoolCard(
+            pool: _pool,
+            loading: _poolLoading,
+            saving: _poolSaving,
+            onSave: _savePool,
+            onClear: _clearPool,
+          ),
+          SizedBox(height: 12.h),
           _CycleSelector(
             cycles: _cycles,
             selectedWeekId: cycle.weekId,
@@ -415,6 +478,432 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
               ),
               SizedBox(height: 10.h),
             ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Prize pool card ─────────────────────────────────────────────────────────
+//
+// Sets the CURRENT week's prize pool to one fixed naira amount. The amount
+// REPLACES the revenue-based figure (70% of entry sales) rather than adding to
+// it — one number you control, not a total you have to predict.
+//
+// Only the current week is editable. Once weeklyReset has snapshotted the
+// cycle, winners' shares are already derived from the pool, so the server
+// refuses further changes. The card says so instead of silently failing.
+class _PrizePoolCard extends StatefulWidget {
+  final PrizePoolStatus? pool;
+  final bool loading;
+  final bool saving;
+  final ValueChanged<int> onSave;
+  final VoidCallback onClear;
+
+  const _PrizePoolCard({
+    required this.pool,
+    required this.loading,
+    required this.saving,
+    required this.onSave,
+    required this.onClear,
+  });
+
+  @override
+  State<_PrizePoolCard> createState() => _PrizePoolCardState();
+}
+
+class _PrizePoolCardState extends State<_PrizePoolCard> {
+  final _ctrl = TextEditingController();
+  bool _dirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromServer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PrizePoolCard old) {
+    super.didUpdateWidget(old);
+    // Reflect a server-side change, but never clobber what the admin is typing.
+    if (!_dirty) _syncFromServer();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _syncFromServer() {
+    final amount = widget.pool?.adminPoolNaira;
+    final text = amount == null
+        ? ''
+        : (amount == amount.roundToDouble()
+            ? amount.round().toString()
+            : amount.toStringAsFixed(2));
+    if (_ctrl.text != text) _ctrl.text = text;
+  }
+
+  Future<void> _confirmSave() async {
+    final raw = _ctrl.text.trim().replaceAll(RegExp(r'[^0-9.]'), '');
+    final value = double.tryParse(raw);
+    if (value == null || value <= 0) {
+      _snackPool('Enter an amount greater than zero.');
+      return;
+    }
+    if (value != value.roundToDouble()) {
+      _snackPool('Use whole naira — no kobo.');
+      return;
+    }
+    final pool = widget.pool;
+    if (pool != null && value > pool.maxPoolNaira.toDouble()) {
+      _snackPool('That is above the '
+          '${formatNaira(pool.maxPoolNaira.toDouble())} limit.');
+      return;
+    }
+
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        title: Text(
+          'Fix the pool at ${formatNaira(value)}?',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16.sp,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          'This REPLACES the revenue-based pool for week ${pool?.weekId ?? ''} '
+          '— it does not add to it.\n\n'
+          'When the week closes, this is the amount the winning shares are '
+          'calculated from, and it becomes a real payout obligation you pay by '
+          'hand.',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12.sp,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Set pool',
+              style: TextStyle(color: AppColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    widget.onSave(value.round());
+    if (mounted) setState(() => _dirty = false);
+  }
+
+  Future<void> _confirmClear() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        title: Text(
+          'Revert to revenue-based pool?',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16.sp,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          'The fixed amount is removed. This week goes back to 70% of '
+          'leaderboard entry sales.',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12.sp,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Revert',
+              style: TextStyle(color: AppColors.wrong),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    widget.onClear();
+    if (mounted) setState(() => _dirty = false);
+  }
+
+  void _snackPool(String m) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(m), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pool = widget.pool;
+
+    if (widget.loading) {
+      return Container(
+        padding: EdgeInsets.all(18.r),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Center(
+          child: SizedBox(
+            width: 18.r,
+            height: 18.r,
+            child: const CircularProgressIndicator(
+              color: AppColors.primary,
+              strokeWidth: 2,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (pool == null) {
+      return Container(
+        padding: EdgeInsets.all(14.r),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14.r),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off_rounded,
+                color: AppColors.textMuted, size: 18.r),
+            SizedBox(width: 10.w),
+            Expanded(
+              child: Text(
+                'Prize pool unavailable — pull to refresh.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final diff = pool.differenceFromRevenue;
+    final diffColor = diff >= 0 ? AppColors.correct : AppColors.accent;
+
+    return Container(
+      padding: EdgeInsets.all(16.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(
+          color: pool.isFixed
+              ? AppColors.primary.withValues(alpha: 0.5)
+              : AppColors.divider,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Prize pool · week of ${pool.weekId}',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
+                decoration: BoxDecoration(
+                  color: (pool.isFixed ? AppColors.primary : AppColors.textMuted)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8.r),
+                  border: Border.all(
+                    color: (pool.isFixed ? AppColors.primary : AppColors.textMuted)
+                        .withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Text(
+                  pool.isFixed ? 'FIXED' : 'FROM SALES',
+                  style: TextStyle(
+                    color: pool.isFixed ? AppColors.primary : AppColors.textMuted,
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          Text(
+            formatNaira(pool.effectivePool),
+            style: TextStyle(
+              color: AppColors.correct,
+              fontSize: 26.sp,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.5,
+            ),
+          ),
+          Text(
+            pool.isFixed
+                ? 'Fixed by you — replaces the sales-based figure'
+                : '70% of ${formatNaira(pool.entryCodeRevenue)} entry sales',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11.sp,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (pool.isFixed) ...[
+            SizedBox(height: 4.h),
+            Row(
+              children: [
+                Icon(
+                  diff >= 0
+                      ? Icons.trending_up_rounded
+                      : Icons.trending_down_rounded,
+                  color: diffColor,
+                  size: 13.r,
+                ),
+                SizedBox(width: 5.w),
+                Text(
+                  '${diff >= 0 ? '+' : ''}${formatNaira(diff)} vs sales-based',
+                  style: TextStyle(
+                    color: diffColor,
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          SizedBox(height: 12.h),
+          if (pool.weekClosed)
+            Container(
+              padding: EdgeInsets.all(10.r),
+              decoration: BoxDecoration(
+                color: AppColors.textMuted.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10.r),
+                border: Border.all(
+                  color: AppColors.textMuted.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Text(
+                'This week has closed. Its pool is fixed and the winners\' '
+                'shares are already calculated.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11.sp,
+                  height: 1.45,
+                ),
+              ),
+            )
+          else ...[
+            Text(
+              'SET A FIXED AMOUNT (₦)',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 10.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.0,
+              ),
+            ),
+            SizedBox(height: 6.h),
+            TextField(
+              controller: _ctrl,
+              enabled: !widget.saving,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
+              onChanged: (_) => setState(() => _dirty = true),
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16.sp,
+                fontWeight: FontWeight.w900,
+              ),
+              decoration: InputDecoration(
+                hintText: 'e.g. 10000',
+                hintStyle: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceAlt,
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12.r, vertical: 12.r),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11.r),
+                  borderSide: const BorderSide(color: AppColors.divider),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11.r),
+                  borderSide: const BorderSide(color: AppColors.divider),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11.r),
+                  borderSide:
+                      const BorderSide(color: AppColors.primary, width: 1.5),
+                ),
+              ),
+            ),
+            SizedBox(height: 10.h),
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton(
+                    label: widget.saving ? 'Saving…' : 'Set pool',
+                    variant: AppButtonVariant.primary,
+                    size: AppButtonSize.small,
+                    loading: widget.saving,
+                    onPressed: widget.saving ? null : _confirmSave,
+                  ),
+                ),
+                if (pool.isFixed) ...[
+                  SizedBox(width: 10.w),
+                  AppButton(
+                    label: 'Revert',
+                    variant: AppButtonVariant.outline,
+                    size: AppButtonSize.small,
+                    onPressed: widget.saving ? null : _confirmClear,
+                  ),
+                ],
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -605,9 +1094,9 @@ class _StatGrid extends StatelessWidget {
       ('Floor', formatNaira(cycle.guaranteedFloor)),
       ('Winners', '${cycle.eligibleCount}'),
       ('Submitted', '${cycle.claimsSubmitted}'),
-      ('Approved', '${cycle.claimsApproved}'),
       ('Paid', '${cycle.paidCount}'),
-      ('Pending', '${cycle.pendingCount}'),
+      ('Awaiting', '${cycle.pendingCount}'),
+      ('To send', formatNaira(cycle.pendingAmount)),
     ];
     return Wrap(
       spacing: 8.r,
@@ -665,21 +1154,12 @@ class _FilterRow extends StatelessWidget {
 
   int _countFor(String f) {
     switch (f) {
-      case 'Needs approval':
+      case 'Awaiting payment':
         return cycle.pendingCount;
-      case 'Approved':
-        return cycle.claims
-            .where((c) =>
-                c.queueState == AdminQueueState.approvedAwaiting)
-            .length;
       case 'Paid':
         return cycle.paidCount;
-      case 'Attention':
-        return cycle.failedCount +
-            cycle.claims
-                .where((c) =>
-                    c.queueState == AdminQueueState.expired)
-                .length;
+      case 'Expired':
+        return cycle.expiredCount;
       case 'All':
       default:
         return cycle.claims.length;
@@ -820,15 +1300,13 @@ class _ClaimCard extends StatelessWidget {
               runSpacing: 7.r,
               children: [
                 _StateChip(state: state),
-                _ResolutionChip(match: claim.resolvedNameMatch),
                 _FraudChip(claim: claim),
               ],
             ),
             SizedBox(height: 10.h),
             _ClaimLine(
               icon: Icons.account_balance_rounded,
-              text:
-                  '$bankDisplay · ${claim.maskedAccount ?? '—'}',
+              text: '$bankDisplay · ${claim.accountNumber ?? '—'}',
             ),
             SizedBox(height: 4.h),
             _ClaimLine(
@@ -842,7 +1320,16 @@ class _ClaimCard extends StatelessWidget {
                 text: 'Claimed ${_formatTime(claim.submittedAt)}',
               ),
             ],
-            // ── Phase 3 fraud advisory (display-only, never gates approval)
+            if (claim.markedAt != null) ...[
+              SizedBox(height: 4.h),
+              _ClaimLine(
+                icon: Icons.check_circle_outline_rounded,
+                text: 'Sent ${_formatTime(claim.markedAt)}'
+                    '${(claim.payoutReference ?? '').isEmpty ? '' : ' · ref ${claim.payoutReference}'}',
+                color: AppColors.correct,
+              ),
+            ],
+            // ── Fraud advisory (display-only, never gates marking paid)
             if (claim.fraudReasons.isNotEmpty) ...[
               SizedBox(height: 8.h),
               Text(
@@ -863,22 +1350,13 @@ class _ClaimCard extends StatelessWidget {
                   ),
                 ),
             ],
-            if (state == AdminQueueState.failed &&
-                (claim.failedReason ?? '').isNotEmpty) ...[
-              SizedBox(height: 4.h),
-              _ClaimLine(
-                icon: Icons.warning_amber_rounded,
-                text: 'Failed: ${claim.failedReason}',
-                color: AppColors.wrong,
-              ),
-            ],
-            if (state == AdminQueueState.reservedNeedsReview) ...[
+            if (state == AdminQueueState.expired) ...[
               SizedBox(height: 4.h),
               const _ClaimLine(
-                icon: Icons.help_outline_rounded,
+                icon: Icons.timer_off_outlined,
                 text:
-                    'Reserved with unknown outcome — reconcile on the Flutterwave dashboard before any retry.',
-                color: AppColors.accent,
+                    'Claim window closed — this prize was forfeited. Nothing to send.',
+                color: AppColors.textMuted,
               ),
             ],
           ],
@@ -926,14 +1404,9 @@ class _StateChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (state) {
-      AdminQueueState.pending => ('AWAITING APPROVAL', AppColors.accent),
-      AdminQueueState.approvedAwaiting =>
-        ('TRANSFER SUBMITTED', AppColors.secondary),
+      AdminQueueState.pending => ('AWAITING PAYMENT', AppColors.accent),
       AdminQueueState.paid => ('PAID', AppColors.correct),
-      AdminQueueState.failed => ('FAILED', AppColors.wrong),
       AdminQueueState.expired => ('EXPIRED', AppColors.textMuted),
-      AdminQueueState.reservedNeedsReview =>
-        ('NEEDS RECONCILIATION', AppColors.accent),
       AdminQueueState.notSubmitted => ('NO CLAIM', AppColors.textMuted),
     };
     return Container(
@@ -956,10 +1429,9 @@ class _StateChip extends StatelessWidget {
   }
 }
 
-/// Phase 3 fraud advisory chip — display-only. Renders the server-computed
-/// suspicion band + score next to each payout-eligible player. Unscored
-/// (scoreFraudForWeek not yet run) shows a muted placeholder. Never gates
-/// approval; the approve path does not read this widget.
+/// Fraud advisory chip — display-only. Renders the server-computed suspicion
+/// band + score next to each winner. Unscored (scoreFraudForWeek not yet run)
+/// shows a muted placeholder. Never gates marking paid.
 class _FraudChip extends StatelessWidget {
   final AdminClaimInfo claim;
   const _FraudChip({required this.claim});
@@ -1012,101 +1484,129 @@ class _FraudChip extends StatelessWidget {
   }
 }
 
-class _ResolutionChip extends StatelessWidget {  final bool? match;
-  const _ResolutionChip({required this.match});
+// ─── Payment dialog ─────────────────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (match) {
-      true => ('NAME MATCH', AppColors.correct),
-      false => ('REVIEW REQUIRED', AppColors.accent),
-      null => ('RESOLUTION UNAVAILABLE', AppColors.textMuted),
-    };
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(8.r),
-        border: Border.all(color: color.withValues(alpha: 0.30)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 10.sp,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Review dialog ──────────────────────────────────────────────────────────
-
-class _ReviewDialog extends StatefulWidget {
+class _PaymentDialog extends StatefulWidget {
   final String weekId;
   final AdminClaimInfo claim;
   final String bankDisplay;
-  final VoidCallback onApproved;
+  final VoidCallback onChanged;
 
-  const _ReviewDialog({
+  const _PaymentDialog({
     required this.weekId,
     required this.claim,
     required this.bankDisplay,
-    required this.onApproved,
+    required this.onChanged,
   });
 
   @override
-  State<_ReviewDialog> createState() => _ReviewDialogState();
+  State<_PaymentDialog> createState() => _PaymentDialogState();
 }
 
-class _ReviewDialogState extends State<_ReviewDialog> {
-  // Guards the Approve button: while true no second call can be issued
-  // (button disabled + early return). Never auto-retries on failure.
-  bool _approving = false;
+class _PaymentDialogState extends State<_PaymentDialog> {
+  // Guards both buttons: while true no second call can be issued (buttons
+  // disabled + early return). Never auto-retries on failure.
+  bool _busy = false;
   String? _outcome;
   bool _outcomeOk = false;
 
-  String get _resolutionText => switch (widget.claim.resolvedNameMatch) {
-        true => 'MATCH',
-        false => 'REVIEW REQUIRED',
-        null => 'UNAVAILABLE',
-      };
+  final _referenceCtrl = TextEditingController();
 
-  Future<void> _approve() async {
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.claim.payoutReference;
+    if (existing != null && existing.isNotEmpty) {
+      _referenceCtrl.text = existing;
+    }
+  }
+
+  @override
+  void dispose() {
+    _referenceCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirmSent() async {
     // Double-tap / double-fire guard.
-    if (_approving) return;
+    if (_busy) return;
+
+    // Explicit confirmation. "Paid" is a claim about what a human did that
+    // the app cannot verify, and it also permanently protects the prize from
+    // the 3-day expiry — so it must never be a single tap.
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        title: Text(
+          'Confirm you sent this',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16.sp,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          'Only continue if you have ALREADY transferred '
+          '${formatNaira(widget.claim.share)} to ${widget.claim.beneficiaryName} '
+          'at ${widget.bankDisplay}.\n\n'
+          'This app cannot send or verify the money — it only records that you '
+          'did. Marking it paid also stops the prize from expiring.',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12.sp,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not yet'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Yes, I sent it',
+              style: TextStyle(color: AppColors.correct),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+
     setState(() {
-      _approving = true;
+      _busy = true;
       _outcome = null;
     });
     try {
-      // The ONLY money-movement call in the entire dashboard.
-      final result = await AdminPayoutService.instance.approvePayout(
+      final result = await AdminPayoutService.instance.markPaid(
         weekId: widget.weekId,
         uid: widget.claim.uid,
+        payoutReference: _referenceCtrl.text,
       );
       if (!mounted) return;
       setState(() {
         _outcomeOk = result.ok;
-        _outcome = result.duplicate
-            ? 'Already handled: ${result.message} Refresh to see the current state.'
-            : result.ok
-                ? 'Transfer submitted / awaiting Flutterwave confirmation. '
-                    'This winner will show Paid only after the backend confirms completion.'
-                : result.message;
+        _outcome = result.ok
+            ? (result.allPaid
+                ? 'Recorded. Every winner in this week is now marked paid.'
+                : 'Recorded as sent.')
+            : result.message;
       });
-      if (result.ok) widget.onApproved();
+      widget.onChanged();
     } on AdminPayoutException catch (e) {
-      // Backend rejections (already submitted / reserved / expired / not
+      // Backend rejections (no claim / expired / share invalid / not
       // authorized / ...) surface here. No automatic retry — ever.
       if (!mounted) return;
       setState(() {
         _outcomeOk = false;
         _outcome = '${e.message} Nothing was retried automatically.';
       });
-      widget.onApproved();
+      widget.onChanged();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -1115,21 +1615,96 @@ class _ReviewDialogState extends State<_ReviewDialog> {
             'Network error. The backend state is unknown — refresh and verify before trying again.';
       });
     } finally {
-      if (mounted) setState(() => _approving = false);
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmRevert() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+        title: Text(
+          'Undo the payment mark?',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16.sp,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          'This winner goes back into the payment queue. Only use it if you '
+          'tapped Mark as paid by mistake — if you already sent the money, '
+          'leave it marked.',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12.sp,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Undo',
+              style: TextStyle(color: AppColors.wrong),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _outcome = null;
+    });
+    try {
+      final result = await AdminPayoutService.instance.markUnpaid(
+        weekId: widget.weekId,
+        uid: widget.claim.uid,
+      );
+      if (!mounted) return;
+      setState(() {
+        _outcomeOk = result.ok;
+        _outcome = result.ok ? result.message : result.message;
+      });
+      widget.onChanged();
+    } on AdminPayoutException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _outcomeOk = false;
+        _outcome = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _outcomeOk = false;
+        _outcome = 'Network error. Refresh and check the current state.';
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final claim = widget.claim;
-    final canApprove = claim.needsApproval && !_approving;
+    final canMark = claim.needsPayment && !_busy;
     return AlertDialog(
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.r),
       ),
       title: Text(
-        'Review payout',
+        'Pay this winner',
         style: TextStyle(
           color: AppColors.textPrimary,
           fontSize: 17.sp,
@@ -1145,23 +1720,26 @@ class _ReviewDialogState extends State<_ReviewDialog> {
             Container(
               padding: EdgeInsets.all(12.r),
               decoration: BoxDecoration(
-                color: AppColors.wrong.withValues(alpha: 0.08),
+                color: AppColors.accent.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(12.r),
                 border: Border.all(
-                  color: AppColors.wrong.withValues(alpha: 0.35),
+                  color: AppColors.accent.withValues(alpha: 0.35),
                 ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      color: AppColors.wrong, size: 18.r),
+                  Icon(Icons.info_outline_rounded,
+                      color: AppColors.accent, size: 18.r),
                   SizedBox(width: 9.w),
                   Expanded(
                     child: Text(
-                      claim.needsApproval
-                          ? "You're about to submit a real payout. Approval submits a real Flutterwave transfer."
-                          : 'This claim is not awaiting approval. Details below are read-only.',
+                      claim.needsPayment
+                          ? 'Send this from your own bank app first. Then mark '
+                              'it as paid so the winner sees it as settled. '
+                              'Nothing is sent from inside this app.'
+                          : 'This claim is not awaiting payment. Details below '
+                              'are read-only.',
                       style: TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 12.sp,
@@ -1185,19 +1763,64 @@ class _ReviewDialogState extends State<_ReviewDialog> {
             _ReviewRow(label: 'Bank', value: widget.bankDisplay),
             _ReviewRow(
               label: 'Account',
-              value: claim.maskedAccount ?? '—',
+              value: claim.accountNumber ?? '—',
             ),
             _ReviewRow(
               label: 'Beneficiary',
               value: claim.beneficiaryName ?? '—',
             ),
-            _ReviewRow(label: 'Resolution', value: _resolutionText),
             _ReviewRow(
               label: 'Claim',
               value: (claim.claimStatus ?? 'none').toUpperCase(),
             ),
-            if ((claim.failedReason ?? '').isNotEmpty)
-              _ReviewRow(label: 'Failed', value: claim.failedReason!),
+            if (claim.markedAt != null)
+              _ReviewRow(
+                label: 'Sent',
+                value: _formatTime(claim.markedAt),
+                highlight: true,
+              ),
+            if (claim.needsPayment) ...[
+              SizedBox(height: 12.h),
+              Text(
+                'Your bank reference (optional)',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11.sp,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              SizedBox(height: 5.h),
+              TextField(
+                controller: _referenceCtrl,
+                enabled: !_busy,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'e.g. NIP/2026-0917-00123',
+                  hintStyle: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.surfaceAlt,
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10.r),
+                    borderSide: BorderSide(color: AppColors.divider),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10.r),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
+                ),
+              ),
+            ],
             if (_outcome != null) ...[
               SizedBox(height: 10.h),
               Container(
@@ -1227,21 +1850,30 @@ class _ReviewDialogState extends State<_ReviewDialog> {
         ),
       ),
       actions: [
+        if (claim.paid)
+          TextButton(
+            onPressed: _busy ? null : _confirmRevert,
+            child: Text(
+              'Undo',
+              style: TextStyle(color: AppColors.wrong),
+            ),
+          ),
         TextButton(
-          onPressed: _approving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: const Text('Close'),
         ),
-        if (claim.needsApproval)
+        if (claim.needsPayment)
           AppButton(
-            // Button amount comes from the actual claim data — the admin
-            // can never type an arbitrary transfer amount.
-            label: _approving
-                ? 'Submitting…'
-                : 'Approve ${formatNaira(claim.share)}',
+            // The amount shown comes from server claim data — the admin can
+            // never type an arbitrary transfer amount. The call sends no
+            // amount at all.
+            label: _busy
+                ? 'Recording…'
+                : 'Mark as paid ${formatNaira(claim.share)}',
             variant: AppButtonVariant.primary,
             size: AppButtonSize.small,
-            loading: _approving,
-            onPressed: canApprove ? _approve : null,
+            loading: _busy,
+            onPressed: canMark ? _confirmSent : null,
           ),
       ],
     );
@@ -1419,8 +2051,8 @@ class _EmptyQueue extends StatelessWidget {
               color: AppColors.textMuted, size: 32.r),
           SizedBox(height: 10.h),
           Text(
-            filter == 'Needs approval'
-                ? 'Nothing awaiting approval.'
+            filter == 'Awaiting payment'
+                ? 'Nothing awaiting payment. Every winner has been sent their prize.'
                 : 'No payouts in this view.',
             style: TextStyle(
               color: AppColors.textSecondary,
@@ -1498,7 +2130,7 @@ class AdminPayoutEntry extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Review & approve winner payouts',
+                          'Pay weekly winner prizes',
                           style: TextStyle(
                             color: AppColors.textMuted,
                             fontSize: 11.sp,
@@ -1522,8 +2154,10 @@ class AdminPayoutEntry extends StatelessWidget {
   }
 }
 
-/// Copies [text] to the clipboard (export fallback / debugging aid only —
-/// never used for account numbers, which are masked server-side).
+/// Copies [text] to the clipboard (export fallback / debugging aid).
+///
+/// Never used for account numbers — copying one onto the system clipboard
+/// would leave full bank details readable by any other app.
 Future<void> copyAdminText(BuildContext context, String text) async {
   await Clipboard.setData(ClipboardData(text: text));
   if (context.mounted) {

@@ -32,6 +32,11 @@ enum ChallengeKind {
 
   /// Fast match vs. a ghost. No stake at all — flat AC and WP rewards only.
   quick,
+
+  /// Friendly unranked duel vs a named rival. Zero stakes, zero WP at risk —
+  /// a flat 5 WP on a win (inside the daily spar budget), nothing otherwise.
+  /// Never touches series score or win stats.
+  spar,
 }
 
 extension ChallengeKindX on ChallengeKind {
@@ -39,6 +44,7 @@ extension ChallengeKindX on ChallengeKind {
         ChallengeKind.rival => '⚔️ Rival Challenge',
         ChallengeKind.code => '📤 Code Challenge',
         ChallengeKind.quick => '⚡ Quick Match',
+        ChallengeKind.spar => '🤝 Spar',
       };
 
   /// Short form for dense chips.
@@ -46,24 +52,28 @@ extension ChallengeKindX on ChallengeKind {
         ChallengeKind.rival => 'Rival',
         ChallengeKind.code => 'Code',
         ChallengeKind.quick => 'Quick Match',
+        ChallengeKind.spar => 'Spar',
       };
 
   Color get accentColor => switch (this) {
         ChallengeKind.rival => const Color(0xFFFF6B00),
         ChallengeKind.code => AppColors.secondary,
         ChallengeKind.quick => AppColors.primary,
+        ChallengeKind.spar => AppColors.correct,
       };
 
   IconData get icon => switch (this) {
         ChallengeKind.rival => Icons.sports_martial_arts_rounded,
         ChallengeKind.code => Icons.qr_code_rounded,
         ChallengeKind.quick => Icons.bolt_rounded,
+        ChallengeKind.spar => Icons.sports_mma_rounded,
       };
 
   /// True when the mode puts a real currency at risk that was already deducted
-  /// at create/join time. Only Rival and Code are "staked" — Quick Match is
-  /// always free-to-enter, so its result copy must never talk about a stake.
-  bool get isStaked => this != ChallengeKind.quick;
+  /// at create/join time. Only Rival and Code are "staked" — Quick Match and
+  /// Spar are always free-to-enter, so their result copy must never talk
+  /// about a stake.
+  bool get isStaked => this == ChallengeKind.rival || this == ChallengeKind.code;
 
   /// True when the mode additionally risks Weekly Points. Rival stakes both
   /// currencies; Code stakes AC only.
@@ -122,7 +132,23 @@ class ChallengeModel {
   final DateTime expiresAt;
   final String? outcome; // "creator_wins" | "opponent_wins" | "draw"
   final bool isQuickMatch;
-  final String challengeType; // 'quick' | 'code' | 'rival'
+  final String challengeType; // 'quick' | 'code' | 'rival' | 'spar'
+
+  /// Upset-bounty winner (ranked rival duels only), written at resolve time.
+  final String? bountyWinnerUid;
+  final int bountyWP;
+
+  /// Rivalry-series state snapshot at resolve time (ranked duels only).
+  final int seriesNo;
+  final String? seriesWinnerUid;
+
+  /// Whether the +100 AC series prize was actually paid (false when the
+  /// 7-day anti-farm gate suppressed it). Written by _resolveChallengeCore.
+  final bool seriesPrizePaid;
+
+  /// Preset reactions (uid → one of 👏 🔥 😅 GG), written CF-only via
+  /// reactToChallenge. Shown on the result page; never affects settlement.
+  final Map<String, String> reactions;
 
   const ChallengeModel({
     required this.challengeId,
@@ -143,20 +169,29 @@ class ChallengeModel {
     this.outcome,
     this.isQuickMatch = false,
     required this.challengeType,
+    this.bountyWinnerUid,
+    this.bountyWP = 0,
+    this.seriesNo = 0,
+    this.seriesWinnerUid,
+    this.seriesPrizePaid = false,
+    this.reactions = const {},
   });
 
   // ── Kind ───────────────────────────────────────────────────────────────
-  /// Which of the three multiplayer modes this challenge belongs to.
+  /// Which of the four multiplayer modes this challenge belongs to.
   ///
   /// `isQuickMatch` is tested first because it is the one field the backend
   /// sets on every Quick Match document from creation (joinMatchmakingQueue).
-  /// string. `challengeType` is written as 'rival' | 'code' | 'quick' and is
-  /// only a *final* value — it is stamped at resolve time (_resolveChallengeCore)
-  /// and by saveGhostSession, so an in-flight document falls back to the
-  /// wpStake + opponent shape.
+  /// string. `challengeType` is written as 'rival' | 'code' | 'quick' | 'spar'
+  /// and is only a *final* value — it is stamped at resolve time
+  /// (_resolveChallengeCore) and by saveGhostSession, so an in-flight
+  /// document falls back to the wpStake + opponent shape below. Spar docs
+  /// carry the explicit type from creation (createChallenge), so they
+  /// resolve before any fallback is consulted.
   ChallengeKind get kind {
     if (isQuickMatch == true) return ChallengeKind.quick;
     if (challengeType == 'quick') return ChallengeKind.quick;
+    if (challengeType == 'spar') return ChallengeKind.spar;
     if (challengeType == 'rival' ||
         ((wpStake ?? 0) > 0 && opponentUid != null)) {
       return ChallengeKind.rival;
@@ -167,6 +202,7 @@ class ChallengeModel {
   bool get isRivalChallenge => kind == ChallengeKind.rival;
   bool get isCodeChallenge => kind == ChallengeKind.code;
   bool get isQuickMatchChallenge => kind == ChallengeKind.quick;
+  bool get isSparChallenge => kind == ChallengeKind.spar;
 
   /// True when Weekly Points are at stake (Rival only). Drives whether the
   /// result page splits WP into "stake settlement" + "participation reward".
@@ -269,6 +305,13 @@ class ChallengeModel {
   static const int challengeWinWpBonus = 50;
   static const int challengeDrawWpBonus = 25;
   static const int challengeLoseWpBonus = 0;
+
+  // ── Spar flat reward (mirrors SPAR_WP_WIN in functions/index.js) ─────────
+  // Spars pay 5 WP on a win while inside the daily spar budget, nothing
+  // otherwise. Change both together.
+  static const int sparWinWpBonus = 5;
+  static const int sparDrawWpBonus = 0;
+  static const int sparLoseWpBonus = 0;
 
   // ── Quick Match flat rewards (no stake involved at all) ─────────────────
   static const int quickMatchAcWin = 35;
@@ -441,6 +484,8 @@ class ChallengeModel {
   /// The flat Weekly Points participation reward, entirely separate from any
   /// stake. This is the "what you won for playing" number, and it is the one
   /// that used to be mislabelled as a stake settlement on a loss.
+  /// Spar preview: 5 WP on a win while inside the daily spar budget
+  /// (server-authoritative; over-budget wins pay 0).
   int wpBonusFor({required bool won, required bool isDraw}) {
     if (kind == ChallengeKind.quick) {
       return won
@@ -448,6 +493,13 @@ class ChallengeModel {
           : isDraw
               ? quickMatchWpDraw
               : quickMatchWpLose;
+    }
+    if (kind == ChallengeKind.spar) {
+      return won
+          ? sparWinWpBonus
+          : isDraw
+              ? sparDrawWpBonus
+              : sparLoseWpBonus;
     }
     return won
         ? challengeWinWpBonus
@@ -490,6 +542,15 @@ class ChallengeModel {
       outcome: d['outcome'] as String?,
       isQuickMatch: (d['isQuickMatch'] as bool?) ?? false,
       challengeType: (d['challengeType'] as String?) ?? 'code',
+      bountyWinnerUid: d['bountyWinnerUid'] as String?,
+      bountyWP: ((d['bountyWP'] as num?)?.toInt()) ?? 0,
+      seriesNo: ((d['seriesNo'] as num?)?.toInt()) ?? 0,
+      seriesWinnerUid: d['seriesWinnerUid'] as String?,
+      seriesPrizePaid: (d['seriesPrizePaid'] as bool?) ?? false,
+      reactions: (d['reactions'] is Map)
+          ? Map<String, String>.unmodifiable(
+              (d['reactions'] as Map).map((k, v) => MapEntry('$k', '$v')))
+          : const {},
     );
   }
 

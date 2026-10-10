@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0d0e14" />
+<title>App updates — AnimeQuiz</title>
+<meta name="description" content="Download the latest AnimeQuiz Android app and see what changed in each update." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #0d0e14;
+    --surface:     #16181f;
+    --surface-2:   #1c1f27;
+    --surface-3:   #23262f;
+    --divider:     rgba(255, 255, 255, 0.06);
+    --divider-2:   rgba(255, 255, 255, 0.10);
+
+    --primary:     #E63946;
+    --primary-hi:  #FF4D5E;
+    --primary-dim: rgba(230, 57, 70, 0.14);
+    --primary-ring:rgba(230, 57, 70, 0.22);
+
+    --sky:         #4EA8DE;
+    --accent:      #FFB300;
+    --accent-hi:   #FFD166;
+    --accent-dim:  rgba(255, 179, 0, 0.12);
+
+    --correct:     #38EF7D;
+    --correct-dim: rgba(56, 239, 125, 0.10);
+    --wrong:       #FF5252;
+
+    --ink:         #FFFFFF;
+    --muted:       #A8AEC2;
+    --muted-2:     #767B92;
+    --muted-3:     #4D5265;
+
+    --radius-xl:   24px;
+    --radius-lg:   18px;
+    --radius-md:   14px;
+    --radius-sm:   10px;
+
+    --font: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+  }
+
+  /* ── Ambient background ─────────────────────────────────────────── */
+  .ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .ambient::before,
+  .ambient::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(140px);
+    opacity: 0.28;
+    will-change: transform;
+  }
+  .ambient::before {
+    width: 640px; height: 640px;
+    top: -240px; left: -180px;
+    background: radial-gradient(circle, #E63946 0%, transparent 65%);
+    animation: drift-a 28s ease-in-out infinite;
+  }
+  .ambient::after {
+    width: 720px; height: 720px;
+    top: -160px; right: -240px;
+    background: radial-gradient(circle, #4EA8DE 0%, transparent 65%);
+    animation: drift-b 34s ease-in-out infinite;
+  }
+  @keyframes drift-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(120px, 80px) scale(1.08); }
+  }
+  @keyframes drift-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-140px, 100px) scale(1.05); }
+  }
+
+  /* ── Shell ─────────────────────────────────────────────────────── */
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 36px 24px 80px;
+  }
+
+  /* ── Top bar ───────────────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 28px;
+    margin-bottom: 56px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .brand-mark {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, #E63946, #FF4D5E);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 900;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.22) inset,
+      0 8px 20px rgba(230, 57, 70, 0.4);
+  }
+  .topbar-back {
+    font-size: 12.5px;
+    font-weight: 800;
+    color: var(--muted);
+    text-decoration: none;
+    transition: color .15s ease;
+  }
+  .topbar-back:hover { color: var(--primary-hi); }
+
+  /* ── Hero ──────────────────────────────────────────────────────── */
+  .hero { margin-bottom: 56px; }
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    margin-bottom: 22px;
+  }
+  .hero-eyebrow::before {
+    content: "";
+    width: 24px;
+    height: 1px;
+    background: var(--muted-3);
+  }
+  .hero h1 {
+    margin: 0 0 22px;
+    font-size: clamp(40px, 8vw, 76px);
+    font-weight: 900;
+    letter-spacing: -2.5px;
+    line-height: 0.98;
+    color: var(--ink);
+  }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, #E63946 0%, #FF4D5E 60%, #FFB300 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero-lede {
+    font-size: clamp(15px, 1.7vw, 17px);
+    color: var(--muted);
+    max-width: 560px;
+    margin: 0;
+    line-height: 1.6;
+    font-weight: 600;
+  }
+  .hero-lede strong {
+    color: var(--ink);
+    font-weight: 800;
+  }
+
+  /* ── Section ───────────────────────────────────────────────────── */
+  .section { margin-bottom: 56px; }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .step-num {
+    width: 28px; height: 28px;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--primary-dim);
+    color: var(--primary-hi);
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid rgba(230, 57, 70, 0.3);
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .section-hint {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+
+  /* ── Latest release card ───────────────────────────────────────── */
+  .release {
+    position: relative;
+    padding: 32px 30px 30px;
+    border-radius: var(--radius-xl);
+    background:
+      radial-gradient(ellipse at 90% 10%, rgba(255, 179, 0, 0.10), transparent 55%),
+      linear-gradient(180deg, #1a1c24, #16181f);
+    border: 1.5px solid rgba(255, 179, 0, 0.35);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  /* Giant watermark build number */
+  .release::before {
+    content: attr(data-build);
+    position: absolute;
+    right: -20px;
+    bottom: -60px;
+    font-size: 240px;
+    font-weight: 900;
+    letter-spacing: -14px;
+    line-height: 1;
+    color: rgba(255, 179, 0, 0.035);
+    pointer-events: none;
+    user-select: none;
+    z-index: 0;
+  }
+  .release > * { position: relative; z-index: 1; }
+
+  .release-ribbon {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 100px;
+    background: linear-gradient(135deg, #FFB300, #FFD166);
+    color: #2a1f00;
+    font-size: 10.5px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    box-shadow: 0 6px 18px rgba(255, 179, 0, 0.32);
+    margin-bottom: 20px;
+  }
+  .release-title {
+    font-size: clamp(24px, 3.5vw, 32px);
+    font-weight: 900;
+    letter-spacing: -0.6px;
+    line-height: 1.1;
+    margin: 0 0 6px;
+  }
+  .release-sub {
+    font-size: 13.5px;
+    color: var(--muted-2);
+    font-weight: 700;
+    margin: 0 0 24px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--divider);
+    border: 1px solid var(--divider);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-bottom: 26px;
+  }
+  .meta-cell {
+    background: rgba(13, 14, 20, 0.55);
+    padding: 14px 16px;
+  }
+  .meta-label {
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-3);
+    margin-bottom: 5px;
+  }
+  .meta-value {
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    color: var(--ink);
+  }
+  .meta-value.mono { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; }
+
+  .release-notes {
+    list-style: none;
+    margin: 0 0 26px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .release-notes li {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .release-notes li::before {
+    content: "";
+    flex-shrink: 0;
+    width: 6px; height: 6px;
+    margin-top: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 22px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: -0.1px;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, #E63946, #FF4D5E);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 10px 22px -10px rgba(230, 57, 70, 0.7);
+    transition: transform .12s ease, filter .18s ease, box-shadow .18s ease;
+    position: relative;
+    overflow: hidden;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+    transform: translateX(-160%);
+    transition: transform .8s ease;
+    pointer-events: none;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:hover::before { transform: translateX(160%); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
+  .btn:disabled::before { display: none; }
+
+  .btn-gold {
+    background: linear-gradient(135deg, #FFB300, #FFD166);
+    color: #2a1f00;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.35) inset,
+      0 12px 26px -10px rgba(255, 179, 0, 0.6);
+    padding: 16px 28px;
+    font-size: 15px;
+  }
+
+  .release-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .release-actions .fine {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+
+  /* ── Install steps ─────────────────────────────────────────────── */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 18px 20px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--divider-2);
+    transition: transform .2s cubic-bezier(.2, .8, .2, 1), background .18s ease;
+  }
+  .step:hover { transform: translateY(-2px); background: var(--surface-2); }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    width: 26px; height: 26px;
+    flex-shrink: 0;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--primary-dim);
+    color: var(--primary-hi);
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid rgba(230, 57, 70, 0.3);
+  }
+  .step-body { flex: 1; min-width: 0; }
+  .step-title {
+    font-size: 15.5px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+    margin: 0 0 3px;
+    line-height: 1.3;
+  }
+  .step-desc {
+    font-size: 13.5px;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  /* ── Callouts ──────────────────────────────────────────────────── */
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    padding: 18px 20px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid var(--divider-2);
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+  .callout + .callout { margin-top: 10px; }
+  .callout svg { flex-shrink: 0; margin-top: 2px; }
+  .callout strong { color: var(--ink); font-weight: 800; }
+  .callout.warn { border-color: rgba(255, 179, 0, 0.30); background: rgba(255, 179, 0, 0.05); }
+  .callout.warn svg { color: var(--accent); }
+  .callout.info svg { color: var(--correct); }
+  .callout a { color: var(--primary-hi); font-weight: 800; text-decoration: none; }
+  .callout a:hover { text-decoration: underline; }
+
+  /* ── Notice ────────────────────────────────────────────────────── */
+  .notice {
+    margin-top: 16px;
+    padding: 14px 18px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 800;
+    display: none;
+    gap: 9px;
+    align-items: flex-start;
+    line-height: 1.5;
+  }
+  .notice.show { display: flex; }
+  .notice svg { flex-shrink: 0; margin-top: 1px; }
+  .notice.error {
+    color: var(--wrong);
+    background: rgba(255, 82, 82, 0.08);
+    border: 1px solid rgba(255, 82, 82, 0.24);
+  }
+
+  /* ── Footer ────────────────────────────────────────────────────── */
+  .footer {
+    margin-top: 64px;
+    padding-top: 28px;
+    border-top: 1px solid var(--divider);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted-2);
+  }
+  .footer-badges {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .footer-badges span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .footer-badges svg { color: var(--correct); }
+
+  .footer-links {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .footer-links a {
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 800;
+    text-decoration: none;
+    transition: color .15s ease;
+  }
+  .footer-links a:hover { color: var(--primary-hi); }
+  .footer-copyright { font-size: 12px; color: var(--muted-2); }
+
+  /* ── Responsive ────────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .wrap { padding: 24px 18px 60px; }
+    .topbar { margin-bottom: 36px; }
+    .hero { margin-bottom: 40px; }
+    .section { margin-bottom: 40px; }
+    .release { padding: 26px 22px 24px; }
+    .release::before { font-size: 160px; right: -10px; bottom: -40px; }
+    .meta-grid { grid-template-columns: repeat(2, 1fr); }
+    .release-actions { flex-direction: column; align-items: stretch; }
+    .btn-gold { width: 100%; }
+    .release-actions .fine { text-align: center; }
+    .footer {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 14px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ambient::before,
+    .ambient::after { animation: none; }
+    .btn::before { display: none; }
+    .step:hover { transform: none; }
+  }
+
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient"></div>
+
+<div class="wrap">
+
+  <!-- ── Top bar ── -->
+  <div class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">✦</span>
+      <span>AnimeQuiz</span>
+    </a>
+    <a class="topbar-back" href="/">← Back to shop</a>
+  </div>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-eyebrow">Android · Updates</div>
+    <h1>Stay <span class="accent">current.</span></h1>
+    <p class="hero-lede">
+      AnimeQuiz is distributed as a direct APK, so new versions land here first.
+      <strong>Installing over your existing copy keeps your coins, account and progress.</strong>
+    </p>
+  </section>
+
+  <!-- ── Latest build ── -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-title">Latest release</span>
+      <span class="section-hint" id="released">—</span>
+    </div>
+
+    <div class="release" id="release" data-build="…" aria-live="polite">
+      <span class="release-ribbon">★ Current version</span>
+      <h2 class="release-title">Version <span id="ver">…</span></h2>
+      <p class="release-sub">Build <span id="build">…</span> · Android</p>
+
+      <div class="meta-grid">
+        <div class="meta-cell">
+          <div class="meta-label">Version</div>
+          <div class="meta-value" id="m-ver">—</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">Build</div>
+          <div class="meta-value" id="m-build">—</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">Size</div>
+          <div class="meta-value" id="m-size">—</div>
+        </div>
+        <div class="meta-cell">
+          <div class="meta-label">File</div>
+          <div class="meta-value mono" id="m-file">—</div>
+        </div>
+      </div>
+
+      <ul class="release-notes" id="notes"></ul>
+
+      <div class="release-actions">
+        <a class="btn btn-gold" id="dl" href="#" rel="noopener">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/>
+          </svg>
+          Download APK
+        </a>
+        <span class="fine" id="req">—</span>
+      </div>
+    </div>
+
+    <div class="notice error" id="notice" role="status">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/>
+      </svg>
+      <span id="notice-text"></span>
+    </div>
+  </section>
+
+  <!-- ── Install steps ── -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-title">Installing</span>
+    </div>
+    <ol class="steps">
+      <li class="step">
+        <div class="step-body">
+          <h3 class="step-title">Download the file</h3>
+          <p class="step-desc">Tap <strong>Download APK</strong> above. Android will save it to your Downloads folder.</p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-body">
+          <h3 class="step-title">Allow installs from your browser</h3>
+          <p class="step-desc">
+            Android blocks app installs by default. When you tap the downloaded file, choose
+            <strong>Settings → Allow from this source</strong>, then go back and confirm the install.
+          </p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-body">
+          <h3 class="step-title">Tap the downloaded file to install</h3>
+          <p class="step-desc">
+            Confirm with <strong>Install</strong>. It replaces your existing copy — you will not lose your coins or account.
+          </p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-body">
+          <h3 class="step-title">Open AnimeQuiz</h3>
+         <p class="step-desc">Sign in as normal. The update checks itself in the background.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ── Notes ── -->
+  <section class="section">
+    <div class="section-head">
+      <span class="section-title">Good to know</span>
+    </div>
+
+    <div class="callout info">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><path d="M12 8h.01"/>
+      </svg>
+      <span>
+        <strong>Old versions eventually stop working.</strong>
+        When we ship an important fix we raise the minimum build, and an outdated install is blocked from
+        playing until it updates. The app tells you when this happens.
+      </span>
+    </div>
+
+    <div class="callout warn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/>
+      </svg>
+      <span>
+        <strong>Only download from this page.</strong>
+        We are not on the Play Store. An APK from anywhere else may be modified, and we cannot support it.
+      </span>
+    </div>
+
+    <div class="callout">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3.5 7.5l8.5 6 8.5-6"/>
+      </svg>
+      <span>
+        <strong>Something not working?</strong>
+        If the install fails, or your phone is on an Android version we no longer support, email us at
+        <a href="mailto:animequizzm@gmail.com">animequizzm@gmail.com</a> with your phone model and Android version.
+      </span>
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <div class="footer">
+    <div>
+      <div class="footer-links">
+        <a href="/">Shop</a>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Service</a>
+        <a href="/refund.html">No Refunds Policy</a>
+      </div>
+      <div class="footer-copyright">© AnimeQuiz · Sideloaded APK, updates published on this page</div>
+    </div>
+    <div class="footer-badges">
+      <span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        256-bit TLS encryption
+      </span>
+      <span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        Payments secured by Flutterwave
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Release metadata lives in downloads/latest.json so publishing a build is a
+  // one-file edit. FALLBACK mirrors that file: it keeps the page usable (and the
+  // download button live) if the manifest is ever missing or malformed, which
+  // is the difference between a stale download and a dead page for a user who
+  // is being blocked by the in-app update wall.
+  const FALLBACK = {
+    version: '1.1.0',
+    build: 3,
+    file: 'animequiz-3.apk',
+    size: 60656415,
+    released: '2026-09-28',
+    minAndroid: 'Android 6.0 (Marshmallow) or newer',
+    notes: [],
+  };
+
+  const MANIFEST_URL = 'downloads/latest.json';
+
+  // Only a bare .apk filename is ever interpolated into the href. A manifest is
+  // a file on our own origin, but validating it here means a bad edit cannot
+  // turn the download button into an off-site link.
+  const SAFE_APK = /^[A-Za-z0-9._-]+\.apk$/;
+
+  const $ = id => document.getElementById(id);
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function bytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function prettyDate(iso) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return '';
+    const d = new Date(iso + 'T00:00:00Z');
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC',
+    });
+  }
+
+  // Accepts only a manifest with the fields the page actually renders, so a
+  // partial or hand-edited file degrades to FALLBACK instead of rendering "—".
+  function normalise(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const { version, build, file, size, released, minAndroid, notes } = raw;
+    if (typeof version !== 'string' || !version.trim()) return null;
+    if (!Number.isInteger(build) || build < 1) return null;
+    if (typeof file !== 'string' || !SAFE_APK.test(file)) return null;
+    return {
+      version: version.trim(),
+      build,
+      file,
+      size: Number.isFinite(size) && size > 0 ? size : null,
+      released: typeof released === 'string' ? released : '',
+      minAndroid: typeof minAndroid === 'string' ? minAndroid : '',
+      notes: Array.isArray(notes)
+        ? notes.filter(n => typeof n === 'string' && n.trim()).slice(0, 8)
+        : [],
+    };
+  }
+
+  function render(r) {
+    $('release').dataset.build = r.build;
+    $('ver').textContent = r.version;
+    $('build').textContent = r.build;
+    $('m-ver').textContent = r.version;
+    $('m-build').textContent = r.build;
+    $('m-size').textContent = bytes(r.size);
+    $('m-file').textContent = r.file;
+    $('req').textContent = r.minAndroid;
+
+    const date = prettyDate(r.released);
+    $('released').textContent = date ? 'Published ' + date : '';
+
+    const dl = $('dl');
+    dl.href = 'downloads/' + r.file;
+    // `download` is advisory and ignored for cross-origin links, but it keeps
+    // the intent explicit; the hosting Content-Disposition header is what
+    // actually forces the save-as dialog.
+    dl.setAttribute('download', r.file);
+
+    const notes = $('notes');
+    notes.innerHTML = r.notes
+      .map(n => '<li>' + esc(n.trim()) + '</li>')
+      .join('');
+  }
+
+  function fail(message) {
+    const n = $('notice');
+    $('notice-text').textContent = message;
+    n.classList.add('show');
+  }
+
+  render(normalise(FALLBACK));
+
+  fetch(MANIFEST_URL, { cache: 'no-store' })
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(raw => {
+      const r = normalise(raw);
+      if (!r) throw new Error('manifest did not validate');
+      render(r);
+    })
+    .catch(() => {
+      // The page is already showing FALLBACK and the button works, so this is
+      // a warning, not a dead end.
+      fail('Could not check for a newer build. This may not be the latest version — '
+         + 'reopen this page shortly, or email us and we will confirm.');
+    });
+</script>
+</body>
+</html>

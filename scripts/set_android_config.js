@@ -16,6 +16,8 @@
  *     publish: latestBuild=2, minBuild=1   -> nobody is forced yet (safe)
  *     arm:     minBuild=2,  latestBuild=2  -> build 1 is walled (the point)
  *
+ *   Currently shipping build 3 (animequiz-3.apk, pubspec 1.1.0+3), not armed.
+ *
  *   Every real write requires --commit. Without it the script is a read-only
  *   dry run, so it is safe to invoke at any time.
  *
@@ -50,7 +52,14 @@ const DOC_PATH = 'app_config/android';
 const COLLECTION = 'app_config';
 const DOC_ID = 'android';
 
-const DEFAULT_APK_URL = 'https://anime-quiz-1ab1b.web.app/downloads/animequiz-2.apk';
+// Points straight at the APK, not /download.html: the user tapping "Download
+// the update" on the in-app wall is already blocked from playing and wants the
+// file, not a page. Keep this filename, and the build numbers below, in step
+// with public/downloads/latest.json and the shipped pubspec version whenever a
+// new build is published -- a stale filename here is a dead download for
+// exactly the users who most need it. --check-url catches that before you
+// arm the gate.
+const DEFAULT_APK_URL = 'https://anime-quiz-1ab1b.web.app/downloads/animequiz-3.apk';
 
 /**
  * Resolve firebase-admin by PACKAGE NAME from the functions/ tree.
@@ -81,8 +90,11 @@ function loadAdmin() {
 
 function parseArgs(argv) {
   const opts = {
+    // Build 3 is published and not yet enforced: latestBuild tracks what users
+    // can download, minBuild stays at 1 until we deliberately strand the older
+    // install. Same publish-then-arm order as the ROLLOUT DISCIPLINE note above.
     minBuild: 1,
-    latestBuild: 2,
+    latestBuild: 3,
     apkUrl: DEFAULT_APK_URL,
     key: null,
     commit: false,
@@ -194,25 +206,16 @@ function headUrl(url) {
   // Guard before any credential or network work, so a typo cannot half-run.
   if (!opts.show) validate(opts);
 
-  const { initializeApp, cert } = loadAdmin();
-  const { getFirestore } = requireFromFunctions('firebase-admin/firestore');
+  const next = {
+    minBuild: opts.minBuild,
+    latestBuild: opts.latestBuild,
+    apkUrl: opts.apkUrl,
+  };
+  const arming = next.minBuild >= next.latestBuild;
 
-  const keyPath = resolveServiceAccountPath(opts);
-  const serviceAccount = initAdmin(keyPath);
-
-  const app = initializeApp({
-    credential: cert(serviceAccount),
-    projectId: PROJECT_ID,
-  });
-  const db = getFirestore(app);
-  const ref = db.collection(COLLECTION).doc(DOC_ID);
-
-  const snap = await ref.get();
-  const current = snap.exists ? snap.data() : null;
-
+  // ---- Credential-free plan: this is exactly what --commit would write. ----
   console.log('project      :', PROJECT_ID);
   console.log('document     :', DOC_PATH);
-  console.log('current      :', current ? JSON.stringify(current) : '(absent)');
 
   if (opts.checkUrl) {
     const r = await headUrl(opts.apkUrl);
@@ -222,17 +225,7 @@ function headUrl(url) {
         : `HTTP ${r.status}${r.err ? ' err=' + r.err : ''} (host the APK before arming the gate)`);
   }
 
-  if (opts.show && !opts.commit) {
-    return;
-  }
-
-  const next = {
-    minBuild: opts.minBuild,
-    latestBuild: opts.latestBuild,
-    apkUrl: opts.apkUrl,
-  };
-
-  const arming = next.minBuild >= next.latestBuild;
+  // The exact document that would be written:
   console.log('next         :', JSON.stringify(next));
   if (arming) {
     console.log('*** ARMING: builds below ' + next.minBuild +
@@ -243,10 +236,27 @@ function headUrl(url) {
                 ' is warned about.');
   }
 
+  // A dry run prints the plan and stops here: no credentials, no writes.
   if (!opts.commit) {
     console.log('\nDRY RUN - nothing written. Re-run with --commit to apply.');
     return;
   }
+
+  // ---- Commit path: credentials are required only to read current + write. ----
+  const { initializeApp, cert } = loadAdmin();
+  const { getFirestore } = requireFromFunctions('firebase-admin/firestore');
+  const keyPath = resolveServiceAccountPath(opts);
+  const serviceAccount = initAdmin(keyPath);
+  const app = initializeApp({
+    credential: cert(serviceAccount),
+    projectId: PROJECT_ID,
+  });
+  const db = getFirestore(app);
+  const ref = db.collection(COLLECTION).doc(DOC_ID);
+
+  const snap = await ref.get();
+  const current = snap.exists ? snap.data() : null;
+  console.log('current      :', current ? JSON.stringify(current) : '(absent)');
 
   await ref.set(next, { merge: true });
   const after = await ref.get();

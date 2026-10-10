@@ -70,6 +70,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
+import '../../core/constants/solo_economy.dart';
 import 'questions.dart';
 
 // ── Public constants (referenced by widget files) ──────────────────────────
@@ -116,6 +117,7 @@ class QuizController extends ChangeNotifier {
   QuizController({
     required this.mode,
     required this.selectedTitles,
+    this.soloDifficulty = 'easy',
     this.questionIds,
     this.challengeId,
     this.isCreator = true,
@@ -134,6 +136,12 @@ class QuizController extends ChangeNotifier {
   // ── Config ─────────────────────────────────────────────────────────────────
   final QuizMode mode;
   final List<String> selectedTitles;
+
+  /// Homepage solo difficulty ('easy' | 'medium' | 'hard').
+  /// Selects the question mix (see kSoloDifficultyMixes) and the reward
+  /// table applied server-side in submitQuizAnswers. Challenge / Gauntlet
+  /// modes ignore it.
+  final String soloDifficulty;
   final List<String>? questionIds;
   final String? challengeId;
   final bool isCreator;
@@ -327,10 +335,13 @@ class QuizController extends ChangeNotifier {
       } else if (mode == QuizMode.asyncChallenge) {
         all = await FirestoreService.instance.fetchQuestionsByIds(questionIds!);
       } else {
-        // Order is owned by fetchQuestionsForTitles (shuffled within tiers,
-        // interleaved E,M,H across titles) — do NOT re-shuffle here.
-        all = await FirestoreService.instance
-            .fetchQuestionsForTitles(selectedTitles);
+        // Order is owned by fetchQuestionsForTitles (weighted mix by
+        // soloDifficulty, shuffled within tiers, interleaved across titles)
+        // — do NOT re-shuffle here.
+        all = await FirestoreService.instance.fetchQuestionsForTitles(
+          selectedTitles,
+          difficulty: soloDifficulty,
+        );
       }
 
       if (_disposed) return;
@@ -694,6 +705,7 @@ class QuizController extends ChangeNotifier {
           'timings': _answerTimings,
           'sessionId': sessionId,
           'isDailyChallenge': isDailyChallenge, // ← DC flag
+          'soloDifficulty': normalizeSoloDifficulty(soloDifficulty),
         });
 
         if (_disposed) return;

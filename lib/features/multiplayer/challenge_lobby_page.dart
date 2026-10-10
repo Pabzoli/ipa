@@ -11,6 +11,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_page_route.dart';
 import '../../core/services/firestore_service.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../quiz/quiz_controller.dart' show QuizMode;
 import '../quiz/questions_page.dart';
@@ -401,6 +402,7 @@ class _LobbyContentState extends State<_LobbyContent> {
         ChallengeKind.rival => '⚔️ Rival Challenge',
         ChallengeKind.quick => '⚡ Quick Match',
         ChallengeKind.code => '📤 Code Challenge',
+        ChallengeKind.spar => '🤝 Spar',
       };
 
   // ─── Force Resolve recovery action ─────────────────────────────────────
@@ -539,12 +541,19 @@ class _LobbyContentState extends State<_LobbyContent> {
             _PlayButton(
               onTap: () => _launchQuiz(context),
             )
-          else if (_isWaitingForOtherPlayer)
+          else if (_isWaitingForOtherPlayer) ...[
             _WaitingForOtherPlayerWidget(
               message: isCreator
                   ? 'Waiting for opponent to play…'
                   : 'Waiting for creator to play…',
-            )
+            ),
+            SizedBox(height: 10.h),
+            _LobbyNudgeButton(
+              challengeId: c.challengeId,
+              otherUid:
+                  isCreator ? (c.opponentUid ?? '') : c.creatorUid,
+            ),
+          ]
           else if (_showCopyCode)
             _CopyCodeButton(code: c.challengeId)
           else if (isCreator && c.status == ChallengeStatus.waiting)
@@ -594,6 +603,7 @@ class _LobbyContentState extends State<_LobbyContent> {
         'You already have 5 active challenges running.',
       'challenge_not_waiting' => 'This challenge is no longer available.',
       'cannot_join_own_challenge' => "That's your own challenge!",
+      'not_friends' => 'Add them as a friend to spar.',
       _ => s,
     };
   }
@@ -627,7 +637,10 @@ class _LobbyContentState extends State<_LobbyContent> {
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('joinChallenge')
-          .call({'challengeId': c.challengeId});
+          .call({
+        'challengeId': c.challengeId,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
 
       if (!mounted) return;
 
@@ -1479,6 +1492,85 @@ class _RejectButton extends StatelessWidget {
                 'Decline',
                 style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w800),
               ),
+      ),
+    );
+  }
+}
+
+// ─── Widget: Lobby Nudge Button ───────────────────────────────────────────
+// Preset "Your turn!" ping for a challenge waiting on the other side.
+// Server verifies friendship, turn order and the once-per-day gate.
+class _LobbyNudgeButton extends StatefulWidget {
+  final String challengeId;
+  final String otherUid;
+  const _LobbyNudgeButton(
+      {required this.challengeId, required this.otherUid});
+
+  @override
+  State<_LobbyNudgeButton> createState() => _LobbyNudgeButtonState();
+}
+
+class _LobbyNudgeButtonState extends State<_LobbyNudgeButton> {
+  bool _busy = false;
+  bool _done = false;
+
+  Future<void> _nudge() async {
+    if (_busy || _done || widget.otherUid.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await FirestoreService.instance.nudgeFriend(
+        friendUid: widget.otherUid,
+        challengeId: widget.challengeId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _done = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nudge sent!'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not nudge — try again later.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed:
+            (_busy || _done || widget.otherUid.isEmpty) ? null : _nudge,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.secondary,
+          side: BorderSide(
+              color: AppColors.secondary.withOpacity(0.45)),
+          padding: EdgeInsets.symmetric(vertical: 12.r),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14.r),
+          ),
+        ),
+        child: Text(
+          _done
+              ? 'Nudged ✓'
+              : _busy
+                  ? 'Sending…'
+                  : 'Nudge them',
+          style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w800),
+        ),
       ),
     );
   }

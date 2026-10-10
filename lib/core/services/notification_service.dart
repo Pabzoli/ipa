@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../../features/leaderboard/weekly_leaderboard_page.dart';
+import '../../features/friends/add_friend_page.dart';
 import '../../features/prizes/payout_claim_page.dart';
 import 'firestore_service.dart';
 
@@ -99,7 +100,8 @@ class NotificationService {
 
       // Tap on a background notification.
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        _navigateToClaim(_weekIdFrom(message));
+        _navigateToClaim(_weekIdFrom(message),
+            type: _typeFrom(message));
       });
 
       // Cold start from a terminated-state notification tap.
@@ -107,7 +109,8 @@ class NotificationService {
       if (initial != null) {
         // Post-frame: the navigator must exist before we push.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _navigateToClaim(_weekIdFrom(initial));
+          _navigateToClaim(_weekIdFrom(initial),
+              type: _typeFrom(initial));
         });
       }
     } catch (_) {
@@ -121,6 +124,11 @@ class NotificationService {
       return raw;
     }
     return null;
+  }
+
+  static String? _typeFrom(RemoteMessage message) {
+    final raw = message.data['type'];
+    return raw is String && raw.isNotEmpty ? raw : null;
   }
 
   Future<void> _showForegroundBanner(RemoteMessage message) async {
@@ -147,9 +155,17 @@ class NotificationService {
     }
   }
 
-  void _navigateToClaim(String? weekId) {
+  void _navigateToClaim(String? weekId, {String? type}) {
     final nav = _navigatorKey?.currentState;
     if (nav == null) return;
+    // Friend-request taps open Add Friend. NOTE: server sendToUser currently
+    // sends notification-only payloads (no data), so these taps fall through
+    // to the Rankings fallback until a data payload is attached [unverified
+    // live — branch is ready, payload pending].
+    if (type == 'friend_request') {
+      nav.push(MaterialPageRoute(builder: (_) => const AddFriendPage()));
+      return;
+    }
     final page = (weekId != null && weekId.isNotEmpty)
         ? PayoutClaimPage(weekId: weekId)
         : const WeeklyLeaderboardPage();

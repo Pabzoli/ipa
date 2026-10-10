@@ -14,6 +14,7 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/widgets/coin_balance_widget.dart';
 import '../../core/providers/user_data_provider.dart';
+import '../../core/providers/solo_difficulty_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
 import '../admin/admin_payout_dashboard.dart';
@@ -25,7 +26,6 @@ import '../../core/constants/solo_economy.dart';
 import '../player/pi_page.dart';
 import '../../features/multiplayer/multiplayer_hub_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
-import '../leaderboard/widgets/leaderboard_pool_card.dart';
 import '../premium/premium_upsell_screen.dart';
 
 // ─── Anime grid filter (client-side only, no backend calls) ───────────────
@@ -186,10 +186,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   final Map<String, DateTime> _locks = {};
   Set<String> _unlockedForever = {};
   _AnimeFilter _filter = _AnimeFilter.all;
-  // Homepage solo difficulty — drives the question mix (weighted) and the
-  // server-side WP/AC table. Defaults to easy (the pre-difficulty baseline)
-  // so existing behavior is unchanged until the player opts into harder.
-  String _selectedDifficulty = 'easy';
   late Timer _lockTimer;
   late AnimationController _entranceCtrl;
   late Animation<double> _entranceFade;
@@ -369,9 +365,11 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     final titlesToPlay = titles ?? _selected.toList();
     if (titlesToPlay.length < 2 || !_prefsReady) return;
 
-    // Capture the selected difficulty now — the tray clears _selected but
-    // must not reset the difficulty choice.
-    final difficultyToPlay = normalizeSoloDifficulty(_selectedDifficulty);
+    // Capture the difficulty from the shared settings now — the tray clears
+    // _selected but must not reset the difficulty choice.
+    final difficultyToPlay = normalizeSoloDifficulty(
+      context.read<SoloDifficultyProvider>().difficulty,
+    );
 
     setState(() => _selected.clear());
 
@@ -877,10 +875,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     }
   }
 
-  // ── SPEND SURFACE 4: Early Anime Unlock (500 AC) ────────────────────────
+  // ── SPEND SURFACE 4: Early Anime Unlock (5000 AC) ───────────────────────
   Future<void> _unlockEarly(String title) async {
     if (_spendBusy) return;
-    const cost = 500;
+    const cost = 5000;
     final userData = context.read<UserDataProvider>();
 
     if (userData.animeCoins < cost) {
@@ -898,7 +896,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
               color: AppColors.textPrimary, fontWeight: FontWeight.w800),
         ),
         content: Text(
-          'Spend 500🪙 to permanently unlock "${title.toUpperCase()}"?\n\n'
+          'Spend 5000🪙 to permanently unlock "${title.toUpperCase()}"?\n\n'
           'This removes it from cooldown and adds it to your unlocked library.',
           style: const TextStyle(
               color: AppColors.textSecondary, fontSize: 14, height: 1.5),
@@ -911,7 +909,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text(
-              '🔓 Unlock  −500🪙',
+              '🔓 Unlock  −5000🪙',
               style: TextStyle(
                   color: AppColors.accent, fontWeight: FontWeight.w700),
             ),
@@ -1140,19 +1138,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // ── Difficulty selector (homepage solo only) ─────────────
-                // Quick Match / Create Challenge (Battle tab) are untouched.
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                    child: _DifficultySelector(
-                      selected: _selectedDifficulty,
-                      onChanged: (d) =>
-                          setState(() => _selectedDifficulty = d),
-                    ),
-                  ),
-                ),
-
                 // ── Filter chips ───────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
@@ -1224,7 +1209,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 opacity: hasSelection ? 1 : 0,
                 child: _LineupTray(
                   selected: _selected.toList(),
-                  difficulty: _selectedDifficulty,
+                  difficulty: context.watch<SoloDifficultyProvider>().difficulty,
                   onStart: () => _startQuiz(),
                   onClearAll: () => setState(() => _selected.clear()),
                 ),
@@ -1520,13 +1505,6 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
                 ),
               ),
               const SizedBox(height: 4),
-              // Self-ticking: this card used to recompute the countdown on
-              // every build and only visibly updated when an ancestor happened
-              // to rebuild, so the timer routinely lagged by minutes.
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: CountdownChip(compact: true),
-              ),
             ],
           ),
         );
@@ -1930,7 +1908,7 @@ class _AnimeCardState extends State<_AnimeCard>
                                 color: AppColors.accent.withOpacity(0.9),
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: const Text('🔓 500',
+                              child: const Text('🔓 5000',
                                   style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 10,
@@ -2102,162 +2080,6 @@ class _FilterChip extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w800,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Difficulty selector (homepage solo only) ───────────────────────────────
-// Three weighted tiers. Rewards preview shows the max raw haul (perfect
-// all-slow run, before solo decay + daily soft cap) so hard's generosity is
-// visible up front: hard should feel worth the Timer Pause / hint AC spent
-// mid-run. Quick Match + Create Challenge (Battle tab) are untouched.
-// ─────────────────────────────────────────────────────────────────────────────
-class _DifficultySelector extends StatelessWidget {
-  final String selected;
-  final ValueChanged<String> onChanged;
-
-  const _DifficultySelector({
-    required this.selected,
-    required this.onChanged,
-  });
-
-  static const _meta = {
-    'easy': ('🌱', 'Easy', Color(0xFF34D399), '7E·2M·1H'),
-    'medium': ('⚔️', 'Medium', Color(0xFFF59E0B), '3E·4M·3H'),
-    'hard': ('🔥', 'Hard', Color(0xFFEF4444), '1E·2M·7H'),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Choose difficulty',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 14,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 2),
-        const Text(
-          'Harder mixes pay more WP + AC — hard is built to cover your power-up spend.',
-          style: TextStyle(color: AppColors.textMuted, fontSize: 11),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            for (final id in kSoloDifficulties) ...[
-              if (id != kSoloDifficulties.first) const SizedBox(width: 8),
-              Expanded(child: _DifficultyCard(
-                id: id,
-                selected: selected == id,
-                onTap: () => onChanged(id),
-              )),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _DifficultyCard extends StatelessWidget {
-  final String id;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _DifficultyCard({
-    required this.id,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final meta = _DifficultySelector._meta[id]!;
-    final emoji = meta.$1;
-    final name = meta.$2;
-    final color = meta.$3;
-    final mix = meta.$4;
-    final reward = kSoloDifficultyRewards[id]!;
-    final maxWP = soloDifficultyMaxWP(id);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? color.withOpacity(0.14)
-              : AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? color : AppColors.divider,
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: color.withOpacity(0.25),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 22)),
-            const SizedBox(height: 4),
-            Text(
-              name,
-              style: TextStyle(
-                color: selected ? color : AppColors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              mix,
-              style: const TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: selected
-                    ? color.withOpacity(0.16)
-                    : AppColors.surfaceAlt,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: selected
-                      ? color.withOpacity(0.5)
-                      : AppColors.divider,
-                ),
-              ),
-              child: Text(
-                '↑$maxWP WP · +${reward.acEarned} AC',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? color : AppColors.textSecondary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -9,19 +9,82 @@ service cloud.firestore {
       // (validates stake/WP caps, active-challenge limits, question pools).
       // A bare client create could otherwise mint arbitrary challenges.
       allow create: if false;
+      // HARDENED: participants may write ONLY their own score, exactly once,
+      // in range 0..questionIds.size() (challenges are 10-question sessions;
+      // the size cap keeps this correct if the pool size ever changes).
+      // Everything else (status/outcome/stakes/opponent/questionIds/expiry,
+      // and the OTHER side's score) is server-only: joins/declines go through
+      // callables and status/outcome transitions are written by the
+      // resolveChallengeOutcome trigger via the Admin SDK (which bypasses
+      // rules). The old rule let either participant rewrite ANY field,
+      // including both scores — enough to steal any duel. Dropped branch:
+      // the old third clause let anyone set themselves as opponentUid on an
+      // open code challenge; joins are CF-only (joinChallenge callable), so no
+      // client path needs it.
       allow update: if request.auth != null && (
-        request.auth.uid == resource.data.creatorUid
-        ||
-        request.auth.uid == resource.data.get('opponentUid', null)
+        (
+          request.auth.uid == resource.data.creatorUid
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly(['creatorScore'])
+          && request.resource.data.creatorScore is int
+          && request.resource.data.creatorScore >= 0
+          && request.resource.data.creatorScore <= 10
+          && request.resource.data.creatorScore
+               <= resource.data.get('questionIds', []).size()
+          && resource.data.get('creatorScore', null) == null
+        )
         ||
         (
-          resource.data.get('opponentUid', null) == null
-          && request.auth.uid == request.resource.data.opponentUid
+          request.auth.uid == resource.data.get('opponentUid', null)
+          && request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasOnly(['opponentScore'])
+          && request.resource.data.opponentScore is int
+          && request.resource.data.opponentScore >= 0
+          && request.resource.data.opponentScore <= 10
+          && request.resource.data.opponentScore
+               <= resource.data.get('questionIds', []).size()
+          && resource.data.get('opponentScore', null) == null
         )
       );
     }
 
-    // ── Leaderboard visibility (cohort rule) ─────────────────────────────
+    // ── Rivalry series ────────────────────────────────────────────────────
+    // rivalries/{sortedUidPair} tracks best-of-5 arcs between named rivals
+    // (server-maintained in _resolveChallengeCore). Participants may read
+    // their own rivalry docs for the series UI; all writes are CF-only.
+    match /rivalries/{pairId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.aUid ||
+        request.auth.uid == resource.data.bUid
+      );
+      allow create, update, delete: if false;
+    }
+
+    // ── Friendships (pair docs, CF-only) ─────────────────────────────────
+    // friendships/{sortedUidPair}: {aUid, bUid, status ('pending'|'active'|
+    // 'blocked'), requestedBy, blockedBy?, sparWinsDate, sparWinsCount,
+    // lastNudgeAt {sender_receiver: ts}, createdAt, decidedAt}.
+    // All writes go through friend callables (Admin SDK bypasses rules).
+    // Participants may read their own pair docs (powers spar-gate error copy
+    // and the friendship state the client shows); nobody else may.
+    match /friendships/{pairId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.aUid ||
+        request.auth.uid == resource.data.bUid
+      );
+      allow create, update, delete: if false;
+    }
+
+    // ── Friend codes (code → uid lookup, CF-only) ──────────────────────────
+    // friendCodes/{CODE}: {uid}. Clients must never read this collection
+    // directly (it would be a username/code enumeration oracle); lookup goes
+    // through the sendFriendRequest callable, which returns a fixed not_found
+    // for unknown AND blocked codes and rate-limits attempts (15/day).
+    match /friendCodes/{code} {
+      allow read, write: if false;
+    }
     // Players may read ONLY their own doc + docs of players who entered the
     // SAME leaderboard week they entered (their cohort). A current-week payer
     // therefore sees exactly the current paid board; anyone else sees only
@@ -73,6 +136,13 @@ service cloud.firestore {
         && !('premiumActive' in data)
         && !('qmTokens' in data)
         && !('qmWindowId' in data)
+        && !('qmAdTokenUsed' in data)
+        && !('qmAvgScore' in data)
+        && !('qmAvgCount' in data)
+        && !('sparsCreatedToday' in data)
+        && !('sparsCreatedDate' in data)
+        && !('sparsJoinedToday' in data)
+        && !('sparsJoinedDate' in data)
         && !('dailyAdWatched' in data)
         && !('ownedCosmetics' in data)
         && !('equippedFrame' in data)
@@ -80,7 +150,14 @@ service cloud.firestore {
         && !('equippedBadge' in data)
         && !('leaderboardEntryWeekId' in data)
         && !('wpStakedToday' in data)
-        && !('wpEarnedToday' in data);
+        && !('wpEarnedToday' in data)
+        // Friends fields (server-only — minted/counted in friend callables).
+        && !('friendCode' in data)
+        && !('friendCount' in data)
+        && !('outgoingReqDate' in data)
+        && !('outgoingReqCount' in data)
+        && !('failedCodeDate' in data)
+        && !('failedCodeCount' in data);
     }
 
     // ── Users ─────────────────────────────────────────────────────────────
@@ -144,7 +221,22 @@ service cloud.firestore {
                   // QM token fields (server-only)
                   'qmTokens',
                   'qmWindowId',
-                  'qmAdTokenUsed'
+                  'qmAdTokenUsed',
+                  // QM skill average (server-only — drives fair ghost matching)
+                  'qmAvgScore',
+                  'qmAvgCount',
+                  // Spar budgets (server-only — counted in create/join CFs)
+                  'sparsCreatedToday',
+                  'sparsCreatedDate',
+                  'sparsJoinedToday',
+                  'sparsJoinedDate',
+                  // Friends fields (server-only — friend callables own them)
+                  'friendCode',
+                  'friendCount',
+                  'outgoingReqDate',
+                  'outgoingReqCount',
+                  'failedCodeDate',
+                  'failedCodeCount'
                 ])
         )
       );
@@ -250,13 +342,27 @@ service cloud.firestore {
       }
 
       // ── Payout Details (reusable bank account info per user) ───────────
-      // Winner submits once; CF purges sensitive fields after transfer completes.
-      // Client can CRUD their own. No other user can read/write these.
+      // Winner submits their bank account so the admin can transfer manually.
+      // Retained across weeks (repeat winners don't re-enter). Only ever
+      // readable/writable by their owner — admin access goes through the
+      // ADMIN_UIDS-gated listPayoutClaims callable, never a direct read.
       match /payoutDetails/{detailId} {
         allow read:    if request.auth != null && request.auth.uid == userId;
         allow create:  if request.auth != null && request.auth.uid == userId;
         allow update:  if request.auth != null && request.auth.uid == userId;
         allow delete:  if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ── Friend links (per-user friendship list, CF-only) ───────────────
+      // users/{uid}/friendLinks/{otherUid}: {status ('incoming'|'outgoing'|
+      // 'friend'|'blocked'), username snapshot, since}. Written ONLY by the
+      // friend callables (send/respond/cancel/block/unblock/removeFriend,
+      // deleteAccount cleanup). Owner may read; clients may never write.
+      // Doc shape: { otherUid, status, username, since }.
+      match /friendLinks/{otherUid} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow create:         if false;
+        allow update, delete: if false;
       }
     }
 
@@ -287,28 +393,15 @@ service cloud.firestore {
       allow read:  if request.auth != null;
       allow write: if false; // CF-only via admin SDK
 
-      // Winner claim submissions — winner reads their own; CF writes.
+      // Winner claim submissions — the destination account the admin pays by
+      // hand. Winner reads their own; every write is CF-only so a client can
+      // never forge or alter a payout destination.
       match /pendingClaim/{uid} {
         allow read:    if request.auth != null && request.auth.uid == uid;
         allow create:  if false; // CF-only (submitPayoutDetails)
-        allow update:  if false; // CF-only (approveLeaderboardPayout / checkPendingClaim)
-        allow delete:  if false;
+        allow update:  if false; // CF-only (markLeaderboardPayout / checkPendingClaim)
+        allow delete:  if false; // CF-only (deleteAccount)
       }
-
-      // Immutable per-transfer audit log — CF-only, no client access.
-      match /payouts/{payoutId} {
-        allow read:    if false;
-        allow write:   if false; // CF-only (approveLeaderboardPayout / payoutWebhook)
-      }
-    }
-
-    // ── Withdrawals ───────────────────────────────────────────────────────
-    match /withdrawals/{withdrawalId} {
-      allow read:   if request.auth != null
-                    && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null
-                    && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
     }
 
     // ── Matchmaking Queue ─────────────────────────────────────────────────
@@ -361,15 +454,7 @@ service cloud.firestore {
       allow write: if request.auth != null && isPayoutAdmin();
     }
 
-    // ── Payout Ledger (idempotency guard for transfers) ───────────────────
-    // Prevents duplicate transfers: keyed on "{weekId}_{uid}". CF-only write.
-    // Read is CF-only to avoid leaking payout timing info to clients.
-    match /payoutLedger/{ref} {
-      allow read:    if false;
-      allow write:   if false; // CF-only (approveLeaderboardPayout)
-    }
-
-    // ── Fraud Reviews (Phase 3 advisory scores, server-computed) ─────────
+    // ── Fraud Reviews (advisory scores, server-computed) ─────────────────
     // Written ONLY by scoreFraudForWeek via Admin SDK. Admins consume them
     // through the admin-gated listPayoutClaims callable (which attaches
     // fraudScore/fraudReasons per claim) — never via direct reads, so no

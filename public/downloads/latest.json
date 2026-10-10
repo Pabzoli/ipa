@@ -1,0 +1,13 @@
+{
+  "version": "1.1.0",
+  "build": 3,
+  "file": "animequiz-3.apk",
+  "size": 60656415,
+  "released": "2026-09-28",
+  "minAndroid": "Android 6.0 (Marshmallow) or newer",
+  "notes": [
+    "Fixed a crash on launch that affected release builds on Android.",
+    "Outdated installs are now blocked once a newer build is published, so update before your next match.",
+    "Faster rematch flow and a number of quiz fixes."
+  ]
+}

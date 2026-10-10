@@ -1,20 +1,21 @@
 // lib/features/prizes/payout_claim_page.dart
 //
-// Winner payout-claim screen (Phase 3).
+// Winner payout-claim screen.
 //
 // The winner selects a verified bank (server-provided list only — no
 // free-form bank codes), enters their 10-digit account number and beneficiary
-// name, and submits via the `submitPayoutDetails` callable. The server
-// resolves the account via Flutterwave and determines the verified name.
+// name, and submits via the `submitPayoutDetails` callable.
 //
-// The server is authoritative for eligibility, prize amount, verification,
-// approval, payout status, and `paid`. This page only submits details and
-// renders the server's claim state. It never calculates or displays a prize
-// amount.
+// PAYOUTS ARE MANUAL. Nothing is transferred from inside the app — an admin
+// sends the money from their own bank afterwards. There is no automated
+// verification step, so this page makes no claims about account validation.
 //
-// States: loading-claim / idle-form / submitting / verification-result /
-// pending-approval (submitted) / approved-awaiting-completion /
-// already-submitted / expired (re-claim allowed) / already-paid / error.
+// The server is authoritative for eligibility, prize amount, payout status,
+// and `paid`. This page only submits details and renders the server's claim
+// state. It never calculates or displays a prize amount.
+//
+// States: loading-claim / idle-form / submitting / submitted (awaiting
+// payment) / already-submitted / expired (re-claim allowed) / paid / error.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -30,7 +31,6 @@ enum _ClaimView {
   loading,
   form,
   submittedPending,
-  approvedAwaiting,
   paid,
   notWinner,
   error,
@@ -62,8 +62,7 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
   String? _formError;
   bool _submitting = false;
 
-  // Last submission result (verification display).
-  bool? _resolvedNameMatch;
+  // Last submission result message (e.g. "already submitted" notice).
   String _resultMessage = '';
   bool _wasAlreadySubmitted = false;
 
@@ -150,9 +149,9 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       // Only "Paid" when the backend says paid == true.
       if (paid) {
         _view = _ClaimView.paid;
-      } else if (status == 'approved') {
-        _view = _ClaimView.approvedAwaiting;
-      } else if (status == 'pending') {
+      } else if (status == 'pending' || status == 'marked') {
+        // 'marked' without ranked[].paid yet means the admin recorded it but
+        // the cycle write is still settling — same visible state either way.
         _view = _ClaimView.submittedPending;
       } else {
         // No claim yet, or expired (re-claim allowed) — show the form.
@@ -197,6 +196,16 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       return;
     }
 
+    // Confirm before submitting. The account number is what the admin pays,
+    // and a typo here means the prize cannot be delivered. Submission also
+    // locks the details until the admin marks it paid, so make it deliberate.
+    final confirmed = await _confirmSubmission(
+      bankName: _bank!.name,
+      account: account,
+      name: name,
+    );
+    if (confirmed != true || !mounted) return;
+
     setState(() {
       _submitting = true;
       _formError = null;
@@ -212,7 +221,6 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       if (!mounted) return;
       setState(() {
         _submitting = false;
-        _resolvedNameMatch = result.resolvedNameMatch;
         _resultMessage = result.message;
         _wasAlreadySubmitted = result.alreadySubmitted;
         _maskedAccount = _mask(account);
@@ -235,6 +243,90 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
     }
   }
 
+  /// Final confirmation before the details are submitted.
+  ///
+  /// Shows the destination back to the player because a wrong account number
+  /// is unrecoverable — the admin pays exactly what is stored here. Returns
+  /// true only on explicit confirmation.
+  Future<bool?> _confirmSubmission({
+    required String bankName,
+    required String account,
+    required String name,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18.r),
+        ),
+        title: Text(
+          'Confirm your bank details',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 17.sp,
+            fontWeight: FontWeight.w900,
+            fontFamily: 'Nunito',
+          ),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Check this carefully. Your prize can only be sent to the '
+                'account you confirm here.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13.sp,
+                  height: 1.5,
+                ),
+              ),
+              SizedBox(height: 14.h),
+              _ConfirmRow(label: 'Bank', value: bankName),
+              _ConfirmRow(label: 'Account', value: account),
+              _ConfirmRow(label: 'Name', value: name),
+              SizedBox(height: 12.h),
+              Container(
+                padding: EdgeInsets.all(11.r),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10.r),
+                  border: Border.all(
+                    color: AppColors.accent.withOpacity(0.30),
+                  ),
+                ),
+                child: Text(
+                  'The account must be yours. Submitting locks these details '
+                  'until your prize is paid, so contact an admin if something '
+                  'is wrong afterwards.',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 12.sp,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Go back'),
+          ),
+          AppButton(
+            label: 'Confirm',
+            variant: AppButtonVariant.primary,
+            size: AppButtonSize.small,
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _handleClaimError(PayoutClaimException e) {
     final msg = e.message.toLowerCase();
     if (e.code == 'failed-precondition' && msg.contains('already been paid')) {
@@ -242,9 +334,10 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       return;
     }
     if (e.code == 'failed-precondition' &&
-        (msg.contains('already been approved') ||
-            msg.contains('approved while you were submitting'))) {
-      setState(() => _view = _ClaimView.approvedAwaiting);
+        (msg.contains('marked as sent') ||
+            msg.contains('marked as sent while you were submitting'))) {
+      // The admin already recorded the payment — show the current state.
+      setState(() => _view = _ClaimView.submittedPending);
       return;
     }
     if (e.code == 'not-found') {
@@ -307,7 +400,6 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     formError: _formError,
                     submitting: _submitting,
                     expiredBefore: _claimStatus == 'expired',
-                    resolvedNameMatch: _resolvedNameMatch,
                     resultMessage: _resultMessage,
                     wasAlreadySubmitted: _wasAlreadySubmitted,
                     onPickBank: _pickBank,
@@ -316,23 +408,12 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                 _ClaimView.submittedPending => _StatusCard(
                     icon: Icons.hourglass_top_rounded,
                     color: AppColors.accent,
-                    title: 'Claim submitted',
+                    title: 'Awaiting payment',
                     body:
-                        'Your details are with the admin for approval. '
-                        'Submitting does NOT mean you have been paid.',
-                    maskedAccount: _maskedAccount,
-                    resolvedNameMatch: _resolvedNameMatch,
-                    resultMessage: _resultMessage,
-                    onRefresh: _loadClaimState,
-                  ),
-                _ClaimView.approvedAwaiting => _StatusCard(
-                    icon: Icons.send_rounded,
-                    color: AppColors.secondary,
-                    title: 'Transfer submitted',
-                    body:
-                        'Your payout was approved and the bank transfer has '
-                        'been submitted. It will show as Paid only after the '
-                        'backend confirms completion.',
+                        'Your bank details are with the admin, who will send '
+                        'your prize from their own bank. Submitting does NOT '
+                        'mean you have been paid — check your account after '
+                        'the transfer arrives.',
                     maskedAccount: _maskedAccount,
                     onRefresh: _loadClaimState,
                   ),
@@ -341,8 +422,8 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     color: AppColors.correct,
                     title: 'Paid',
                     body:
-                        'Your prize has been paid. Bank details are purged '
-                        'after payout — only a masked reference is kept.',
+                        'Your prize has been sent to your bank account. '
+                        'Thanks for playing.',
                     maskedAccount: _maskedAccount,
                     onRefresh: _loadClaimState,
                   ),
@@ -458,7 +539,6 @@ class _ClaimForm extends StatelessWidget {
   final String? formError;
   final bool submitting;
   final bool expiredBefore;
-  final bool? resolvedNameMatch;
   final String resultMessage;
   final bool wasAlreadySubmitted;
   final VoidCallback onPickBank;
@@ -471,7 +551,6 @@ class _ClaimForm extends StatelessWidget {
     required this.formError,
     required this.submitting,
     required this.expiredBefore,
-    required this.resolvedNameMatch,
     required this.resultMessage,
     required this.wasAlreadySubmitted,
     required this.onPickBank,
@@ -504,15 +583,6 @@ class _ClaimForm extends StatelessWidget {
               icon: Icons.info_outline_rounded,
               color: AppColors.secondary,
               text: resultMessage,
-            ),
-            SizedBox(height: 12.h),
-          ],
-          if (!wasAlreadySubmitted &&
-              resolvedNameMatch != null &&
-              resultMessage.isNotEmpty) ...[
-            _VerificationNotice(
-              match: resolvedNameMatch!,
-              message: resultMessage,
             ),
             SizedBox(height: 12.h),
           ],
@@ -692,73 +762,40 @@ class _ClaimForm extends StatelessWidget {
   }
 }
 
-// ─── Server verification notice ─────────────────────────────────────────────
-class _VerificationNotice extends StatelessWidget {
-  final bool match;
-  final String message;
+// ─── Confirmation dialog row ────────────────────────────────────────────────
+class _ConfirmRow extends StatelessWidget {
+  final String label;
+  final String value;
 
-  const _VerificationNotice({required this.match, required this.message});
+  const _ConfirmRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    final color = match ? AppColors.correct : AppColors.accent;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(12.r),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: color.withOpacity(0.30)),
-      ),
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            match
-                ? Icons.verified_rounded
-                : Icons.warning_amber_rounded,
-            color: color,
-            size: 18.r,
+          SizedBox(
+            width: 82.w,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
           ),
-          SizedBox(width: 10.w),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  match
-                      ? 'Account name verified'
-                      : 'Name needs admin review',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 13.sp,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                SizedBox(height: 3.h),
-                Text(
-                  match
-                      ? 'The account name matches this bank account.'
-                      : 'The name does not clearly match the verified account '
-                        'name. An admin will review before approval.',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12.sp,
-                    height: 1.45,
-                  ),
-                ),
-                if (message.isNotEmpty) ...[
-                  SizedBox(height: 3.h),
-                  Text(
-                    message,
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 11.sp,
-                      height: 1.45,
-                    ),
-                  ),
-                ],
-              ],
+            child: Text(
+              value,
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 14.sp,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
@@ -809,15 +846,13 @@ class _NoticeRow extends StatelessWidget {
   }
 }
 
-// ─── Status card (pending / approved / paid / not-winner / error) ───────────
+// ─── Status card (pending / paid / not-winner / error) ──────────────────────
 class _StatusCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String title;
   final String body;
   final String? maskedAccount;
-  final bool? resolvedNameMatch;
-  final String? resultMessage;
   final VoidCallback? onRefresh;
 
   const _StatusCard({
@@ -826,8 +861,6 @@ class _StatusCard extends StatelessWidget {
     required this.title,
     required this.body,
     this.maskedAccount,
-    this.resolvedNameMatch,
-    this.resultMessage,
     this.onRefresh,
   });
 
@@ -894,13 +927,6 @@ class _StatusCard extends StatelessWidget {
               ),
             ),
           ],
-          if (resolvedNameMatch != null && (resultMessage ?? '').isNotEmpty) ...[
-            SizedBox(height: 10.h),
-            _VerificationNotice(
-              match: resolvedNameMatch!,
-              message: resultMessage!,
-            ),
-          ],
           if (onRefresh != null) ...[
             SizedBox(height: 14.h),
             AppButton(
@@ -939,9 +965,10 @@ class _SecurityNote extends StatelessWidget {
           SizedBox(width: 10.w),
           Expanded(
             child: Text(
-              'The account must belong to you, the winner. Submitting details '
-              'does not mean you have been paid — admin approval is required, '
-              'and Paid appears only after the backend confirms the transfer.',
+              'The account must belong to you, the winner. Your prize is sent manually '
+              'by the admin from their own bank, so submitting your details '
+              'does not mean you have been paid. You must claim within 3 days '
+              'of the week closing — after that your share is forfeited.',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 12.sp,

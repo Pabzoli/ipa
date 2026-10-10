@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -242,14 +241,16 @@ class _HeroCard extends StatelessWidget {
 }
 
 // ─── Perks list ───────────────────────────────────────────────────────────
-/// Mirror of the actual premium branches in the code (v4.8):
+/// Mirror of the actual premium branches in the code:
 ///   - ad_service.dart:            Premium users see no interstitials/app-open ads
-///   - stake_screen.dart:          maxStake 3000 (vs 1000), WP max 100 (vs 50),
-///                                 dailyCap 300 (vs 150)
-///   - user_data_provider.dart:    rival rematch cooldown 12h (vs 24h)
+///   - stake_screen.dart:          maxStake 5000 (vs 2000), WP max 400 (vs 200),
+///                                 dailyCap 500 (vs 300), 8 creates+joins/day (vs 5)
+///   - rival rematches:            same-rival WP-staked cooldown 6h (vs 12h);
+///                                 spars have no cooldown for anyone
 ///   - submitDailyGauntlet:        Premium first retry FREE, then 40/60/90/…
 ///   - awardPremiumMonday/Monthly: +75 WP Mondays + 100 WP monthly (flat grants)
 ///   - challenge/WP settlement:    1.20× eligible WP (flat grants excluded)
+///   - Quick Match:                8 daily battles (vs 5), open 24/7
 const List<({IconData icon, String title, String detail})> _kPerks = [
   (
     icon: Icons.visibility_off_rounded,
@@ -259,8 +260,8 @@ const List<({IconData icon, String title, String detail})> _kPerks = [
   (
     icon: Icons.trending_up_rounded,
     title: 'Bigger stakes',
-    detail: '5,000 AC per stake (vs 2,000) · 200 WP per stake (vs 100) · '
-        '300 WP staked/day (vs 150).',
+    detail: '5,000 AC per stake (vs 2,000) · 400 WP per stake (vs 200) · '
+        '500 WP staked/day (vs 300).',
   ),
   (
     icon: Icons.percent_rounded,
@@ -277,12 +278,12 @@ const List<({IconData icon, String title, String detail})> _kPerks = [
   (
     icon: Icons.bolt_rounded,
     title: 'Faster rival rematches',
-    detail: 'Re-match the same rival in 12h instead of 24h.',
+    detail: 'Re-match the same rival in 6h instead of 12h. Spars never wait.',
   ),
   (
     icon: Icons.flash_on_rounded,
     title: 'More Quick Match access',
-    detail: 'Extra QM availability to find opponents faster.',
+    detail: '8 battles daily (vs 5), open 24/7.',
   ),
   (
     icon: Icons.calendar_today_rounded,
@@ -382,41 +383,8 @@ class _ShopPremiumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Premium is sold on the website shop only (Play Billing policy: no
-    // external-payment path reachable from the Play-distributed Android app).
-    // On non-web platforms we show a neutral "unavailable" note instead of
-    // the website shop link.
-    if (!kIsWeb) {
-      return Container(
-        width: double.infinity,
-        padding: EdgeInsets.all(16.r),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(color: AppColors.divider),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline_rounded,
-                size: 18.r, color: AppColors.textMuted),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: Text(
-                'Premium is available to purchase on our website. '
-                'Open AnimeQuiz on the web to get it.',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13.sp,
-                  fontWeight: FontWeight.w600,
-                  height: 1.5,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
+    // Premium is sold on the website shop; the card below always shows the
+    // shop link (Android included).
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(16.r),

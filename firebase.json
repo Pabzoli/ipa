@@ -9,7 +9,11 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "test",
+        "test/**",
+        "**/*.test.js",
+        "**/*.test.mjs"
       ]
     }
   ],

@@ -14,7 +14,7 @@
 //   - Prints only non-sensitive fields (uid, username, weeklyPoints,
 //     leaderboardEntryWeekId). Emails/phones are never printed.
 //   - Historical payout audit data (leaderboardCycles ranked[] snapshots,
-//     payouts subcollections at cycle level, payoutLedger) is intentionally
+//     pendingClaim subcollections at cycle level) is intentionally
 //     LEFT INTACT — board presence comes only from users/{uid} docs.
 //   - Local admin script. NEVER deployed to Firebase.
 

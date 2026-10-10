@@ -377,8 +377,8 @@ static String get _appOpenAdId {
         // so we can show the result in a still-mounted context.
         userCompletedWatch = true;
 
-        // Silently increment prize pool — no user-visible connection (AdMob §2.1).
-        _silentlyIncrementPrizePool();
+        // No prize-pool increment here: the pool is set explicitly by the
+        // admin (setPrizePool), not accumulated from ad views.
       },
     );
 
@@ -498,14 +498,15 @@ static String get _appOpenAdId {
     );
   }
 
-  /// Silently increments the prize pool after a full rewarded ad watch.
-  /// No UI feedback — per AdMob §2.1, the user must not see a naira reward.
-void _silentlyIncrementPrizePool() {
-    FirebaseFunctions.instanceFor(region: 'us-central1')
-        .httpsCallable('incrementPrizePool')
-        .call({'nairaAmount': 2.0})
-        .then((_) {});
-  }
+  // REMOVED: _silentlyIncrementPrizePool.
+  //
+  // This called the incrementPrizePool Cloud Function after each rewarded ad
+  // to top up the prize pool. It never worked: that callable accumulated into
+  // prize_pool/{weekId}.totalNaira while weeklyReset computes the pool from
+  // entryCodeRevenue and never read totalNaira. Every naira was discarded.
+  //
+  // The prize pool is now set explicitly by the admin via setPrizePool, so
+  // there is nothing for an ad view to increment.
 
   // ── Quick Match ad-token rewarded ad ─────────────────────────────────────
   //
@@ -597,8 +598,7 @@ void _silentlyIncrementPrizePool() {
         // Flag completion; CF call happens in onAdDismissed above so context
         // is still mounted when we show the result / snackbar.
         userCompletedWatch = true;
-        // NOTE: _silentlyIncrementPrizePool() is intentionally NOT called here.
-        // QM token ads do not contribute to the prize pool (they award no AC).
+        // No prize-pool increment here (see showRewardedAd above).
       },
     );
 

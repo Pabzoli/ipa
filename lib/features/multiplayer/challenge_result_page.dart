@@ -159,6 +159,11 @@ class _ResultFx {
             ResultOutcome.draw => '🤝',
             ResultOutcome.loss => '🪫',
           },
+        ChallengeKind.spar => switch (outcome) {
+            ResultOutcome.win => '🤝',
+            ResultOutcome.draw => '🤝',
+            ResultOutcome.loss => '💪',
+          },
       };
 
   String get headline => switch (outcome) {
@@ -183,6 +188,12 @@ class _ResultFx {
           },
         ChallengeKind.quick => switch (outcome) {
             ResultOutcome.win => const _AmbientFxBolt(),
+            ResultOutcome.draw => _AmbientFxTiePulse(kind.accentColor),
+            ResultOutcome.loss => _AmbientFxDescent(kind.accentColor),
+          },
+        // Spar is friendly: even a win pulses, never rings or bolts.
+        ChallengeKind.spar => switch (outcome) {
+            ResultOutcome.win => _AmbientFxTiePulse(kind.accentColor),
             ResultOutcome.draw => _AmbientFxTiePulse(kind.accentColor),
             ResultOutcome.loss => _AmbientFxDescent(kind.accentColor),
           },
@@ -676,10 +687,45 @@ class _ResultBodyState extends State<_ResultBody>
                   // ── Payouts: only ever shown once settled, only ever to
                   //    a participant, and always split by currency. ──
                   if (showOutcome) ...[
+                    // Bounty + series banners (ranked duels only; absent otherwise).
+                    if (c.bountyWinnerUid == uid && c.bountyWP > 0) ...[
+                      SizedBox(height: 14.h),
+                      _staggered(
+                        index: 3,
+                        child: _BonusBanner(
+                          emoji: '🎯',
+                          title: 'UPSET BOUNTY +${c.bountyWP} WP',
+                          subtitle:
+                              'You beat a much stronger rival. Take their crown.',
+                          color: const Color(0xFFF59E0B),
+                        ),
+                      ),
+                    ],
+                    if (c.seriesWinnerUid == uid) ...[
+                      SizedBox(height: 14.h),
+                      _staggered(
+                        index: 3,
+                        child: _BonusBanner(
+                          emoji: '🏆',
+                          title: 'SERIES WON · +100 AC',
+                          subtitle:
+                              'First to 3 — series prize added to your balance.',
+                          color: const Color(0xFF8B5CF6),
+                        ),
+                      ),
+                    ],
                     SizedBox(height: 14.h),
                     _staggered(
                       index: 3,
                       child: _SettlementSection(
+                        challenge: c,
+                        currentUid: uid,
+                      ),
+                    ),
+                    SizedBox(height: 12.h),
+                    _staggered(
+                      index: 3,
+                      child: _ReactionsBar(
                         challenge: c,
                         currentUid: uid,
                       ),
@@ -1014,6 +1060,8 @@ class _HeroResult extends StatelessWidget {
             'You outscored $opponentName$stakeClause and take the pot.',
           ChallengeKind.quick =>
             'You outscored $opponentName in a Quick Match. No stake was involved.',
+          ChallengeKind.spar =>
+            'You outscored $opponentName in a spar. Friendly — no stakes, just glory.',
         },
       ResultOutcome.draw => switch (k) {
           ChallengeKind.rival =>
@@ -1022,6 +1070,8 @@ class _HeroResult extends StatelessWidget {
             'You and $opponentName finished level$stakeClause. The stake is refunded to both of you, less the house fee.',
           ChallengeKind.quick =>
             'You and $opponentName finished level. Quick Match draws pay a flat reward with no stake involved.',
+          ChallengeKind.spar =>
+            'You and $opponentName finished level in a spar. No stakes either way.',
         },
       ResultOutcome.loss => switch (k) {
           ChallengeKind.rival =>
@@ -1030,6 +1080,8 @@ class _HeroResult extends StatelessWidget {
             '$opponentName outscored you$stakeClause. Your stake goes to them.',
           ChallengeKind.quick =>
             '$opponentName outscored you in a Quick Match. No stake was involved, so nothing was lost.',
+          ChallengeKind.spar =>
+            '$opponentName outscored you in a spar. Nothing lost — run it back.',
         },
     };
   }
@@ -1649,6 +1701,76 @@ class _PlayerColumn extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Bonus banner — upset bounty / series win. Distinct accent styling, shown
+// above the settlement only when the current user earned it.
+// ═══════════════════════════════════════════════════════════════════════════
+class _BonusBanner extends StatelessWidget {
+  final String emoji;
+  final String title;
+  final String subtitle;
+  final Color color;
+
+  const _BonusBanner({
+    required this.emoji,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color.withValues(alpha: 0.16),
+            color.withValues(alpha: 0.06),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Text(emoji, style: TextStyle(fontSize: 26.sp)),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                SizedBox(height: 3.h),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Settlement — the payout block
 //
 // Replaces the previous _StakesSection / _StakeOutcomeCard /
@@ -1672,6 +1794,137 @@ class _PlayerColumn extends StatelessWidget {
 // WP stake is actually in play. A draw or a Quick Match loss renders the same
 // way a win does — the old code only rendered any of this on a win.
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// Preset duel reactions: 4 fixed emoji, one per user per settled challenge.
+///
+/// Written CF-only to challenges/{id}.reactions.{uid} (rules deny client
+/// challenge writes except own-score). Shows my reaction highlighted plus the
+/// other side's pick, if any. No free text, no counts.
+class _ReactionsBar extends StatefulWidget {
+  final ChallengeModel challenge;
+  final String currentUid;
+
+  const _ReactionsBar({
+    required this.challenge,
+    required this.currentUid,
+  });
+
+  @override
+  State<_ReactionsBar> createState() => _ReactionsBarState();
+}
+
+class _ReactionsBarState extends State<_ReactionsBar> {
+  static const _options = ['👏', '🔥', '😅', 'GG'];
+  String? _sending;
+  Map<String, String>? _override;
+
+  Future<void> _react(String emoji) async {
+    if (_sending != null) return;
+    setState(() => _sending = emoji);
+    try {
+      await FirestoreService.instance.reactToChallenge(
+        challengeId: widget.challenge.challengeId,
+        emoji: emoji,
+      );
+      if (!mounted) return;
+      setState(() {
+        _override = {
+          ...widget.challenge.reactions,
+          widget.currentUid: emoji,
+        };
+        _sending = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _sending = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not react — try again.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reactions = _override ?? widget.challenge.reactions;
+    final mine = reactions[widget.currentUid];
+    String? theirs;
+    for (final e in reactions.entries) {
+      if (e.key != widget.currentUid) {
+        theirs = e.value;
+        break;
+      }
+    }
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 12.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'REACT',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 10.sp,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+            ),
+          ),
+          SizedBox(height: 8.h),
+          Row(
+            children: [
+              for (final emoji in _options) ...[
+                GestureDetector(
+                  onTap: _sending != null ? null : () => _react(emoji),
+                  child: AnimatedOpacity(
+                    opacity: _sending != null && _sending != emoji ? 0.4 : 1.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Container(
+                      width: 44.w,
+                      height: 44.h,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: mine == emoji
+                            ? AppColors.primary.withValues(alpha: 0.16)
+                            : AppColors.surfaceAlt.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(12.r),
+                        border: Border.all(
+                          color: mine == emoji
+                              ? AppColors.primary.withValues(alpha: 0.5)
+                              : AppColors.divider,
+                        ),
+                      ),
+                      child: Text(emoji,
+                          style: TextStyle(fontSize: 20.sp)),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8.w),
+              ],
+              const Spacer(),
+              if (theirs != null)
+                Text(
+                  'Them: $theirs',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SettlementSection extends StatelessWidget {
   final ChallengeModel challenge;

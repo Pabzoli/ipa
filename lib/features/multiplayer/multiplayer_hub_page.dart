@@ -1,47 +1,59 @@
 // lib/features/multiplayer/multiplayer_hub_page.dart
+//
+// Battle tab — rebuilt around the rivalry series (first to 3, staked ranked
+// duels only; draws replay; spars never count).
+//
+// Section order (locked):
+//   Header -> Your move -> Rivalries (live) -> Find a rival -> Quick Match
+//   (practice) -> Payout Rules table.
+//
+// READ-COST NOTE (avoiding N+1 blowups): the Rivalries section issues ONE
+// users/{uid}/matches query via recentRivals(limit 8) to discover rivals,
+// then opens at most 5 live rivalry-doc streams + 5 one-shot rival-WP reads
+// for bounty chips. History/H2H reuse the RivalSummary already in memory;
+// no per-row matches query is issued here. RivalryPage owns the deeper
+// per-rival history stream.
+
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
+import '../../core/services/firestore_service.dart';
+import '../../core/constants/rival_economy.dart';
 import '../quiz/questions_page.dart';
 import '../../core/widgets/app_button.dart';
-import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_page_route.dart';
 import 'anime_select_page.dart';
 import 'join_challenge_page.dart';
 import 'my_challenges_page.dart';
 import 'challenge_lobby_page.dart';
+import 'rivalry_page.dart';
+import 'rivalries_page.dart';
+import '../leaderboard/weekly_leaderboard_page.dart';
 import '../premium/premium_upsell_screen.dart';
 
-// ─── Design tokens (mapped to AppColors) ──────────────────────────────────────
 abstract final class _C {
   static const surface = AppColors.surface;
   static const elevated = AppColors.surfaceAlt;
-
   static const crimson = AppColors.primary;
   static const crimsonBright = AppColors.crimsonBright;
   static const crimsonGlow = Color(0x1CE63946);
   static const crimsonBorder = Color(0x55E63946);
-
   static const sky = AppColors.secondary;
-
-  static const green = AppColors.correct;
-  static const greenDim = Color(0x1638EF7D);
-
   static const text = AppColors.textPrimary;
   static const textSub = AppColors.textSecondary;
   static const textMuted = AppColors.textMuted;
   static const divider = AppColors.divider;
   static const border = Color(0xFF252538);
+  static const rival = AppColors.rival;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -63,44 +75,36 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
 
   Future<void> _startMatchmaking() async {
     if (!mounted) return;
-
     final result = await showDialog<_MatchResult?>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const _SearchingDialog(),
     );
-
     if (!mounted) return;
     if (result == null) return;
-
-    if (result.qmWindowClosed) {
-      _snack('Quick Match is only available during scheduled windows. '
-          'Check the timer below.');
-      return;
-    }
     if (result.noTokens) {
-      _snack('No tokens left — watch an ad for one more.');
+      _snack('No Quick Matches left today — watch an ad for one more, '
+          'or come back tomorrow.');
       return;
     }
     if (result.tooManyActive) {
-      _snack('You already have 5 active challenges. Finish or leave one '
+      _snack('You already have too many active challenges. Finish or leave one '
           'before starting a Quick Match.');
       return;
     }
     if (result.noMatch) {
-      _snack(
-          'No ghost sessions available right now. Try again in a few minutes.');
+      // Token NOT consumed in this case (server consumes it atomically with
+      // the ghost reservation; see joinMatchmakingQueue). Confirmed in code.
+      _snack('No ghost available right now — token not used. Try again soon.');
       return;
     }
-
+    if (!mounted) return;
     await showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (_) => _MatchedDialog(result: result),
     );
-
     if (!mounted) return;
-
     Navigator.push(
       context,
       _slideRoute(
@@ -139,170 +143,145 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
-            // ── Flat page header ──────────────────────────────────────────
+            // ── Header: balances ──────────────────────
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 0.r),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Battle',
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 27.sp,
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Battle',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 27.sp,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(width: 12.w),
+                        _BattlePremiumChip(premiumActive: premiumActive),
+                        SizedBox(width: 8.w),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 12.r, vertical: 6.r),
+                          decoration: BoxDecoration(
+                            color: AppColors.accent.withValues(alpha: 0.13),
+                            borderRadius: BorderRadius.circular(20.r),
+                            border: Border.all(
+                                color:
+                                    AppColors.accent.withValues(alpha: 0.38)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('🪙', style: TextStyle(fontSize: 14.sp)),
+                              SizedBox(width: 5.w),
+                              Text(
+                                '$animeCoins',
+                                style: TextStyle(
+                                  color: AppColors.accent,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14.sp,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) =>
+                                    const WeeklyLeaderboardPage()),
+                          ),
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 12.r, vertical: 6.r),
+                            decoration: BoxDecoration(
+                              color: _C.sky.withValues(alpha: 0.13),
+                              borderRadius: BorderRadius.circular(20.r),
+                              border: Border.all(
+                                  color: _C.sky.withValues(alpha: 0.38)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('⭐', style: TextStyle(fontSize: 14.sp)),
+                                SizedBox(width: 5.w),
+                                Text(
+                                  '$weeklyPoints',
+                                  style: TextStyle(
+                                    color: _C.sky,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14.sp,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          SizedBox(height: 3.h),
-                          Text(
-                            'Challenge a rival · Quick match · Async battles',
-                            style: TextStyle(
-                              color: AppColors.textMuted,
-                              fontSize: 13.sp,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(width: 12.w),
-                    _BattlePremiumChip(premiumActive: premiumActive),
-                    SizedBox(width: 8.w),
-                    // Coin balance
-                    Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.13),
-                        borderRadius: BorderRadius.circular(20.r),
-                        border: Border.all(
-                            color: AppColors.accent.withValues(alpha: 0.38)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('🪙', style: TextStyle(fontSize: 14.sp)),
-                          SizedBox(width: 5.w),
-                          Text(
-                            '$animeCoins',
-                            style: TextStyle(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14.sp,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(width: 8.w),
-                    // WP balance
-                    Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
-                      decoration: BoxDecoration(
-                        color: _C.sky.withValues(alpha: 0.13),
-                        borderRadius: BorderRadius.circular(20.r),
-                        border:
-                            Border.all(color: _C.sky.withValues(alpha: 0.38)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('⭐', style: TextStyle(fontSize: 14.sp)),
-                          SizedBox(width: 5.w),
-                          Text(
-                            '$weeklyPoints',
-                            style: TextStyle(
-                              color: _C.sky,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14.sp,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
 
-            // ── Arena banner ──────────────────────────────────────────────
+            // ── Your move: actionable challenges only ─────────────────
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20.r, 20.r, 20.r, 0.r),
-                child: const _ArenaBanner(),
+                child: const _YourMoveSection(),
               ),
             ),
 
-            // ── How it works ──────────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
-                child: const _HowItWorksStrip(),
-              ),
-            ),
-
-            // ── Active challenges ─────────────────────────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 20.r, 20.r, 0.r),
-                child: const _ActiveChallengesSection(),
-              ),
-            ),
-
-            // ── Create / Join ─────────────────────────────────────────────
+            // ── Rivalries (live series cards) ─────────────────────────
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20.r, 16.r, 20.r, 0.r),
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: _ActionCard(
-                          emoji: '⚔️',
-                          title: 'Create\nChallenge',
-                          subtitle:
-                              'Pick anime, set stake,\nplay first. Share code.',
-                          accent: _C.crimson,
-                          onTap: _goCreate,
-                        ),
-                      ),
-                      SizedBox(width: 12.w),
-                      Expanded(
-                        child: _ActionCard(
-                          emoji: '🎯',
-                          title: 'Join\nChallenge',
-                          subtitle: 'Got a 6-char code?\nEnter it and battle.',
-                          accent: _C.sky,
-                          onTap: _goJoin,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: _RivalriesSection(
+                  onCreate: _goCreate,
+                  onJoin: _goJoin,
                 ),
               ),
             ),
 
-            // ── Quick Match window ────────────────────────────────────────
+            // ── Find a rival: single row ──────────────────────────────
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
-                child: QMWindowWidget(onStartMatchmaking: _goQuickMatch),
+                child: _FindRivalRow(
+                  onCreate: _goCreate,
+                  onJoin: _goJoin,
+                ),
               ),
             ),
 
-            // ── Rules ─────────────────────────────────────────────────────
+            // ── Quick Match (practice vs ghost) ───────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
+                child: QuickMatchCard(onStartMatchmaking: _goQuickMatch),
+              ),
+            ),
+
+            // ── Payout Rules table ────────────────────────────────────
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 40.r),
-                child: const _RulesCard(),
+                child: const _RewardsTable(),
               ),
             ),
           ],
@@ -313,9 +292,6 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
 }
 
 // ─── Match result data class ──────────────────────────────────────────────────
-/// Defensive list builder for `questionIds` returned by the matchmaking CF.
-/// Remote data is untrusted — a legacy ghost session may store ids as ints,
-/// which used to crash `List<String>.from(...)` with a type-cast error.
 List<String> _stringListOf(Object? raw) {
   if (raw is! List) return const [];
   return List<String>.unmodifiable(raw.map((e) => '$e'));
@@ -323,7 +299,6 @@ List<String> _stringListOf(Object? raw) {
 
 class _MatchResult {
   final bool noMatch;
-  final bool qmWindowClosed;
   final bool noTokens;
   final bool tooManyActive;
   final List<String> questionIds;
@@ -332,10 +307,10 @@ class _MatchResult {
   final bool isCreator;
   final String opponentName;
   final String animeTitle;
+  final int ghostScore;
 
   const _MatchResult.noMatch()
       : noMatch = true,
-        qmWindowClosed = false,
         noTokens = false,
         tooManyActive = false,
         questionIds = const [],
@@ -343,23 +318,11 @@ class _MatchResult {
         isGhost = false,
         isCreator = true,
         opponentName = '',
-        animeTitle = '';
-
-  const _MatchResult.qmWindowClosed()
-      : noMatch = false,
-        qmWindowClosed = true,
-        noTokens = false,
-        tooManyActive = false,
-        questionIds = const [],
-        challengeId = '',
-        isGhost = false,
-        isCreator = true,
-        opponentName = '',
-        animeTitle = '';
+        animeTitle = '',
+        ghostScore = 0;
 
   const _MatchResult.noTokens()
       : noMatch = false,
-        qmWindowClosed = false,
         noTokens = true,
         tooManyActive = false,
         questionIds = const [],
@@ -367,11 +330,11 @@ class _MatchResult {
         isGhost = false,
         isCreator = true,
         opponentName = '',
-        animeTitle = '';
+        animeTitle = '',
+        ghostScore = 0;
 
   const _MatchResult.tooManyActive()
       : noMatch = false,
-        qmWindowClosed = false,
         noTokens = false,
         tooManyActive = true,
         questionIds = const [],
@@ -379,7 +342,8 @@ class _MatchResult {
         isGhost = false,
         isCreator = true,
         opponentName = '',
-        animeTitle = '';
+        animeTitle = '',
+        ghostScore = 0;
 
   const _MatchResult({
     required this.questionIds,
@@ -388,13 +352,13 @@ class _MatchResult {
     required this.isCreator,
     required this.opponentName,
     required this.animeTitle,
+    this.ghostScore = 0,
   })  : noMatch = false,
-        qmWindowClosed = false,
         noTokens = false,
         tooManyActive = false;
 }
 
-// ─── Searching dialog ─────────────────────────────────────────────────────────
+// ─── Searching dialog (safe, explicit no-ghost copy) ────────────────────────
 class _SearchingDialog extends StatefulWidget {
   const _SearchingDialog();
 
@@ -405,6 +369,7 @@ class _SearchingDialog extends StatefulWidget {
 class _SearchingDialogState extends State<_SearchingDialog>
     with SingleTickerProviderStateMixin {
   bool _leaving = false;
+  bool _done = false;
   late AnimationController _spinCtrl;
   late Animation<double> _spinAnim;
 
@@ -427,22 +392,17 @@ class _SearchingDialogState extends State<_SearchingDialog>
 
   Future<void> _callMatchmaking() async {
     if (!mounted || _leaving) return;
-
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('joinMatchmakingQueue');
-
       final result = await callable.call<Map<Object?, Object?>>({});
-
-      if (!mounted || _leaving) return;
-
+      if (!mounted || _leaving || _done) return;
+      _done = true;
       final data = Map<String, dynamic>.from(result.data);
       final matched = data['matched'] == true;
       final isGhost = data['isGhost'] == true;
       final animeTitle = data['animeTitle']?.toString() ?? '';
-
       final questionIds = _stringListOf(data['questionIds']);
-
       if (matched) {
         Navigator.of(context).pop(_MatchResult(
           questionIds: questionIds,
@@ -454,28 +414,22 @@ class _SearchingDialogState extends State<_SearchingDialog>
         ));
         return;
       }
-
       if (isGhost) {
         Navigator.of(context).pop(_MatchResult(
           questionIds: questionIds,
           challengeId: data['challengeId']?.toString() ?? '',
           isGhost: true,
           isCreator: true,
-          opponentName:
-              data['ghostUsername']?.toString() ?? 'Recorded Opponent',
+          opponentName: data['ghostUsername']?.toString() ?? 'Recorded Opponent',
           animeTitle: animeTitle,
+          ghostScore: (data['ghostScore'] as num?)?.toInt() ?? 0,
         ));
         return;
       }
-
-      // No ghosts available
       Navigator.of(context).pop(const _MatchResult.noMatch());
     } on FirebaseFunctionsException catch (e) {
-      if (!mounted || _leaving) return;
-      if (e.message == 'outside_qm_window') {
-        Navigator.of(context).pop(const _MatchResult.qmWindowClosed());
-        return;
-      }
+      if (!mounted || _leaving || _done) return;
+      _done = true;
       if (e.message == 'no_qm_tokens') {
         Navigator.of(context).pop(const _MatchResult.noTokens());
         return;
@@ -485,10 +439,9 @@ class _SearchingDialogState extends State<_SearchingDialog>
         return;
       }
       Navigator.of(context).pop(const _MatchResult.noMatch());
-    } catch (e, st) {
-      debugPrint('[GhostMatch][joinMatchmakingQueue] ERROR: $e');
-      debugPrintStack(stackTrace: st);
-      if (!mounted || _leaving) return;
+    } catch (_) {
+      if (!mounted || _leaving || _done) return;
+      _done = true;
       Navigator.of(context).pop(const _MatchResult.noMatch());
     }
   }
@@ -539,32 +492,19 @@ class _SearchingDialogState extends State<_SearchingDialog>
                 ),
               ),
               SizedBox(height: 22.h),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 4.r),
-                decoration: BoxDecoration(
-                  color: _C.crimsonGlow,
-                  borderRadius: BorderRadius.circular(20.r),
-                  border: Border.all(color: _C.crimsonBorder, width: 1),
-                ),
-                child: Text(
-                  'FINDING GHOST',
-                  style: TextStyle(
-                    color: _C.crimsonBright,
-                    fontSize: 10.sp,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 2.5,
-                  ),
-                ),
-              ),
-              SizedBox(height: 10.h),
               Text(
-                'Match against a recorded player',
+                'Finding a practice ghost…',
                 style: TextStyle(
                   color: _C.text,
-                  fontSize: 18.sp,
+                  fontSize: 16.sp,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
                 ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 6.h),
+              Text(
+                'No token is used until a ghost is found.',
+                style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
                 textAlign: TextAlign.center,
               ),
               SizedBox(height: 24.h),
@@ -600,161 +540,928 @@ class _SearchingDialogState extends State<_SearchingDialog>
   }
 }
 
-// ─── Concentric pulse badge ────────────────────────────────────────────────
-class _ConcentricPulseBadge extends StatefulWidget {
+// ─── Your move: actionable challenges only ────────────────────────────────────
+class _YourMoveSection extends StatefulWidget {
+  const _YourMoveSection();
+
   @override
-  State<_ConcentricPulseBadge> createState() => _ConcentricPulseBadgeState();
+  State<_YourMoveSection> createState() => _YourMoveSectionState();
 }
 
-class _ConcentricPulseBadgeState extends State<_ConcentricPulseBadge>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _ring1, _ring2, _ring3;
+class _YourMoveSectionState extends State<_YourMoveSection> {
+  static const _activeStatuses = [
+    'waiting',
+    'opponent_joined',
+    'creator_submitted',
+    'opponent_submitted',
+  ];
+
+  StreamSubscription<QuerySnapshot>? _creatorSub;
+  StreamSubscription<QuerySnapshot>? _opponentSub;
+  List<QueryDocumentSnapshot> _creatorDocs = [];
+  List<QueryDocumentSnapshot> _opponentDocs = [];
+  bool _loading = true;
+  Object? _streamError;
+
+  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1800))
-      ..repeat();
-    _ring1 = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
-        parent: _ctrl, curve: const Interval(0.0, 1.0, curve: Curves.easeOut)));
-    _ring2 = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
-        parent: _ctrl,
-        curve: const Interval(0.18, 1.0, curve: Curves.easeOut)));
-    _ring3 = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(
-        parent: _ctrl,
-        curve: const Interval(0.36, 1.0, curve: Curves.easeOut)));
+    _setupStreams();
+  }
+
+  void _setupStreams() {
+    final uid = _uid;
+    if (uid == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final db = FirebaseFirestore.instance;
+    _creatorSub = db
+        .collection('challenges')
+        .where('creatorUid', isEqualTo: uid)
+        .where('status', whereIn: _activeStatuses)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      setState(() {
+        _creatorDocs = snap.docs;
+        _loading = false;
+      });
+    }, onError: (Object e) {
+      if (!mounted) return;
+      setState(() {
+        _streamError = e;
+        _loading = false;
+      });
+    });
+    _opponentSub = db
+        .collection('challenges')
+        .where('opponentUid', isEqualTo: uid)
+        .where('status', whereIn: _activeStatuses)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      setState(() {
+        _opponentDocs = snap.docs;
+        _loading = false;
+      });
+    }, onError: (Object e) {
+      if (!mounted) return;
+      setState(() {
+        _streamError = e;
+        _loading = false;
+      });
+    });
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _creatorSub?.cancel();
+    _opponentSub?.cancel();
     super.dispose();
+  }
+
+  /// Only challenges needing THIS player's action. Returns null when the row
+  /// should be hidden (waiting on the other side).
+  String? _actionLabel(Map<String, dynamic> data, String uid) {
+    final status = data['status'] as String? ?? '';
+    final isQuick = data['isQuickMatch'] as bool? ?? false;
+    final creatorUid = data['creatorUid'] as String? ?? '';
+    final isCreator = creatorUid == uid;
+    final creatorScore = data['creatorScore'];
+    final opponentScore = data['opponentScore'];
+    if (isQuick) {
+      final mine = isCreator ? creatorScore : opponentScore;
+      if (mine != null) return null; // waiting for ghost/real opponent
+      return 'Your turn';
+    }
+    switch (status) {
+      case 'waiting':
+        return isCreator ? null : 'Your turn';
+      case 'opponent_joined':
+        if (isCreator) {
+          return creatorScore == null ? 'Your turn' : null;
+        } else {
+          return opponentScore == null ? 'Your turn' : null;
+        }
+      case 'creator_submitted':
+        return isCreator ? null : 'Your turn';
+      case 'opponent_submitted':
+        return isCreator ? 'Your turn' : null;
+      default:
+        return null;
+    }
+  }
+
+  String _detailLine(Map<String, dynamic> data, String uid) {
+    final creatorUid = data['creatorUid'] as String? ?? '';
+    final isCreator = creatorUid == uid;
+    final creatorScore = (data['creatorScore'] as num?)?.toInt();
+    final opponentScore = (data['opponentScore'] as num?)?.toInt();
+    final otherScore = isCreator ? opponentScore : creatorScore;
+    final otherName = isCreator
+        ? (data['opponentUsername'] as String? ?? 'Opponent')
+        : (data['creatorUsername'] as String? ?? 'Opponent');
+    if (otherScore != null) return '$otherName scored $otherScore/10 — beat it';
+    return 'Waiting for $otherName';
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, __) => SizedBox(
-        width: 88.w,
-        height: 88.h,
-        child: Stack(alignment: Alignment.center, children: [
-          Opacity(
-            opacity: (1.0 - _ring3.value).clamp(0.0, 1.0),
-            child: Container(
-              width: 44 + 44 * _ring3.value,
-              height: 44 + 44 * _ring3.value,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: _C.crimson.withValues(alpha: 0.18), width: 1),
+    if (_loading) return const SizedBox.shrink();
+    if (_streamError != null) {
+      return Container(
+        padding: EdgeInsets.all(14.r),
+        decoration: BoxDecoration(
+          color: _C.surface,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(color: _C.border.withValues(alpha: 0.5)),
+        ),
+        child: Text(
+          'Could not load your move: $_streamError',
+          style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
+        ),
+      );
+    }
+    final uid = _uid ?? '';
+    final seen = <String>{};
+    final actionable = <QueryDocumentSnapshot>[];
+    for (final doc in [..._creatorDocs, ..._opponentDocs]) {
+      if (!seen.add(doc.id)) continue;
+      final data = doc.data() as Map<String, dynamic>;
+      if (_actionLabel(data, uid) != null) actionable.add(doc);
+    }
+    if (actionable.isEmpty) return const SizedBox.shrink();
+    final visible =
+        actionable.length > 3 ? actionable.sublist(0, 3) : actionable;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(left: 2.r, bottom: 12.r),
+          child: Row(
+            children: [
+              Text(
+                'Your move',
+                style: TextStyle(
+                  color: _C.text,
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                ),
               ),
-            ),
-          ),
-          Opacity(
-            opacity: (1.0 - _ring2.value).clamp(0.0, 1.0),
-            child: Container(
-              width: 44 + 30 * _ring2.value,
-              height: 44 + 30 * _ring2.value,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: _C.crimson.withValues(alpha: 0.28), width: 1),
+              SizedBox(width: 8.w),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
+                decoration: BoxDecoration(
+                  color: _C.crimsonGlow,
+                  borderRadius: BorderRadius.circular(10.r),
+                  border: Border.all(color: _C.crimsonBorder),
+                ),
+                child: Text(
+                  '${actionable.length}',
+                  style: TextStyle(
+                    color: _C.crimsonBright,
+                    fontSize: 11.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
+            ],
+          ),
+        ),
+        for (final doc in visible)
+          Padding(
+            padding: EdgeInsets.only(bottom: 10.r),
+            child: _YourMoveCard(
+              doc: doc,
+              actionLabel: _actionLabel(
+                  doc.data() as Map<String, dynamic>, uid)!,
+              detail: _detailLine(doc.data() as Map<String, dynamic>, uid),
             ),
           ),
-          Opacity(
-            opacity: (1.0 - _ring1.value).clamp(0.0, 1.0),
-            child: Container(
-              width: 44 + 16 * _ring1.value,
-              height: 44 + 16 * _ring1.value,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                    color: _C.crimson.withValues(alpha: 0.40), width: 1),
+        if (actionable.length > 3)
+          TextButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MyChallengesPage()),
+            ),
+            child: const Text('See all'),
+          ),
+        SizedBox(height: 8.h),
+      ],
+    );
+  }
+}
+
+class _YourMoveCard extends StatelessWidget {
+  final QueryDocumentSnapshot doc;
+  final String actionLabel;
+  final String detail;
+  const _YourMoveCard(
+      {required this.doc, required this.actionLabel, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    final data = doc.data() as Map<String, dynamic>;
+    final animeTitle = data['animeTitle'] as String? ?? 'Unknown Anime';
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final isCreator = (data['creatorUid'] as String? ?? '') == uid;
+    final opponentName = isCreator
+        ? (data['opponentUsername'] as String? ?? 'Opponent')
+        : (data['creatorUsername'] as String? ?? 'Opponent');
+    final stakeAmount = (data['stakeAmount'] as num?)?.toInt() ?? 0;
+    final wpStake = (data['wpStake'] as num?)?.toInt() ?? 0;
+    final questionIds = _stringListOf(data['questionIds']);
+
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        color: _C.surface,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(
+            color: _C.crimson.withValues(alpha: 0.45), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(animeTitle,
+                    style: TextStyle(
+                        color: _C.text,
+                        fontSize: 13.sp,
+                        fontWeight: FontWeight.w700)),
+                SizedBox(height: 3.h),
+                Text('vs $opponentName',
+                    style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
+                SizedBox(height: 4.h),
+                Text(actionLabel,
+                    style: TextStyle(
+                        color: _C.crimsonBright,
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w800)),
+                SizedBox(height: 2.h),
+                Text(detail,
+                    style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
+                if (stakeAmount > 0 || wpStake > 0) ...[
+                  SizedBox(height: 4.h),
+                  Text('🪙 $stakeAmount AC · ⭐ $wpStake WP',
+                      style: TextStyle(color: _C.textMuted, fontSize: 10.sp)),
+                ],
+              ],
+            ),
+          ),
+          SizedBox(width: 10.w),
+          if (questionIds.isNotEmpty)
+            AppButton(
+              label: 'Play',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ChallengeLobbyPage(challengeId: doc.id),
+                ),
               ),
+              variant: AppButtonVariant.primary,
+              size: AppButtonSize.small,
+              width: 90.w,
+              height: 38.h,
             ),
-          ),
-          Container(
-            width: 52.w,
-            height: 52.h,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _C.crimsonGlow,
-              border: Border.all(
-                  color: _C.crimson.withValues(alpha: 0.45), width: 1.5),
-            ),
-            child: Center(child: Text('⚡', style: TextStyle(fontSize: 24.sp))),
-          ),
-        ]),
+        ],
       ),
     );
   }
 }
 
-// ─── QM Window widget ────────────────────────────────────────────────────────
-class QMWindowWidget extends StatefulWidget {
-  final VoidCallback onStartMatchmaking;
-  const QMWindowWidget({super.key, required this.onStartMatchmaking});
+// ─── Rivalries: live series cards ─────────────────────────────────────────────
+class _RivalriesSection extends StatelessWidget {
+  final VoidCallback onCreate;
+  final VoidCallback onJoin;
+  const _RivalriesSection({required this.onCreate, required this.onJoin});
 
   @override
-  State<QMWindowWidget> createState() => _QMWindowWidgetState();
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 10.r),
+      decoration: BoxDecoration(
+        color: _C.surface,
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Rivalries',
+            style: TextStyle(
+              color: _C.text,
+              fontSize: 16.sp,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+            ),
+          ),
+          SizedBox(height: 4.h),
+          FutureBuilder<List<RivalSummary>>(
+            future: FirestoreService.instance.recentRivals(limit: 8),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14.h),
+                  child: const Center(
+                    child: CircularProgressIndicator(color: _C.rival),
+                  ),
+                );
+              }
+              if (snap.hasError) {
+                return Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10.h),
+                  child: Text(
+                    'Could not load rivalries: ${snap.error}. Pull to retry by reopening Battle.',
+                    style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
+                  ),
+                );
+              }
+              final rivals = (snap.data ?? []).take(5).toList();
+              if (rivals.isEmpty) {
+                return Padding(
+                  padding: EdgeInsets.fromLTRB(4.r, 10.r, 4.r, 8.r),
+                  child: Text(
+                    'No rivalries yet.\n\nHow it works: you play first, share the code, best score wins. '
+                    'Staked duels count toward a first-to-$kSeriesWinsRequired series; draws replay and never count. '
+                    'Tap Find a rival below to start one.',
+                    style: TextStyle(
+                      color: _C.textMuted,
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
+                    ),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  SizedBox(height: 8.h),
+                  for (final r in rivals)
+                    _RivalryLiveCard(summary: r),
+                  SizedBox(height: 2.h),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const RivalriesPage()),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 8.r, vertical: 4.r),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        'View rivalries →',
+                        style: TextStyle(
+                          color: _C.sky,
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _QMWindowWidgetState extends State<QMWindowWidget> {
-  static const List<String> _testQmBypassUids = [
-    '79OGBOEHSFhn2gONP0XPijZXugP2',
-  ];
+class _RivalryLiveCard extends StatelessWidget {
+  final RivalSummary summary;
+  const _RivalryLiveCard({required this.summary});
 
-  bool get _isQmTestBypassUser =>
-      _testQmBypassUids.contains(FirebaseAuth.instance.currentUser?.uid);
-
-  Timer? _countdownTimer;
-  Duration _timeToNext = Duration.zero;
-  bool _watchingAd = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _updateCountdown();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) _updateCountdown();
-    });
+  String _tag({
+    required int myWins,
+    required int opWins,
+    required bool lastWasLoss,
+    required bool hasSeries,
+  }) {
+    if (!hasSeries) return 'New series';
+    if (myWins == kSeriesWinsRequired - 1) return 'Match point';
+    if (myWins == 0 && opWins == kSeriesWinsRequired - 1) return 'Down 0–2';
+    if (lastWasLoss) return 'Revenge';
+    return 'Series live';
   }
 
   @override
-  void dispose() {
-    _countdownTimer?.cancel();
-    super.dispose();
-  }
-
-  void _updateCountdown() {
-    final next = QMWindowSchedule.nextWindowStart();
-    setState(() {
-      _timeToNext = next.difference(DateTime.now().toUtc());
-      if (_timeToNext.isNegative) _timeToNext = Duration.zero;
-    });
-  }
-
-  String _formatCountdown(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
-  }
-
-  String _buildCountdownLabel() {
-    final next = QMWindowSchedule.nextWindowStart();
-    final diff = next.difference(DateTime.now().toUtc());
-    final clamped = diff.isNegative ? Duration.zero : diff;
-    final nextWindow = QMWindowSchedule.windows.firstWhere(
-      (w) => w.startUTC == next.hour,
-      orElse: () => QMWindowSchedule.windows.first,
+  Widget build(BuildContext context) {
+    final myUid = FirestoreService.instance.currentUid ?? '';
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: FirestoreService.instance.rivalryStream(summary.uid),
+      builder: (context, seriesSnap) {
+        if (seriesSnap.hasError) {
+          return _rivalryCardShell(
+            context: context,
+            seriesLine: 'You 0–0 ${summary.username}',
+            seriesNoLine: 'Series —',
+            tag: 'New series',
+            seriesData: null,
+            seriesError: true,
+          );
+        }
+        final data = seriesSnap.data;
+        int myWins = 0;
+        int opWins = 0;
+        int seriesNo = 1;
+        String status = 'active';
+        DateTime? lastPrizeAt;
+        bool hasSeries = false;
+        if (data != null) {
+          final isA = myUid == (data['aUid'] as String?);
+          myWins = ((isA ? data['winsA'] : data['winsB']) as num?)?.toInt() ?? 0;
+          opWins = ((isA ? data['winsB'] : data['winsA']) as num?)?.toInt() ?? 0;
+          seriesNo = ((data['seriesNo'] as num?)?.toInt()) ?? 1;
+          status = (data['status'] as String?) ?? 'active';
+          final rawPrize = data['lastSeriesPrizeAt'];
+          if (rawPrize is Timestamp) lastPrizeAt = rawPrize.toDate();
+          hasSeries = (myWins + opWins) > 0 || status != 'active';
+          if (status == 'decided' || status == 'expired') hasSeries = true;
+        }
+        final tag = status == 'expired'
+            ? 'New series'
+            : status == 'decided'
+                ? 'New series'
+                : _tag(
+                    myWins: myWins,
+                    opWins: opWins,
+                    lastWasLoss: summary.lastWasLoss,
+                    hasSeries: hasSeries,
+                  );
+        return _rivalryCardShell(
+          context: context,
+          seriesLine: 'You $myWins–$opWins ${summary.username}',
+          seriesNoLine: 'Series $seriesNo'
+              '${status == 'expired' ? ' · last one expired' : status == 'decided' ? ' · decided' : ''}',
+          tag: tag,
+          seriesData: data,
+          seriesError: false,
+          lastPrizeAt: lastPrizeAt,
+          status: status,
+        );
+      },
     );
-    return 'Next: ${nextWindow.name} in ${_formatCountdown(clamped)}';
   }
+
+  Widget _rivalryCardShell({
+    required BuildContext context,
+    required String seriesLine,
+    required String seriesNoLine,
+    required String tag,
+    required Map<String, dynamic>? seriesData,
+    required bool seriesError,
+    DateTime? lastPrizeAt,
+    String status = 'active',
+  }) {
+    final myUid = FirestoreService.instance.currentUid ?? '';
+    String? prizeLine;
+    if (lastPrizeAt != null) {
+      final elapsed = DateTime.now().difference(lastPrizeAt);
+      final remaining = kSeriesPrizeCooldown - elapsed;
+      if (remaining > Duration.zero) {
+        final days = (remaining.inHours / 24).ceil().clamp(1, 7);
+        prizeLine = 'Prize available again in $days day${days == 1 ? '' : 's'}';
+      }
+    }
+    prizeLine ??= 'Win series: +$kSeriesAcPrize AC';
+
+    return Container(
+      margin: EdgeInsets.only(bottom: 10.h),
+      padding: EdgeInsets.all(12.r),
+      decoration: BoxDecoration(
+        color: _C.elevated,
+        borderRadius: BorderRadius.circular(14.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(seriesLine,
+                    style: TextStyle(
+                        color: _C.text,
+                        fontSize: 15.sp,
+                        fontWeight: FontWeight.w900)),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
+                decoration: BoxDecoration(
+                  color: _C.rival.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8.r),
+                ),
+                child: Text(tag,
+                    style: TextStyle(
+                        color: _C.rival,
+                        fontSize: 10.sp,
+                        fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          SizedBox(height: 2.h),
+          Text(seriesNoLine,
+              style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
+          SizedBox(height: 4.h),
+          Text(
+            '${summary.wins}W · ${summary.draws}D · ${summary.losses}L all-time incl. sparring',
+            style: TextStyle(color: _C.textMuted, fontSize: 11.sp),
+          ),
+          SizedBox(height: 6.h),
+          Wrap(
+            spacing: 6.w,
+            runSpacing: 6.h,
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
+                decoration: BoxDecoration(
+                  color: AppColors.coinGold.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8.r),
+                  border: Border.all(
+                      color: AppColors.coinGold.withValues(alpha: 0.4)),
+                ),
+                child: Text('🏆 $prizeLine',
+                    style: TextStyle(
+                        color: AppColors.coinGold,
+                        fontSize: 10.sp,
+                        fontWeight: FontWeight.w700)),
+              ),
+              _BountyChip(
+                rivalUid: summary.uid,
+                myUid: myUid,
+                status: status,
+              ),
+            ],
+          ),
+          if (seriesError) ...[
+            SizedBox(height: 4.h),
+            Text('Series score unavailable — showing record only.',
+                style: TextStyle(color: _C.textMuted, fontSize: 10.sp)),
+          ],
+          SizedBox(height: 8.h),
+          Row(
+            children: [
+              Expanded(
+                child: AppButton(
+                  label: 'Play next game',
+                  onPressed: () => Navigator.of(context).push(
+                    AppPageRoute(
+                      builder: (_) => RivalryPage(
+                        rivalUid: summary.uid,
+                        rivalUsername: summary.username,
+                      ),
+                    ),
+                  ),
+                  variant: AppButtonVariant.primary,
+                  size: AppButtonSize.small,
+                  width: double.infinity,
+                  height: 38.h,
+                ),
+              ),
+              SizedBox(width: 8.w),
+              Expanded(
+                child: AppButton(
+                  label: 'Spar',
+                  onPressed: () => Navigator.of(context).push(
+                    AppPageRoute(
+                      builder: (_) => AnimeSelectPage(
+                        opponentUid: summary.uid,
+                        opponentUsername: summary.username,
+                        onSelect: (title) =>
+                            _startSpar(context, title, summary),
+                      ),
+                    ),
+                  ),
+                  variant: AppButtonVariant.secondary,
+                  size: AppButtonSize.small,
+                  width: double.infinity,
+                  height: 38.h,
+                ),
+              ),
+            ],
+          ),
+          FutureBuilder<String?>(
+            future: _cooldownEstimate(summary.uid),
+            builder: (context, snap) {
+              final t = snap.data;
+              if (t == null || t.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: EdgeInsets.only(top: 6.h),
+                child: Text('Cooldown estimate: $t',
+                    style: TextStyle(
+                        color: _C.textMuted,
+                        fontSize: 10.sp,
+                        fontWeight: FontWeight.w600)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startSpar(
+      BuildContext context, String title, RivalSummary r) async {
+    try {
+      final res = await FirestoreService.instance.createSparChallenge(
+        animeTitle: title,
+        opponentUid: r.uid,
+        opponentUsername: r.username,
+      );
+      final challengeId = res['challengeId']?.toString() ?? '';
+      final rawIds = res['questionIds'];
+      if (!context.mounted) return;
+      if (challengeId.isEmpty || rawIds is! List) throw Exception('failed');
+      final questionIds =
+          List<String>.unmodifiable(rawIds.map((e) => '$e'));
+      Navigator.of(context).pushReplacement(
+        AppPageRoute(
+          builder: (_) => QuestionsPage(
+            mode: QuizMode.asyncChallenge,
+            selectedTitles: [title],
+            questionIds: questionIds,
+            challengeId: challengeId,
+            isCreator: true,
+            opponentName: r.username,
+          ),
+        ),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!context.mounted) return;
+      final msg = e.message ?? '';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          msg.contains('not_friends')
+              ? 'Add them as a friend to spar.'
+              : msg.contains('daily_spar_limit_reached')
+                  ? 'Daily spar limit reached — come back tomorrow.'
+                  : 'Could not start the spar — please try again.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ));
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not start the spar — please try again.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  /// Estimate only — the server enforces 12h/6h inside its transaction and
+  /// skips it inside an active series. Never shown as authoritative.
+  Future<String?> _cooldownEstimate(String rivalUid) async {
+    try {
+      final me = FirebaseFirestore.instance
+          .collection('users')
+          .doc(FirestoreService.instance.currentUid);
+      final snap = await me.get();
+      final data = snap.data() ?? {};
+      final map =
+          (data['rivalCooldowns'] as Map<String, dynamic>?) ?? const {};
+      final raw = map[rivalUid];
+      DateTime? at;
+      if (raw is Timestamp) at = raw.toDate();
+      if (at == null) {
+        // Legacy single-pair fallback.
+        final udpUid = data['lastRivalUid'] as String?;
+        final udpAt = data['lastRivalChallenge'];
+        if (udpUid == rivalUid && udpAt is Timestamp) at = udpAt.toDate();
+      }
+      if (at == null) return null;
+      // Series-aware skip: if an active series has games, server skips.
+      try {
+        final meUid = FirestoreService.instance.currentUid ?? '';
+        final pair = [meUid, rivalUid]..sort();
+        final rSnap = await FirebaseFirestore.instance
+            .collection('rivalries')
+            .doc('${pair[0]}_${pair[1]}')
+            .get();
+        final r = rSnap.data() ?? {};
+        final w =
+            (((r['winsA'] as num?)?.toInt()) ?? 0) +
+                (((r['winsB'] as num?)?.toInt()) ?? 0);
+        if ((r['status'] as String?) == 'active' && w > 0) {
+          return 'none inside this active series (estimate)';
+        }
+      } catch (_) {}
+      final elapsed = DateTime.now().difference(at).inHours;
+      final isPremium = await _isPremium();
+      final cd = isPremium
+          ? kRivalCooldownPremiumHours
+          : kRivalCooldownFreeHours;
+      final left = cd - elapsed;
+      if (left <= 0) return null;
+      return '~$left h left (estimate)';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _isPremium() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(FirestoreService.instance.currentUid)
+          .get();
+      return (snap.data()?['premiumActive'] as bool?) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+class _BountyChip extends StatelessWidget {
+  final String rivalUid;
+  final String myUid;
+  final String status;
+  const _BountyChip(
+      {required this.rivalUid, required this.myUid, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == 'expired' || status == 'decided') {
+      return const SizedBox.shrink();
+    }
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('users')
+          .doc(rivalUid)
+          .get(),
+      builder: (context, rivalSnap) {
+        if (rivalSnap.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+        if (rivalSnap.hasError) {
+          return _chip('🎯 Bounty unavailable', AppColors.textMuted);
+        }
+        final rivalData = rivalSnap.data?.data();
+        if (rivalData == null) {
+          // Permission-denied and missing both land here via error path on
+          // most SDKs; surface as unavailable, never silently hide.
+          return _chip('🎯 Bounty unavailable', AppColors.textMuted);
+        }
+        final rivalWp = ((rivalData['weeklyPoints'] as num?)?.toInt()) ?? 0;
+        final myWp =
+            Provider.of<UserDataProvider>(context, listen: false).weeklyPoints;
+        final gap = rivalWp - myWp;
+        if (gap >= kBountyWpGap) {
+          return _chip('🎯 Bounty +$kBountyWpBonus WP if you win',
+              const Color(0xFFF59E0B));
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  Widget _chip(String text, Color color) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8.r),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(text,
+          style: TextStyle(
+              color: color, fontSize: 10.sp, fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+// ─── Find a rival: single row ─────────────────────────────────────────────────
+class _FindRivalRow extends StatelessWidget {
+  final VoidCallback onCreate;
+  final VoidCallback onJoin;
+  const _FindRivalRow({required this.onCreate, required this.onJoin});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        color: _C.surface,
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Find a rival',
+              style: TextStyle(
+                  color: _C.text,
+                  fontSize: 15.sp,
+                  fontWeight: FontWeight.w800)),
+          SizedBox(height: 4.h),
+          Text('Recent foes · campus · code — one tap to start.',
+              style: TextStyle(color: _C.textMuted, fontSize: 12.sp)),
+          SizedBox(height: 10.h),
+          Row(
+            children: [
+              Expanded(
+                  child: _FindTile(
+                      emoji: '🕘',
+                      label: 'Rivalries',
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const RivalriesPage())))),
+              SizedBox(width: 8.w),
+              Expanded(
+                  child: _FindTile(
+                      emoji: '🎓',
+                      label: 'Campus',
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const RivalriesPage())))),
+              SizedBox(width: 8.w),
+              Expanded(
+                  child: _FindTile(
+                      emoji: '🎯',
+                      label: 'Code',
+                      onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const JoinChallengePage())))),
+            ],
+          ),
+          SizedBox(height: 8.h),
+          GestureDetector(
+            onTap: onCreate,
+            child: Text('or create a code challenge →',
+                style: TextStyle(
+                    color: _C.sky,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FindTile extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final VoidCallback onTap;
+  const _FindTile(
+      {required this.emoji, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.symmetric(vertical: 12.r),
+        decoration: BoxDecoration(
+          color: _C.rival.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(color: _C.rival.withValues(alpha: 0.4)),
+        ),
+        child: Column(
+          children: [
+            Text(emoji, style: TextStyle(fontSize: 20.sp)),
+            SizedBox(height: 4.h),
+            Text(label,
+                style: TextStyle(
+                    color: _C.text,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w800)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Quick Match card (practice vs ghost) ─────────────────────────────────────
+class QuickMatchCard extends StatefulWidget {
+  final VoidCallback onStartMatchmaking;
+  const QuickMatchCard({super.key, required this.onStartMatchmaking});
+
+  @override
+  State<QuickMatchCard> createState() => _QuickMatchCardState();
+}
+
+class _QuickMatchCardState extends State<QuickMatchCard> {
+  bool _watchingAd = false;
 
   Future<void> _handleWatchAd(BuildContext context) async {
     if (_watchingAd) return;
@@ -784,19 +1491,16 @@ class _QMWindowWidgetState extends State<QMWindowWidget> {
     final udp = context.watch<UserDataProvider>();
     final qmTokens = udp.qmTokens;
     final qmAdTokenUsed = udp.qmAdTokenUsed;
-    final activeWindow = QMWindowSchedule.currentWindow();
-    final isWindowOpen = activeWindow != null || _isQmTestBypassUser;
     final premiumActive = udp.premiumActive;
+    final dailyMax = premiumActive ? kQmDailyPremium : kQmDailyFree;
 
     return Container(
       decoration: BoxDecoration(
         color: _C.surface,
         borderRadius: BorderRadius.circular(18.r),
         border: Border.all(
-          color: isWindowOpen
-              ? _C.crimson.withValues(alpha: 0.40)
-              : _C.border.withValues(alpha: 0.5),
-          width: isWindowOpen ? 1.5 : 1,
+          color: _C.crimson.withValues(alpha: 0.40),
+          width: 1.5,
         ),
       ),
       child: Column(
@@ -810,13 +1514,9 @@ class _QMWindowWidgetState extends State<QMWindowWidget> {
                   width: 44.w,
                   height: 44.h,
                   decoration: BoxDecoration(
-                    color: isWindowOpen ? _C.crimsonGlow : _C.elevated,
+                    color: _C.crimsonGlow,
                     borderRadius: BorderRadius.circular(13.r),
-                    border: Border.all(
-                      color: isWindowOpen
-                          ? _C.crimsonBorder
-                          : _C.border.withValues(alpha: 0.5),
-                    ),
+                    border: Border.all(color: _C.crimsonBorder),
                   ),
                   child: Center(
                       child: Text('⚡', style: TextStyle(fontSize: 20.sp))),
@@ -826,33 +1526,16 @@ class _QMWindowWidgetState extends State<QMWindowWidget> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Quick Match',
-                            style: TextStyle(
+                      Text('Quick Match',
+                          style: TextStyle(
                               color: _C.text,
                               fontSize: 16.sp,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.4,
-                            ),
-                          ),
-                          SizedBox(width: 8.w),
-                          _LiveChip(isLive: isWindowOpen),
-                        ],
-                      ),
+                              fontWeight: FontWeight.w800)),
                       SizedBox(height: 3.h),
                       Text(
-                        isWindowOpen
-                            ? '${activeWindow?.name ?? 'Test'} window is open'
-                            : 'Opens 3× daily — windows gated',
-                        style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
-                      ),
-                      SizedBox(height: 4.h),
-                      _QMPremiumLine(
-                        premiumActive: premiumActive,
-                        tokens: qmTokens,
-                        isWindowOpen: isWindowOpen,
+                        'Practice vs ghost · $qmTokens of $dailyMax left · No series, flat rewards',
+                        style:
+                            TextStyle(color: _C.textMuted, fontSize: 12.sp),
                       ),
                     ],
                   ),
@@ -866,16 +1549,23 @@ class _QMWindowWidgetState extends State<QMWindowWidget> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (isWindowOpen)
-                  _TokenBar(tokens: qmTokens)
-                else
-                  _CountdownChip(label: _buildCountdownLabel()),
+                _TokenBar(tokens: qmTokens, max: dailyMax),
                 SizedBox(height: 14.h),
-                _QMButton(
-                  enabled: isWindowOpen && qmTokens > 0,
-                  onTap: widget.onStartMatchmaking,
+                AppButton(
+                  label: 'Play Ghost Match',
+                  icon: Icon(Icons.bolt_rounded, size: 20.r),
+                  onPressed:
+                      qmTokens > 0 ? widget.onStartMatchmaking : null,
+                  variant: AppButtonVariant.gradient,
+                  gradientColors: const [
+                    AppColors.primary,
+                    Color(0xFFFF4D5E),
+                  ],
+                  size: AppButtonSize.large,
+                  height: 52.h,
+                  width: double.infinity,
                 ),
-                if (isWindowOpen && qmTokens == 0 && !qmAdTokenUsed) ...[
+                if (qmTokens == 0 && !qmAdTokenUsed) ...[
                   SizedBox(height: 10.h),
                   _AdButton(
                     loading: _watchingAd,
@@ -892,89 +1582,14 @@ class _QMWindowWidgetState extends State<QMWindowWidget> {
   }
 }
 
-// ─── Live chip ────────────────────────────────────────────────────────────────
-class _LiveChip extends StatefulWidget {
-  final bool isLive;
-  const _LiveChip({required this.isLive});
-
-  @override
-  State<_LiveChip> createState() => _LiveChipState();
-}
-
-class _LiveChipState extends State<_LiveChip>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _blink;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
-    _blink = Tween<double>(begin: 0.35, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _blink,
-      builder: (_, __) => Container(
-        padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 3.r),
-        decoration: BoxDecoration(
-          color: widget.isLive ? _C.greenDim : _C.elevated,
-          borderRadius: BorderRadius.circular(20.r),
-          border: Border.all(
-            color: widget.isLive
-                ? _C.green.withValues(alpha: 0.45)
-                : _C.border.withValues(alpha: 0.4),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.isLive)
-              Padding(
-                padding: EdgeInsets.only(right: 4.r),
-                child: Container(
-                  width: 5.w,
-                  height: 5.h,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _C.green.withValues(alpha: _blink.value),
-                  ),
-                ),
-              ),
-            Text(
-              widget.isLive ? 'LIVE' : '○ CLOSED',
-              style: TextStyle(
-                color: widget.isLive ? _C.green : _C.textMuted,
-                fontSize: 9.sp,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Token bar ────────────────────────────────────────────────────────────────
 class _TokenBar extends StatelessWidget {
   final int tokens;
-  const _TokenBar({required this.tokens});
+  final int max;
+  const _TokenBar({required this.tokens, required this.max});
 
   @override
   Widget build(BuildContext context) {
+    final segs = max.clamp(1, 8);
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 13.r),
       decoration: BoxDecoration(
@@ -991,7 +1606,7 @@ class _TokenBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '$tokens ${tokens == 1 ? "token" : "tokens"} remaining',
+                  '$tokens of $max left today',
                   style: TextStyle(
                       color: _C.crimsonBright,
                       fontSize: 13.sp,
@@ -999,11 +1614,12 @@ class _TokenBar extends StatelessWidget {
                 ),
                 SizedBox(height: 6.h),
                 Row(
-                  children: List.generate(3, (i) {
+                  children: List.generate(segs, (i) {
                     final filled = i < tokens;
                     return Expanded(
                       child: Padding(
-                        padding: EdgeInsets.only(right: i < 2 ? 4.r : 0.r),
+                        padding:
+                            EdgeInsets.only(right: i < segs - 1 ? 4.r : 0.r),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 300),
                           height: 4.h,
@@ -1027,61 +1643,6 @@ class _TokenBar extends StatelessWidget {
   }
 }
 
-// ─── Countdown chip ───────────────────────────────────────────────────────────
-class _CountdownChip extends StatelessWidget {
-  final String label;
-  const _CountdownChip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 13.r),
-      decoration: BoxDecoration(
-        color: _C.elevated,
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.timer_outlined, color: _C.textMuted, size: 15.r),
-          SizedBox(width: 8.w),
-          Text(label,
-              style: TextStyle(
-                  color: _C.textSub,
-                  fontSize: 13.sp,
-                  fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Find a Match button ──────────────────────────────────────────────────────
-class _QMButton extends StatelessWidget {
-  final bool enabled;
-  final VoidCallback? onTap;
-  const _QMButton({required this.enabled, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppButton(
-      label: 'Play Ghost Match',
-      icon: Icon(Icons.bolt_rounded, size: 20.r),
-      onPressed: enabled ? onTap : null,
-      variant: AppButtonVariant.gradient,
-      gradientColors: const [
-        AppColors.primary,
-        Color(0xFFFF4D5E),
-      ],
-      size: AppButtonSize.large,
-      height: 52.h,
-      width: double.infinity,
-    );
-  }
-}
-
-// ─── Watch-ad button ──────────────────────────────────────────────────────────
 class _AdButton extends StatelessWidget {
   final bool loading;
   final VoidCallback? onTap;
@@ -1129,1189 +1690,7 @@ class _AdButton extends StatelessWidget {
   }
 }
 
-// ─── Arena banner ──────────────────────────────────────────────────────────────
-class _ArenaBanner extends StatelessWidget {
-  const _ArenaBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(20.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 64.w,
-            height: 64.h,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(18.r),
-              border:
-                  Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
-            ),
-            child: Center(child: Text('⚔️', style: TextStyle(fontSize: 28.sp))),
-          ),
-          SizedBox(width: 18.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(6.r),
-                  ),
-                  child: Text(
-                    'ASYNC MULTIPLAYER',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 8.sp,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-                SizedBox(height: 8.h),
-                Text(
-                  'Challenge\nyour rival',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 24.sp,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.8,
-                    height: 1.08,
-                  ),
-                ),
-                SizedBox(height: 6.h),
-                Text(
-                  'Play now · They play when ready\nWinner takes all',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12.sp,
-                    height: 1.45,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── How-it-works strip ───────────────────────────────────────────────────────
-class _HowItWorksStrip extends StatelessWidget {
-  const _HowItWorksStrip();
-
-  static const _steps = [
-    (num: '1', emoji: '🎮', label: 'You play\nfirst', color: _C.crimson),
-    (num: '2', emoji: '📤', label: 'Share\nyour code', color: _C.sky),
-    (num: '3', emoji: '🏆', label: 'Best score\nwins', color: _C.green),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 16.r),
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        children: [
-          for (int i = 0; i < _steps.length; i++) ...[
-            if (i > 0)
-              Expanded(child: Container(height: 1.h, color: _C.divider)),
-            _StepBadge(
-              number: _steps[i].num,
-              emoji: _steps[i].emoji,
-              label: _steps[i].label,
-              accent: _steps[i].color,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _StepBadge extends StatelessWidget {
-  final String number;
-  final String emoji;
-  final String label;
-  final Color accent;
-
-  const _StepBadge({
-    required this.number,
-    required this.emoji,
-    required this.label,
-    required this.accent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              width: 48.w,
-              height: 48.h,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(14.r),
-                border: Border.all(color: accent.withValues(alpha: 0.28)),
-              ),
-              child:
-                  Center(child: Text(emoji, style: TextStyle(fontSize: 22.sp))),
-            ),
-            Positioned(
-              top: -5.h,
-              right: -5.w,
-              child: Container(
-                width: 18.w,
-                height: 18.h,
-                decoration:
-                    BoxDecoration(color: accent, shape: BoxShape.circle),
-                child: Center(
-                  child: Text(number,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 9.sp,
-                        fontWeight: FontWeight.w900,
-                      )),
-                ),
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 8.h),
-        Text(
-          label,
-          style: TextStyle(
-            color: _C.textMuted,
-            fontSize: 10.sp,
-            height: 1.35,
-            fontWeight: FontWeight.w500,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Action card ──────────────────────────────────────────────────────────────
-class _ActionCard extends StatefulWidget {
-  final String emoji;
-  final String title;
-  final String subtitle;
-  final Color accent;
-  final VoidCallback onTap;
-
-  const _ActionCard({
-    required this.emoji,
-    required this.title,
-    required this.subtitle,
-    required this.accent,
-    required this.onTap,
-  });
-
-  @override
-  State<_ActionCard> createState() => _ActionCardState();
-}
-
-class _ActionCardState extends State<_ActionCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _scaleCtrl;
-  late Animation<double> _scaleAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _scaleCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 100));
-    _scaleAnim = Tween<double>(begin: 1.0, end: 0.96)
-        .animate(CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeOut));
-  }
-
-  @override
-  void dispose() {
-    _scaleCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: _scaleAnim,
-      child: Ink(
-        decoration: BoxDecoration(
-          color: _C.surface,
-          borderRadius: BorderRadius.circular(AppRadii.xl),
-          border: Border.all(color: widget.accent.withValues(alpha: 0.28)),
-        ),
-        child: InkWell(
-          onTapDown: (_) => _scaleCtrl.forward(),
-          onTap: () {
-            _scaleCtrl.reverse();
-            widget.onTap();
-          },
-          onTapCancel: () => _scaleCtrl.reverse(),
-          borderRadius: BorderRadius.circular(AppRadii.xl),
-          child: Container(
-            padding: EdgeInsets.all(16.r),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 44.w,
-                  height: 44.h,
-                  decoration: BoxDecoration(
-                    color: widget.accent.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(13.r),
-                    border: Border.all(
-                        color: widget.accent.withValues(alpha: 0.25)),
-                  ),
-                  child: Center(
-                      child: Text(widget.emoji,
-                          style: TextStyle(fontSize: 22.sp))),
-                ),
-                SizedBox(height: 14.h),
-                Text(
-                  widget.title,
-                  style: TextStyle(
-                    color: widget.accent,
-                    fontSize: 15.sp,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.3,
-                    height: 1.15,
-                  ),
-                ),
-                SizedBox(height: 5.h),
-                Text(
-                  widget.subtitle,
-                  style: TextStyle(
-                      color: _C.textMuted, fontSize: 11.sp, height: 1.45),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Rules card ──────────────────────────────────────────────────────────────
-class _RulesCard extends StatefulWidget {
-  const _RulesCard();
-
-  @override
-  State<_RulesCard> createState() => _RulesCardState();
-}
-
-class _RulesCardState extends State<_RulesCard> {
-  bool _isExpanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Tappable Header ──
-          InkWell(
-            onTap: () => setState(() => _isExpanded = !_isExpanded),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 12.r),
-              child: Row(
-                children: [
-                  Container(
-                    width: 32.w,
-                    height: 32.h,
-                    decoration: BoxDecoration(
-                      color: _C.elevated,
-                      borderRadius: BorderRadius.circular(9.r),
-                      border:
-                          Border.all(color: _C.border.withValues(alpha: 0.5)),
-                    ),
-                    child: Center(
-                        child: Text('⚖️', style: TextStyle(fontSize: 15.sp))),
-                  ),
-                  SizedBox(width: 10.w),
-                  Text(
-                    'Payout Rules',
-                    style: TextStyle(
-                      color: _C.text,
-                      fontSize: 15.sp,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    _isExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: _C.textMuted,
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ── Foldable Content ──
-          AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-            alignment: Alignment.topCenter,
-            child: _isExpanded
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Divider(height: 1.h, thickness: 1, color: _C.divider),
-
-                      // ── AC stakes ─────────────────────────
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(12.r, 12.r, 12.r, 4.r),
-                        child: Row(
-                          children: [
-                            Text('🪙', style: TextStyle(fontSize: 12.sp)),
-                            SizedBox(width: 6.w),
-                            Text(
-                              'AC STAKES',
-                              style: TextStyle(
-                                color: _C.textMuted,
-                                fontSize: 10.sp,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 9.r, vertical: 3.r),
-                              decoration: BoxDecoration(
-                                color: _C.elevated,
-                                borderRadius: BorderRadius.circular(20.r),
-                                border: Border.all(
-                                    color: _C.border.withValues(alpha: 0.5)),
-                              ),
-                              child: Text(
-                                '10% win fee · 5% draw fee',
-                                style: TextStyle(
-                                    color: _C.textMuted,
-                                    fontSize: 10.sp,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(12.r, 8.r, 12.r, 6.r),
-                        child: Column(
-                          children: [
-                            _RuleRow(
-                              emoji: '🏆',
-                              label: 'WIN',
-                              labelColor: AppColors.win,
-                              accentColor: AppColors.win,
-                              detail: "Your stake back + 90% of opponent's",
-                              highlight: '1.9×',
-                              highlightColor: AppColors.win,
-                            ),
-                            SizedBox(height: 8.h),
-                            _RuleRow(
-                              emoji: '🤝',
-                              label: 'DRAW',
-                              labelColor: AppColors.draw,
-                              accentColor: AppColors.draw,
-                              detail: 'Stake refunded minus a 5% fee',
-                              highlight: '0.95×',
-                              highlightColor: AppColors.draw,
-                            ),
-                            SizedBox(height: 8.h),
-                            _RuleRow(
-                              emoji: '💀',
-                              label: 'LOSE',
-                              labelColor: AppColors.lose,
-                              accentColor: AppColors.lose,
-                              detail:
-                                  'Your full stake is forfeited to the house',
-                              highlight: '0×',
-                              highlightColor: AppColors.lose,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      Divider(
-                          height: 1.h,
-                          thickness: 1,
-                          indent: 12.w,
-                          endIndent: 12.w,
-                          color: _C.divider.withValues(alpha: 0.5)),
-
-                      // ── WP stakes ─────────────────────────
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(12.r, 12.r, 12.r, 4.r),
-                        child: Row(
-                          children: [
-                            Text('⭐', style: TextStyle(fontSize: 12.sp)),
-                            SizedBox(width: 6.w),
-                            Text(
-                              'WP STAKES · RIVAL CHALLENGES',
-                              style: TextStyle(
-                                color: _C.textMuted,
-                                fontSize: 10.sp,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 9.r, vertical: 3.r),
-                              decoration: BoxDecoration(
-                                color: _C.elevated,
-                                borderRadius: BorderRadius.circular(20.r),
-                                border: Border.all(
-                                    color: _C.border.withValues(alpha: 0.5)),
-                              ),
-                              child: Text(
-                                '10% fee',
-                                style: TextStyle(
-                                    color: _C.textMuted,
-                                    fontSize: 10.sp,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(12.r, 8.r, 12.r, 6.r),
-                        child: Column(
-                          children: [
-                            _RuleRow(
-                              emoji: '🏆',
-                              label: 'WIN',
-                              labelColor: AppColors.win,
-                              accentColor: AppColors.win,
-                              detail: "Your WP back + 90% of opponent's",
-                              highlight: '1.9×',
-                              highlightColor: AppColors.win,
-                            ),
-                            SizedBox(height: 8.h),
-                            _RuleRow(
-                              emoji: '🤝',
-                              label: 'DRAW',
-                              labelColor: AppColors.draw,
-                              accentColor: AppColors.draw,
-                              detail: 'WP refunded minus a 10% fee',
-                              highlight: '0.9×',
-                              highlightColor: AppColors.draw,
-                            ),
-                            SizedBox(height: 8.h),
-                            _RuleRow(
-                              emoji: '💀',
-                              label: 'LOSE',
-                              labelColor: AppColors.lose,
-                              accentColor: AppColors.lose,
-                              detail: '90% of your WP to opponent, 10% fee',
-                              highlight: '0×',
-                              highlightColor: AppColors.lose,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(16.r, 6.r, 16.r, 14.r),
-                        child: Row(
-                          children: [
-                            Icon(Icons.timer_outlined,
-                                color: _C.textMuted, size: 12.r),
-                            SizedBox(width: 6.w),
-                            Text(
-                              'Unclaimed challenges expire after 24 hours',
-                              style: TextStyle(
-                                  color: _C.textMuted, fontSize: 11.sp),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RuleRow extends StatelessWidget {
-  final String emoji;
-  final String label;
-  final Color labelColor;
-  final Color accentColor;
-  final String detail;
-  final String highlight;
-  final Color highlightColor;
-
-  const _RuleRow({
-    required this.emoji,
-    required this.label,
-    required this.labelColor,
-    required this.accentColor,
-    required this.detail,
-    required this.highlight,
-    required this.highlightColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 11.r),
-      decoration: BoxDecoration(
-        color: labelColor.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(11.r),
-        border: Border.all(color: labelColor.withValues(alpha: 0.15), width: 1),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 3.w,
-            height: 26.h,
-            decoration: BoxDecoration(
-              color: accentColor,
-              borderRadius: BorderRadius.circular(2.r),
-            ),
-          ),
-          SizedBox(width: 10.w),
-          Text(emoji, style: TextStyle(fontSize: 16.sp)),
-          SizedBox(width: 8.w),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 6.r, vertical: 2.r),
-            decoration: BoxDecoration(
-              color: labelColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(5.r),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: labelColor,
-                fontSize: 9.sp,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.8,
-              ),
-            ),
-          ),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: Text(
-              detail,
-              style: TextStyle(color: _C.textSub, fontSize: 12.sp, height: 1.3),
-            ),
-          ),
-          SizedBox(width: 8.w),
-          Text(
-            highlight,
-            style: TextStyle(
-              color: highlightColor,
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Active Challenges Section
-// ═══════════════════════════════════════════════════════════════════════════
-class _ActiveChallengesSection extends StatefulWidget {
-  const _ActiveChallengesSection();
-
-  @override
-  State<_ActiveChallengesSection> createState() =>
-      _ActiveChallengesSectionState();
-}
-
-class _ActiveChallengesSectionState extends State<_ActiveChallengesSection> {
-  static const _activeStatuses = [
-    'waiting',
-    'opponent_joined',
-    'creator_submitted',
-    'opponent_submitted',
-  ];
-
-  StreamSubscription<QuerySnapshot>? _creatorSub;
-  StreamSubscription<QuerySnapshot>? _opponentSub;
-
-  List<QueryDocumentSnapshot> _creatorDocs = [];
-  List<QueryDocumentSnapshot> _opponentDocs = [];
-  bool _loading = true;
-
-  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
-
-  @override
-  void initState() {
-    super.initState();
-    _setupStreams();
-  }
-
-  void _setupStreams() {
-    final uid = _uid;
-    if (uid == null) {
-      setState(() => _loading = false);
-      return;
-    }
-
-    final db = FirebaseFirestore.instance;
-
-    _creatorSub = db
-        .collection('challenges')
-        .where('creatorUid', isEqualTo: uid)
-        .where('status', whereIn: _activeStatuses)
-        .snapshots()
-        .listen((snap) {
-      if (!mounted) return;
-      setState(() {
-        _creatorDocs = snap.docs;
-        _loading = false;
-      });
-    });
-
-    _opponentSub = db
-        .collection('challenges')
-        .where('opponentUid', isEqualTo: uid)
-        .where('status', whereIn: _activeStatuses)
-        .snapshots()
-        .listen((snap) {
-      if (!mounted) return;
-      setState(() {
-        _opponentDocs = snap.docs;
-        _loading = false;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _creatorSub?.cancel();
-    _opponentSub?.cancel();
-    super.dispose();
-  }
-
-  List<QueryDocumentSnapshot> get _merged {
-    final seen = <String>{};
-    final result = <QueryDocumentSnapshot>[];
-    for (final doc in [..._creatorDocs, ..._opponentDocs]) {
-      if (seen.add(doc.id)) result.add(doc);
-    }
-    return result;
-  }
-
-  void _navigateToMyChallenges() {
-    Navigator.push(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (_, a, __) => const MyChallengesPage(),
-        transitionsBuilder: (_, a, __, child) => SlideTransition(
-          position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-              .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
-          child: child,
-        ),
-        transitionDuration: const Duration(milliseconds: 350),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const SizedBox.shrink();
-    final challenges = _merged;
-    if (challenges.isEmpty) return const SizedBox.shrink();
-
-    final visible =
-        challenges.length > 3 ? challenges.sublist(0, 3) : challenges;
-    final showSeeAll = challenges.length > 3;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: EdgeInsets.only(left: 2.r, bottom: 12.r),
-          child: Row(
-            children: [
-              Text(
-                'Active Challenges',
-                style: TextStyle(
-                  color: _C.text,
-                  fontSize: 15.sp,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
-                decoration: BoxDecoration(
-                  color: _C.crimsonGlow,
-                  borderRadius: BorderRadius.circular(10.r),
-                  border: Border.all(color: _C.crimsonBorder),
-                ),
-                child: Text(
-                  '${challenges.length}',
-                  style: TextStyle(
-                    color: _C.crimsonBright,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        for (final doc in visible)
-          Padding(
-            padding: EdgeInsets.only(bottom: 10.r),
-            child: _ActiveChallengeCard(doc: doc),
-          ),
-        if (showSeeAll) ...[
-          SizedBox(height: 4.h),
-          TextButton(
-            onPressed: _navigateToMyChallenges,
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.primary,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('See All'),
-                SizedBox(width: 4.w),
-                Icon(Icons.arrow_forward_rounded, size: 14.r),
-              ],
-            ),
-          ),
-        ],
-        SizedBox(height: 8.h),
-      ],
-    );
-  }
-}
-
-// ─── Single active challenge card ─────────────────────────────────────────────
-class _ActiveChallengeCard extends StatefulWidget {
-  final QueryDocumentSnapshot doc;
-  const _ActiveChallengeCard({required this.doc});
-
-  @override
-  State<_ActiveChallengeCard> createState() => _ActiveChallengeCardState();
-}
-
-class _ActiveChallengeCardState extends State<_ActiveChallengeCard> {
-  bool _declining = false;
-
-  QueryDocumentSnapshot get doc => widget.doc;
-
-  Future<void> _declineChallenge(
-      BuildContext context, String challengeId) async {
-    if (_declining) return;
-    final confirmed = await showAppDialog<bool>(
-      context,
-      builder: (ctx) => AppDialog(
-        title: 'Decline challenge?',
-        contentWidget: Text(
-          'The other player\'s stake will be refunded to them. This can\'t be undone.',
-          style: TextStyle(color: _C.textMuted, fontSize: 13.sp),
-        ),
-        actions: [
-          AppButton(
-            label: 'Cancel',
-            variant: AppButtonVariant.text,
-            color: _C.textMuted,
-            onPressed: () => Navigator.pop(ctx, false),
-          ),
-          AppButton(
-            label: 'Decline',
-            variant: AppButtonVariant.text,
-            color: _C.crimsonBright,
-            onPressed: () => Navigator.pop(ctx, true),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    setState(() => _declining = true);
-    try {
-      await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('declineChallenge')
-          .call({'challengeId': challengeId});
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Challenge declined'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
-        ));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Failed to decline: ${e.toString().replaceFirst('Exception: ', '')}'),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => _declining = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final data = doc.data() as Map<String, dynamic>;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-
-    final animeTitle = data['animeTitle'] as String? ?? 'Unknown Anime';
-    final status = data['status'] as String? ?? '';
-    final isQuickMatch = data['isQuickMatch'] as bool? ?? false;
-    final creatorUid = data['creatorUid'] as String? ?? '';
-    final creatorUsername = data['creatorUsername'] as String? ?? 'You';
-    final opponentUsername = data['opponentUsername'] as String? ?? '—';
-    final stakeAmount = data['stakeAmount'] as int? ?? 0;
-    final wpStake = data['wpStake'] as int? ?? 0;
-    final questionIds = _stringListOf(data['questionIds']);
-    final challengeId = doc.id;
-    final isCreator = creatorUid == uid;
-    final hasOpponent = data['opponentUid'] != null;
-
-    final creatorScore = data['creatorScore'];
-    final opponentScore = data['opponentScore'];
-
-    String statusLabel;
-    bool needsAction = false;
-
-    if (isQuickMatch) {
-      final hasPlayed =
-          isCreator ? creatorScore != null : opponentScore != null;
-      if (hasPlayed) {
-        statusLabel = 'Waiting for opponent…';
-      } else {
-        statusLabel = 'Quick Match — play now!';
-        needsAction = true;
-      }
-    } else {
-      switch (status) {
-        case 'waiting':
-          if (isCreator) {
-            statusLabel = hasOpponent
-                ? 'Waiting for opponent to accept'
-                : 'Waiting — share code';
-          } else {
-            statusLabel = 'Pending — accept to play';
-            needsAction = true;
-          }
-          break;
-        case 'opponent_joined':
-          if (isCreator) {
-            statusLabel = creatorScore != null
-                ? 'You played — waiting for opponent'
-                : 'Opponent joined — play now!';
-            needsAction = creatorScore == null;
-          } else {
-            statusLabel = opponentScore != null
-                ? 'You played — waiting for creator'
-                : 'Creator played — your turn!';
-            needsAction = opponentScore == null;
-          }
-          break;
-        case 'creator_submitted':
-          statusLabel = isCreator
-              ? 'Waiting for opponent to play'
-              : 'Creator played — your turn!';
-          if (!isCreator) needsAction = true;
-          break;
-        case 'opponent_submitted':
-          statusLabel = isCreator
-              ? 'Opponent played — your turn!'
-              : 'Waiting for creator to play';
-          if (isCreator) needsAction = true;
-          break;
-        default:
-          statusLabel = status;
-      }
-    }
-
-    final opponentName = isCreator ? opponentUsername : creatorUsername;
-    final accentColor = isQuickMatch ? _C.crimson : _C.sky;
-
-    final showCopyCode =
-        isCreator && status == 'waiting' && !hasOpponent && !isQuickMatch;
-
-    final canDecline =
-        !isQuickMatch && status == 'waiting' && !isCreator && hasOpponent;
-
-    return Container(
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(
-          color: needsAction
-              ? _C.crimson.withValues(alpha: 0.45)
-              : _C.border.withValues(alpha: 0.50),
-          width: needsAction ? 1.5 : 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44.w,
-            height: 44.h,
-            decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(color: accentColor.withValues(alpha: 0.30)),
-            ),
-            child: Center(
-                child: Text(isQuickMatch ? '⚡' : '⚔️',
-                    style: TextStyle(fontSize: 18.sp))),
-          ),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  animeTitle,
-                  style: TextStyle(
-                      color: _C.text,
-                      fontSize: 13.sp,
-                      fontWeight: FontWeight.w700),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: 3.h),
-                Text('vs $opponentName',
-                    style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
-                SizedBox(height: 4.h),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 7.r, vertical: 2.r),
-                  decoration: BoxDecoration(
-                    color: needsAction
-                        ? _C.crimson.withValues(alpha: 0.14)
-                        : _C.elevated,
-                    borderRadius: BorderRadius.circular(5.r),
-                    border: Border.all(
-                      color: needsAction
-                          ? _C.crimson.withValues(alpha: 0.35)
-                          : _C.border.withValues(alpha: 0.4),
-                      width: 0.5,
-                    ),
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: TextStyle(
-                      color: needsAction ? _C.crimsonBright : _C.textMuted,
-                      fontSize: 10.sp,
-                      fontWeight:
-                          needsAction ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if (!isQuickMatch && stakeAmount > 0) ...[
-                  SizedBox(height: 4.h),
-                  Row(
-                    children: [
-                      Text('🪙 $stakeAmount AC',
-                          style:
-                              TextStyle(color: _C.textMuted, fontSize: 10.sp)),
-                      if (wpStake > 0) ...[
-                        SizedBox(width: 8.w),
-                        Text('⭐ $wpStake WP',
-                            style: TextStyle(
-                                color: _C.textMuted, fontSize: 10.sp)),
-                      ],
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-          SizedBox(width: 10.w),
-          if (showCopyCode)
-            SizedBox(
-              width: 90.w,
-              child: _CopyCodeButton(code: challengeId),
-            )
-          else if (needsAction && questionIds.isNotEmpty)
-            SizedBox(
-              width: 90.w,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _PlayNowButton(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChallengeLobbyPage(
-                          challengeId: challengeId,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (canDecline) ...[
-                    SizedBox(height: 6.h),
-                    _DeclineButton(
-                      loading: _declining,
-                      onTap: () => _declineChallenge(context, challengeId),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Decline button ──────────────────────────────────────────────────────────
-class _DeclineButton extends StatelessWidget {
-  final bool loading;
-  final VoidCallback onTap;
-  const _DeclineButton({required this.loading, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        color: _C.crimson.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(9.r),
-        border: Border.all(
-          color: _C.crimson.withValues(alpha: 0.4),
-        ),
-      ),
-      child: InkWell(
-        onTap: loading ? null : onTap,
-        borderRadius: BorderRadius.circular(9.r),
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
-          child: Center(
-            child: loading
-                ? SizedBox(
-                    width: 11.w,
-                    height: 11.h,
-                    child: const CircularProgressIndicator(
-                        strokeWidth: 1.6, color: _C.textMuted),
-                  )
-                : Text(
-                    'Decline',
-                    style: TextStyle(
-                        color: _C.crimson,
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w700),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Copy code button ────────────────────────────────────────────────────────
-class _CopyCodeButton extends StatelessWidget {
-  final String code;
-  const _CopyCodeButton({required this.code});
-
-  @override
-  Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        color: _C.elevated,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: _C.border.withValues(alpha: 0.65)),
-      ),
-      child: InkWell(
-        onTap: () {
-          Clipboard.setData(ClipboardData(text: code));
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Challenge code copied!'),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
-          ));
-        },
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                code,
-                style: TextStyle(
-                  color: _C.text,
-                  fontSize: 13.sp,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2.5,
-                ),
-              ),
-              SizedBox(height: 3.h),
-              Text('tap to copy',
-                  style: TextStyle(color: _C.textMuted, fontSize: 9.sp)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Play Now button ─────────────────────────────────────────────────────────
-class _PlayNowButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _PlayNowButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppButton(
-      label: 'Accept',
-      onPressed: onTap,
-      variant: AppButtonVariant.primary,
-      size: AppButtonSize.small,
-      width: double.infinity,
-      height: 38.h,
-    );
-  }
-}
-
-// ─── Matched dialog ─────────────────────────────────────────────────────────
+// ─── Matched dialog (safe auto-dismiss) ───────────────────────────────────────
 class _MatchedDialog extends StatefulWidget {
   final _MatchResult result;
   const _MatchedDialog({required this.result});
@@ -2322,12 +1701,16 @@ class _MatchedDialog extends StatefulWidget {
 
 class _MatchedDialogState extends State<_MatchedDialog> {
   Timer? _autoDismissTimer;
+  bool _gone = false;
 
   @override
   void initState() {
     super.initState();
+    // Safe: guarded by mounted + cancelled on dispose; tap continues now.
     _autoDismissTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) Navigator.of(context).pop();
+      if (!mounted || _gone) return;
+      _gone = true;
+      Navigator.of(context).pop();
     });
   }
 
@@ -2335,6 +1718,13 @@ class _MatchedDialogState extends State<_MatchedDialog> {
   void dispose() {
     _autoDismissTimer?.cancel();
     super.dispose();
+  }
+
+  void _continueNow() {
+    if (_gone) return;
+    _gone = true;
+    _autoDismissTimer?.cancel();
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -2351,81 +1741,44 @@ class _MatchedDialogState extends State<_MatchedDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 72.w,
-              height: 72.h,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _C.crimsonGlow,
-                border: Border.all(
-                    color: _C.crimson.withValues(alpha: 0.5), width: 1.5),
-              ),
-              child: Center(
-                child: Text('⚡', style: TextStyle(fontSize: 30.sp)),
-              ),
-            ),
-            SizedBox(height: 16.h),
-            Text(
-              'GHOST FOUND!',
-              style: TextStyle(
-                color: _C.crimsonBright,
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 2.5,
-              ),
-            ),
+            Text('GHOST FOUND!',
+                style: TextStyle(
+                    color: _C.crimsonBright,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 2.5)),
             SizedBox(height: 12.h),
-            Text(
-              result.opponentName,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _C.text,
-                fontSize: 24.sp,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.5,
-              ),
+            Text(result.opponentName,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: _C.text,
+                    fontSize: 24.sp,
+                    fontWeight: FontWeight.w900)),
+            SizedBox(height: 8.h),
+            Text(result.animeTitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _C.textMuted, fontSize: 15.sp)),
+            if (result.isGhost && result.ghostScore > 0) ...[
+              SizedBox(height: 14.h),
+              Text('They scored ${result.ghostScore}/10 — beat it to win',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: _C.crimsonBright,
+                      fontSize: 13.sp,
+                      fontWeight: FontWeight.w700)),
+            ],
+            SizedBox(height: 20.h),
+            AppButton(
+              label: 'Start battle',
+              onPressed: _continueNow,
+              variant: AppButtonVariant.primary,
+              size: AppButtonSize.small,
+              width: double.infinity,
+              height: 42.h,
             ),
             SizedBox(height: 8.h),
-            Text(
-              result.animeTitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _C.textMuted,
-                fontSize: 15.sp,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 20.h),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _PlayerTag(
-                  label: 'YOU',
-                  name: 'You',
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.r),
-                  child: Text(
-                    'VS',
-                    style: TextStyle(
-                      color: _C.crimson.withValues(alpha: 0.8),
-                      fontSize: 18.sp,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
-                _PlayerTag(
-                  label: result.isGhost ? 'GHOST' : 'RIVAL',
-                  name: result.opponentName,
-                ),
-              ],
-            ),
-            SizedBox(height: 24.h),
-            Text(
-              'Starting battle...',
-              style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
-            ),
+            Text('Continuing automatically…',
+                style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
           ],
         ),
       ),
@@ -2433,54 +1786,7 @@ class _MatchedDialogState extends State<_MatchedDialog> {
   }
 }
 
-class _PlayerTag extends StatelessWidget {
-  final String label;
-  final String name;
-  const _PlayerTag({required this.label, required this.name});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 4.r),
-          decoration: BoxDecoration(
-            color: _C.elevated,
-            borderRadius: BorderRadius.circular(6.r),
-            border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: _C.textMuted,
-              fontSize: 10.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
-            ),
-          ),
-        ),
-        SizedBox(height: 6.h),
-        SizedBox(
-          width: 100.w,
-          child: Text(
-            name,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: _C.text,
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // ─── Battle header premium chip ───────────────────────────────────────────────
-// Free users get a tappable gold "GO PREMIUM" pill; premium users get a calm
-// gold crown pill affirming their status. Both lead to PremiumUpsellScreen.
 class _BattlePremiumChip extends StatelessWidget {
   final bool premiumActive;
   const _BattlePremiumChip({required this.premiumActive});
@@ -2522,42 +1828,127 @@ class _BattlePremiumChip extends StatelessWidget {
   }
 }
 
-// ─── Quick Match premium line ─────────────────────────────────────────────────
-// One-line, zero-height-cost hint under the QM status:
-//   - premium: quiet gold affirmation of extra QM access
-//   - free:    grey nudge naming what Premium adds
-class _QMPremiumLine extends StatelessWidget {
-  final bool premiumActive;
-  final int tokens;
-  final bool isWindowOpen;
+// ─── Payout Rules table (from rival_economy.dart = server constants) ──────────
+class _RewardsTable extends StatefulWidget {
+  const _RewardsTable();
 
-  const _QMPremiumLine({
-    required this.premiumActive,
-    required this.tokens,
-    required this.isWindowOpen,
-  });
+  @override
+  State<_RewardsTable> createState() => _RewardsTableState();
+}
+
+class _RewardsTableState extends State<_RewardsTable> {
+  bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final String label;
-    if (premiumActive) {
-      if (!isWindowOpen) {
-        label = '★ Premium · watch for your next window';
-      } else if (tokens > 0) {
-        label = '★ Premium · extra QM access active';
-      } else {
-        label = '★ Premium · watch an ad below for one more token';
-      }
-    } else {
-      label = '★ Premium adds extra Quick Match access';
-    }
+    return Container(
+      decoration: BoxDecoration(
+        color: _C.surface,
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 12.r),
+              child: Row(
+                children: [
+                  Text('⚖️', style: TextStyle(fontSize: 15.sp)),
+                  SizedBox(width: 10.w),
+                  Text('Payout Rules',
+                      style: TextStyle(
+                          color: _C.text,
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.w800)),
+                  const Spacer(),
+                  Icon(
+                    _isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: _C.textMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _isExpanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Divider(
+                          height: 1.h, thickness: 1, color: _C.divider),
+                      _modeBlock(
+                        title: '⚔️ DUEL — staked, counts for series',
+                        rows: [
+                          'AC: win 1.9× (stake + 90%), draw 0.95× (5% fee), loss 0×',
+                          'WP stake: win 1.9×, draw 0.9× (10% fee), loss 0×',
+                          'Flat WP: +$kDuelFlatWinWp win / +$kDuelFlatDrawWp draw / +0 loss',
+                          'Bounty: +$kBountyWpBonus WP when you trail by $kBountyWpGap+ WP',
+                          'Series: first to $kSeriesWinsRequired wins +$kSeriesAcPrize AC (paid at most once per 7 days)',
+                          'Draws replay and never count toward the series',
+                        ],
+                      ),
+                      _modeBlock(
+                        title: '🤝 SPAR — free practice, never counts',
+                        rows: [
+                          'Stake: none. Flat WP: +$kSparWinWp on a win inside the daily budget ($kSparDailyFree/day, $kSparDailyPremium premium), else +0',
+                          'Never touches series score, win stats, or achievements',
+                        ],
+                      ),
+                      _modeBlock(
+                        title: '⚡ GHOST — practice vs recording',
+                        rows: [
+                          'No series. AC +$kGhostAcWin/+$kGhostAcDraw/+$kGhostAcLose · WP +$kGhostWpWin/+$kGhostWpDraw/+$kGhostWpLose',
+                          'Skill-matched to your recent ghost average; your own recordings excluded',
+                        ],
+                      ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(16.r, 8.r, 16.r, 14.r),
+                        child: Text(
+                          'Caps & cooldown: premium ×$kPremiumWpMultiplier WP · daily soft cap $kWpDailySoftCap WP then 20% · weekly cap $kWpWeeklyCap WP · '
+                          'same-rival cooldown $kRivalCooldownFreeHours h (free) / $kRivalCooldownPremiumHours h (premium), skipped inside an active series · '
+                          'WP stake min $kWpMinStake step $kWpStakeStep · AC stake min $kAcMinStake step $kAcStakeStep · '
+                          'unplayed duels expire (12 h invite / 24 h match) and one-sided silence forfeits 0 after 15 min.',
+                          style: TextStyle(
+                              color: _C.textMuted, fontSize: 11.sp, height: 1.5),
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
 
-    return Text(
-      label,
-      style: TextStyle(
-        color: premiumActive ? Color(0xFFFFB300) : _C.textMuted,
-        fontSize: 10.sp,
-        fontWeight: premiumActive ? FontWeight.w800 : FontWeight.w600,
+  Widget _modeBlock({required String title, required List<String> rows}) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16.r, 10.r, 16.r, 4.r),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: TextStyle(
+                  color: _C.text,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w800)),
+          SizedBox(height: 6.h),
+          for (final r in rows)
+            Padding(
+              padding: EdgeInsets.only(bottom: 3.h),
+              child: Text('· $r',
+                  style: TextStyle(
+                      color: _C.textSub, fontSize: 12.sp, height: 1.4)),
+            ),
+        ],
       ),
     );
   }

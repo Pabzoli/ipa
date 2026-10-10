@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -461,14 +460,14 @@ class _WatchAdHero extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 // Coin Packs (website shop)
 // ═══════════════════════════════════════════════════════════════════════════
-({int ac, String bonus, bool badge, String price, String blurb}) _coinPackMeta(
+({int ac, String bonus, bool bestValue, String price, String blurb}) _coinPackMeta(
     String id) {
   switch (id) {
     case 'animequiz_coins_300':
       return (
         ac: 300,
         bonus: '',
-        badge: false,
+        bestValue: false,
         price: '₦500',
         blurb: 'Fast top-up for hints, cooldown skips and a few small stakes.',
       );
@@ -476,7 +475,7 @@ class _WatchAdHero extends StatelessWidget {
       return (
         ac: 990,
         bonus: 'Includes a 10% bonus',
-        badge: false,
+        bestValue: false,
         price: '₦1,500',
         blurb:
             '990 AC with a 10% bonus — a solid session of boss battles and '
@@ -486,17 +485,17 @@ class _WatchAdHero extends StatelessWidget {
       return (
         ac: 2880,
         bonus: 'Includes a 20% bonus',
-        badge: true,
+        bestValue: true,
         price: '₦4,000',
         blurb:
-            'Best value — 20% bonus plus the 🏆 Champion badge. A week of '
+            'Best value — 20% bonus on the biggest top-up. A week of '
             'battling in one shot.',
       );
     default:
       return (
         ac: 0,
         bonus: '',
-        badge: false,
+        bestValue: false,
         price: '—',
         blurb: '',
       );
@@ -514,11 +513,8 @@ class _CoinPacksSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Coin packs are sold on the website shop only (Play Billing policy:
-    // no external-payment path may be reachable from the Play-distributed
-    // Android app). On non-web platforms this section renders nothing.
-    if (!kIsWeb) return const SizedBox.shrink();
-
+    // Coin packs are sold on the website shop; the section below always shows
+    // the shop link (Android included).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -567,7 +563,7 @@ class _CoinPacksSection extends StatelessWidget {
 
         // ── Shop link (moved above the packs) ────────────────────
         const ShopLinkNote(),
-        SizedBox(height: 14.h),
+        SizedBox(height: 10.h),
 
         // ── Pack cards ──────────────────────────────────────────
         for (final id in _kShopPackIds)
@@ -580,11 +576,11 @@ class _CoinPacksSection extends StatelessWidget {
 class _CoinPackCard extends StatelessWidget {
   const _CoinPackCard({required this.meta});
 
-  final ({int ac, String bonus, bool badge, String price, String blurb}) meta;
+  final ({int ac, String bonus, bool bestValue, String price, String blurb}) meta;
 
   @override
   Widget build(BuildContext context) {
-    final isBest = meta.badge;
+    final isBest = meta.bestValue;
     final accent = isBest ? AppColors.accent : AppColors.primary;
 
     return Container(

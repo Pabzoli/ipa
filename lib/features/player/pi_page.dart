@@ -8,15 +8,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/shared_widgets.dart';
 import '../../core/widgets/coin_earn_animation.dart';
-import '../../core/widgets/insufficient_coins_sheet.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/constants/solo_economy.dart';
+import '../../core/providers/solo_difficulty_provider.dart';
 import '../auth/auth_service.dart';
 import '../auth/delete_account_flow.dart';
+import '../leaderboard/widgets/campus_picker_card.dart';
 import '../prizes/bank_selector_sheet.dart';
 import '../multiplayer/challenge_model.dart';
 import '../../features/coins/earn_coins_screen.dart';
@@ -306,7 +307,14 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
                       ),
                     ),
                     onSignOut: _signOut,
-                    onDeleteAccount: _deleteAccount,
+                    onOpenSettings: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => _SettingsScreen(
+                          onDeleteAccount: _deleteAccount,
+                        ),
+                      ),
+                    ),
                   ),
                   const _AchievementsTab(),
                   const _HistoryTab(),
@@ -1024,10 +1032,10 @@ class _RedeemCodeCardState extends State<_RedeemCodeCard> {
                       style: TextStyle(
                         fontFamily: 'Nunito',
                         fontSize: 13.sp,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.3,
-                      ),
+fontWeight: FontWeight.w800,
+                      letterSpacing: 0.3,
                     ),
+                  ),
             ),
           ),
         ],
@@ -1057,13 +1065,13 @@ class _StatisticsTab extends StatelessWidget {
   final PlayerStatistics stats;
   final VoidCallback onEarnCoins;
   final VoidCallback onSignOut;
-  final VoidCallback onDeleteAccount;
+  final VoidCallback onOpenSettings;
 
   const _StatisticsTab({
     required this.stats,
     required this.onEarnCoins,
     required this.onSignOut,
-    required this.onDeleteAccount,
+    required this.onOpenSettings,
   });
 
   @override
@@ -1075,6 +1083,12 @@ class _StatisticsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ── Campus (picker lives here; Rankings chip opens the same card
+          // as a sheet) ───────────────────────────────────────────────
+          const CampusPickerCard(),
+
+          SizedBox(height: 18.h),
+
           // ── Hero: match record ─────────────────────────────────────────
           _MatchRecordCard(
             wins: stats.gamesWon,
@@ -1107,49 +1121,20 @@ class _StatisticsTab extends StatelessWidget {
           SizedBox(height: 8.h),
           const _RedeemCodeCard(),
           SizedBox(height: 8.h),
-          // Phase 3: reusable masked payout destination (owner-read only).
-          const _PayoutDetailsCard(),
-          SizedBox(height: 8.h),
           _SimpleActionRow(
             icon: Icons.play_circle_outline_rounded,
             label: 'Earn Coins',
             onTap: onEarnCoins,
           ),
           _SimpleActionRow(
+            icon: Icons.settings_rounded,
+            label: 'Settings',
+            onTap: onOpenSettings,
+          ),
+          _SimpleActionRow(
             icon: Icons.logout_rounded,
             label: 'Sign out',
             onTap: onSignOut,
-            destructive: true,
-          ),
-
-          SizedBox(height: 18.h),
-
-          _SectionLabel(title: 'Legal'),
-          SizedBox(height: 8.h),
-          _LegalLinkRow(
-            icon: Icons.privacy_tip_outlined,
-            label: 'Privacy Policy',
-            url: '$kShopUrl/privacy.html',
-          ),
-          _LegalLinkRow(
-            icon: Icons.description_outlined,
-            label: 'Terms of Service',
-            url: '$kShopUrl/terms.html',
-          ),
-          _LegalLinkRow(
-            icon: Icons.currency_exchange_rounded,
-            label: 'Refund Policy',
-            url: '$kShopUrl/refund.html',
-          ),
-
-          SizedBox(height: 18.h),
-
-          _SectionLabel(title: 'Danger zone'),
-          SizedBox(height: 8.h),
-          _SimpleActionRow(
-            icon: Icons.delete_forever_rounded,
-            label: 'Delete account',
-            onTap: onDeleteAccount,
             destructive: true,
           ),
         ],
@@ -1920,13 +1905,18 @@ class _LegalLinkRow extends StatelessWidget {
                 ),
                 SizedBox(width: 10.w),
                 Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 12.sp,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Icon(
@@ -3304,6 +3294,222 @@ class _EditPayoutDialogState extends State<_EditPayoutDialog> {
               : const Text('Save'),
         ),
       ],
+    );
+  }
+}
+
+// ─── Settings Screen ─────────────────────────────────────────────────────────
+// Central settings hub reached from Profile → Account → Settings (directly
+// under "Earn Coins"). Consolidates the homepage difficulty picker (removed
+// from the home page), the payout destination card, the legal section and
+// account deletion — so Profile's Stats tab only lists actions.
+class _SettingsScreen extends StatelessWidget {
+  final VoidCallback onDeleteAccount;
+
+  const _SettingsScreen({required this.onDeleteAccount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.surfaceDim,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded,
+              color: AppColors.textPrimary),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'Settings',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        centerTitle: false,
+      ),
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 32.r),
+        children: [
+          _SectionLabel(title: 'Homepage Difficulty'),
+          SizedBox(height: 8.h),
+          const _DifficultySettingsCard(),
+          SizedBox(height: 18.h),
+          _SectionLabel(title: 'Payout Destination'),
+          SizedBox(height: 8.h),
+          const _PayoutDetailsCard(),
+          SizedBox(height: 18.h),
+          _SectionLabel(title: 'Legal'),
+          SizedBox(height: 8.h),
+          _LegalLinkRow(
+            icon: Icons.privacy_tip_outlined,
+            label: 'Privacy Policy',
+            url: '$kShopUrl/privacy.html',
+          ),
+          _LegalLinkRow(
+            icon: Icons.description_outlined,
+            label: 'Terms of Service',
+            url: '$kShopUrl/terms.html',
+          ),
+          _LegalLinkRow(
+            icon: Icons.lock_outline_rounded,
+            label: 'No Refunds Policy',
+            url: kNoRefundsPolicyUrl,
+          ),
+          SizedBox(height: 18.h),
+          _SectionLabel(title: 'Danger zone'),
+          SizedBox(height: 8.h),
+          _SimpleActionRow(
+            icon: Icons.delete_forever_rounded,
+            label: 'Delete account',
+            onTap: onDeleteAccount,
+            destructive: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Homepage difficulty picker (Settings) ───────────────────────────────────
+// The homepage reads the same provider, so the choice made here takes effect
+// on the next solo quiz. Rewards preview shows the max raw haul (perfect
+// all-slow run, before solo decay + daily soft cap).
+class _DifficultySettingsCard extends StatelessWidget {
+  const _DifficultySettingsCard();
+
+  static const _meta = {
+    'easy': ('🌱', 'Easy', Color(0xFF34D399), '7E·2M·1H'),
+    'medium': ('⚔️', 'Medium', Color(0xFFF59E0B), '3E·4M·3H'),
+    'hard': ('🔥', 'Hard', Color(0xFFEF4444), '1E·2M·7H'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<SoloDifficultyProvider>();
+
+    return Container(
+      padding: EdgeInsets.all(14.r),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Homepage difficulty',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 13.sp,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          SizedBox(height: 10.h),
+          Row(
+            children: [
+              for (final id in kSoloDifficulties) ...[
+                if (id != kSoloDifficulties.first) const SizedBox(width: 8),
+                Expanded(
+                  child: _buildCard(context, id, provider),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCard(
+    BuildContext context,
+    String id,
+    SoloDifficultyProvider provider,
+  ) {
+    final selected = provider.difficulty == id;
+    final meta = _meta[id]!;
+    final emoji = meta.$1;
+    final name = meta.$2;
+    final color = meta.$3;
+    final mix = meta.$4;
+    final reward = kSoloDifficultyRewards[id]!;
+    final maxWP = soloDifficultyMaxWP(id);
+
+    return GestureDetector(
+      onTap: () => provider.setDifficulty(id),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 10.r),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.14) : AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(
+            color: selected ? color : AppColors.divider,
+            width: selected ? 2 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: color.withOpacity(0.25),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: TextStyle(fontSize: 22.sp)),
+            SizedBox(height: 4.h),
+            Text(
+              name,
+              style: TextStyle(
+                color: selected ? color : AppColors.textPrimary,
+                fontSize: 13.sp,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            SizedBox(height: 2.h),
+            Text(
+              mix,
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 10.sp,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 6.h),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 7.r, vertical: 3.r),
+              decoration: BoxDecoration(
+                color: selected
+                    ? color.withOpacity(0.16)
+                    : AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(20.r),
+                border: Border.all(
+                  color: selected
+                      ? color.withOpacity(0.5)
+                      : AppColors.divider,
+                ),
+              ),
+              child: Text(
+                '↑$maxWP WP · +${reward.acEarned} AC',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? color : AppColors.textSecondary,
+                  fontSize: 10.sp,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

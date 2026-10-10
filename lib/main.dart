@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/providers/user_data_provider.dart';
+import 'core/providers/solo_difficulty_provider.dart';
 import 'core/services/ad_service.dart';
 import 'core/services/app_update_service.dart';
 import 'core/services/firestore_service.dart';
@@ -65,6 +66,7 @@ void main() async {
           providers: [
             ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
             ChangeNotifierProvider(create: (_) => UserDataProvider()..init()),
+            ChangeNotifierProvider(create: (_) => SoloDifficultyProvider()..load()),
           ],
           child: const AnimeQuizApp(),
         );

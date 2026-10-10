@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../quiz/quiz_controller.dart' show QuizMode;
 import '../quiz/questions_page.dart';
@@ -327,7 +328,10 @@ class _ChallengeCard extends StatelessWidget {
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('joinChallenge')
-          .call({'challengeId': challenge.challengeId});
+          .call({
+        'challengeId': challenge.challengeId,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
 
       if (!context.mounted) return;
 
@@ -347,10 +351,12 @@ class _ChallengeCard extends StatelessWidget {
       _launchQuiz(context);
     } catch (e) {
       if (!context.mounted) return;
+      final raw = e.toString().replaceFirst('Exception: ', '');
+      final message =
+          raw.contains('not_friends') ? 'Add them as a friend to spar.' : raw;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-              'Failed to join: ${e.toString().replaceFirst('Exception: ', '')}'),
+          content: Text('Failed to join: $message'),
           backgroundColor: AppColors.wrong,
           behavior: SnackBarBehavior.floating,
         ),
@@ -505,23 +511,28 @@ class _ChallengeCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (showAccept)
-                    ElevatedButton(
-                      onPressed: () => _acceptAndPlay(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 18.r, vertical: 10.r),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10.r)),
-                      ),
-                      child: Text(
-                        'Accept & Play',
-                        style: TextStyle(
-                            fontSize: 13.sp, fontWeight: FontWeight.w800),
+                  if (showAccept) ...[
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _acceptAndPlay(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 18.r, vertical: 10.r),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10.r)),
+                        ),
+                        child: Text(
+                          'Accept & Play',
+                          style: TextStyle(
+                              fontSize: 13.sp, fontWeight: FontWeight.w800),
+                        ),
                       ),
                     ),
+                    SizedBox(width: 10.w),
+                    _PendingDeclineButton(challengeId: challenge.challengeId),
+                  ],
                   if (showPlay)
                     ElevatedButton(
                       onPressed: () => _launchQuiz(context),
@@ -540,21 +551,34 @@ class _ChallengeCard extends StatelessWidget {
                       ),
                     ),
                   if (showWaiting)
-                    Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
-                      decoration: BoxDecoration(
-                        color: AppColors.textMuted.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(8.r),
-                      ),
-                      child: Text(
-                        '⏳ Waiting for opponent…',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w600,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 12.r, vertical: 8.r),
+                            decoration: BoxDecoration(
+                              color: AppColors.textMuted.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(8.r),
+                            ),
+                            child: Text(
+                              '⏳ Waiting for opponent…',
+                              style: TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 12.sp,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
+                        SizedBox(width: 8.w),
+                        _CardNudgeButton(
+                          challengeId: challenge.challengeId,
+                          otherUid: currentUid == challenge.creatorUid
+                              ? (challenge.opponentUid ?? '')
+                              : challenge.creatorUid,
+                        ),
+                      ],
                     ),
                   if (isCompleted)
                     TextButton(
@@ -587,6 +611,176 @@ class _ChallengeCard extends StatelessWidget {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
     return h > 0 ? '${h}h ${m}m' : '${m}m';
+  }
+}
+
+// ─── Pending Decline Button ─────────────────────────────────────────────────
+// Only rendered on the Pending tab, where every card satisfies
+// declineChallenge's gate (status waiting + opponentUid == me). Reuses the
+// same callable + confirm copy as ChallengeLobbyPage._onDecline so the refund
+// wording can never drift between the two surfaces.
+class _PendingDeclineButton extends StatefulWidget {
+  final String challengeId;
+  const _PendingDeclineButton({required this.challengeId});
+
+  @override
+  State<_PendingDeclineButton> createState() => _PendingDeclineButtonState();
+}
+
+class _PendingDeclineButtonState extends State<_PendingDeclineButton> {
+  bool _busy = false;
+
+  String _friendlyDeclineError(String raw) {
+    final s = raw.replaceFirst('Exception: ', '');
+    return switch (s) {
+      'challenge_not_pending' => 'This challenge is no longer pending.',
+      'not_the_invited_opponent' => 'You can\'t decline this challenge.',
+      _ => s,
+    };
+  }
+
+  Future<void> _onDecline() async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Decline challenge?',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+        content: const Text(
+          'Their stake will be refunded to them. This can\'t be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Decline',
+                style: TextStyle(
+                    color: AppColors.wrong, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('declineChallenge')
+          .call({'challengeId': widget.challengeId});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Challenge declined.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      final message = e is FirebaseFunctionsException
+          ? _friendlyDeclineError(e.message ?? e.code)
+          : _friendlyDeclineError(e.toString());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to decline: $message'),
+          backgroundColor: AppColors.wrong,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: _busy ? null : _onDecline,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.wrong,
+        side: BorderSide(color: AppColors.wrong.withOpacity(0.45)),
+        padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 10.r),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10.r),
+        ),
+      ),
+      child: _busy
+          ? SizedBox(
+              width: 16.w,
+              height: 16.h,
+              child: const CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Text(
+              'Decline',
+              style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w800),
+            ),
+    );
+  }
+}
+
+// ─── Card Nudge Button ──────────────────────────────────────────────────────
+// Preset "Your turn!" ping for a challenge waiting on the other side.
+// Server verifies it really is their turn + the daily gate.
+class _CardNudgeButton extends StatefulWidget {
+  final String challengeId;
+  final String otherUid;
+  const _CardNudgeButton(
+      {required this.challengeId, required this.otherUid});
+
+  @override
+  State<_CardNudgeButton> createState() => _CardNudgeButtonState();
+}
+
+class _CardNudgeButtonState extends State<_CardNudgeButton> {
+  bool _busy = false;
+  bool _done = false;
+
+  Future<void> _nudge() async {
+    if (_busy || _done || widget.otherUid.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await FirestoreService.instance.nudgeFriend(
+        friendUid: widget.otherUid,
+        challengeId: widget.challengeId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _done = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed:
+          (_busy || _done || widget.otherUid.isEmpty) ? null : _nudge,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.secondary,
+        side: BorderSide(
+            color: AppColors.secondary.withOpacity(0.45)),
+        padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8.r),
+        ),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(
+        _done
+            ? 'Nudged ✓'
+            : _busy
+                ? '…'
+                : 'Nudge',
+        style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800),
+      ),
+    );
   }
 }
 

@@ -8,58 +8,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../widgets/insufficient_coins_sheet.dart'; // for InsufficientCoinsException
 
 // =============================================================================
-// ── Quick Match Window Schedule ────────────────────────────────────────────────
-// =============================================================================
-
-/// Describes a single named Quick Match availability window.
-class QMWindow {
-  final String name;     // 'Morning Rush', 'Afternoon', 'Night Battle'
-  final int    startUTC; // window open hour in UTC (inclusive)
-  final int    endUTC;   // window close hour in UTC (exclusive)
-
-  const QMWindow(this.name, this.startUTC, this.endUTC);
-}
-
-/// Utility for client-side window checks and countdown display.
-///
-/// All three windows run in WAT (UTC+1):
-///   Morning Rush  07:00–10:00 WAT  →  06:00–09:00 UTC
-///   Afternoon     13:00–16:00 WAT  →  12:00–15:00 UTC
-///   Night Battle  19:00–23:00 WAT  →  18:00–22:00 UTC
-class QMWindowSchedule {
-  static const List<QMWindow> windows = [
-    QMWindow('Morning Rush',  6,  9),  // WAT 07:00–10:00
-    QMWindow('Afternoon',    12, 15),  // WAT 13:00–16:00
-    QMWindow('Night Battle', 18, 22),  // WAT 19:00–23:00
-  ];
-
-  /// Returns the currently active window, or null if outside all windows.
-  static QMWindow? currentWindow() {
-    final nowUTC = DateTime.now().toUtc();
-    for (final w in windows) {
-      if (nowUTC.hour >= w.startUTC && nowUTC.hour < w.endUTC) return w;
-    }
-    return null;
-  }
-
-  /// Returns the DateTime (UTC) when the next window opens.
-  /// If all windows have passed today, returns tomorrow's first window start.
-  static DateTime nextWindowStart() {
-    final nowUTC = DateTime.now().toUtc();
-    for (final w in windows) {
-      final start = DateTime.utc(
-        nowUTC.year, nowUTC.month, nowUTC.day, w.startUTC,
-      );
-      if (start.isAfter(nowUTC)) return start;
-    }
-    // All windows have passed for today — return tomorrow's first window.
-    final tomorrow = DateTime.utc(nowUTC.year, nowUTC.month, nowUTC.day + 1);
-    return DateTime.utc(
-      tomorrow.year, tomorrow.month, tomorrow.day, windows.first.startUTC,
-    );
-  }
-}
-
+// Quick Match runs 24/7 on a daily token budget (free 5/day, premium 8/day,
+// +1 via rewarded ad, resetting at WAT midnight). The old WAT time-window
+// schedule was removed with the ghost-only matchmaking change — tokens are
+// the only gate, enforced server-side in functions/index.js.
 // =============================================================================
 
 ///

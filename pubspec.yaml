@@ -43,6 +43,18 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  assets:
+    - assets/attack on titan.jpg
+    - assets/bleach.jpg
+    - assets/death note.jpg
+    - assets/demon slayer.jpg
+    - assets/dragon ball z.jpg
+    - assets/jujutsu kaisen.jpg
+    - assets/my hero academia.jpg
+    - assets/naruto.jpg
+    - assets/one piece.jpg
+    - assets/one punch man.jpg
+
   fonts:
     - family: Nunito
       fonts:
