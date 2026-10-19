@@ -494,6 +494,17 @@
   const GET_CODE_URL =
     'https://us-central1-anime-quiz-1ab1b.cloudfunctions.net/getPurchasedCode';
 
+  // The checkout redirect_url already carries ?email=…; when Flutterwave
+  // appends its own status/tx_ref the address can arrive as
+  // "you@example.com?status=successful". Keep only the address itself so the
+  // attribution check on the server still matches.
+  function sanitizeEmail(raw) {
+    if (typeof raw !== 'string') return '';
+    return raw.split('?')[0].split('&')[0].trim();
+  }
+  const buyerEmail = sanitizeEmail(emailParam);
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   // Auto-retry while the Flutterwave webhook is still in flight. The redirect
   // back to this page often lands BEFORE the server-to-server webhook has
   // minted the code, so a single fetch would 404 and dump the user to the
@@ -541,7 +552,11 @@
     });
     const json = await resp.json();
     if (!resp.ok || !json.code) {
-      throw new Error(json.error || 'Unable to retrieve your code');
+      // Carry the HTTP status so the caller can tell "still confirming" (404)
+      // from "this charge never succeeded" (402/400) and stop retrying.
+      const err = new Error(json.error || 'Unable to retrieve your code');
+      err.status = resp.status;
+      throw err;
     }
     return json.code;
   }
@@ -580,6 +595,26 @@
           showCode(code);
           return;
         } catch (err) {
+          if (err.status === 402 || err.status === 400) {
+            // Terminal: the server verified this charge did NOT succeed.
+            // Retrying can never produce a code, so say so at once instead of
+            // spinning for the full retry budget.
+            getBtn.disabled = false;
+            getBtn.textContent = 'Get my code';
+            pending.classList.add('hidden');
+            title.classList.remove('hidden');
+            title.textContent = 'Payment not completed';
+            sub.classList.remove('hidden');
+            sub.textContent = err.message + ' You can try again from the products page.';
+            const back = document.createElement('a');
+            back.className = 'btn btn-ghost';
+            back.href = '/';
+            back.textContent = 'Back to products';
+            back.style.marginTop = '14px';
+            recoverSection.appendChild(back);
+            recoverSection.classList.remove('hidden');
+            return;
+          }
           if (attempt === MAX_AUTO_ATTEMPTS) {
             getBtn.disabled = false;
             getBtn.textContent = 'Get my code';
@@ -620,15 +655,7 @@
       return;
     }
 
-    if (status === 'successful' || status === 'success') {
-      pending.classList.remove('hidden');
-      if (emailParam) {
-        fetchCode(emailParam, true);
-      } else {
-        pending.classList.add('hidden');
-        recoverSection.classList.remove('hidden');
-      }
-    } else if (status === 'failed') {
+    if (status === 'failed') {
       title.textContent = 'Payment failed';
       sub.textContent = 'Your payment didn’t go through. Try again from the products page.';
       const back = document.createElement('a');
@@ -638,20 +665,35 @@
       back.style.marginTop = '14px';
       recoverSection.appendChild(back);
       recoverSection.classList.remove('hidden');
-    } else if (status === 'cancelled') {
+      return;
+    }
+
+    if (status === 'cancelled') {
       title.textContent = 'Payment cancelled';
       sub.textContent = 'You cancelled the payment. No code was generated.';
-    } else {
-      title.textContent = 'Payment received?';
-      sub.textContent = 'If you already paid, fetch your code below.';
-      recoverSection.classList.remove('hidden');
+      return;
     }
+
+    // Auto-fetch whenever we hold BOTH a reference and a usable email —
+    // including redirect shapes whose status parameter was lost or mangled.
+    // That is safe: getPurchasedCode re-verifies the charge with Flutterwave
+    // server-side, so only a genuinely completed payment can ever mint.
+    if (buyerEmail && EMAIL_RE.test(buyerEmail)) {
+      pending.classList.remove('hidden');
+      fetchCode(buyerEmail, true);
+      return;
+    }
+
+    title.textContent = 'Payment received?';
+    sub.textContent = 'If you already paid, fetch your code below.';
+    pending.classList.add('hidden');
+    recoverSection.classList.remove('hidden');
   }
 
   getBtn.addEventListener('click', () => {
     autoCancelled = true;
     const email = emailEl.value.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!EMAIL_RE.test(email)) {
       showMsg('Enter the email you used at checkout.', true);
       emailEl.classList.add('invalid');
       return;
@@ -661,8 +703,7 @@
   });
 
   emailEl.addEventListener('input', () => {
-    if (emailEl.classList.contains('invalid') &&
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
+    if (emailEl.classList.contains('invalid') && EMAIL_RE.test(emailEl.value.trim())) {
       emailEl.classList.remove('invalid');
       showMsg('');
     }
