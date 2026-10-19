@@ -241,14 +241,15 @@ describe('rewarded-ad sessions', () => {
     assert.equal((await H.getDoc(db, 'users/u1')).animeCoins, 115);
   });
 
-  it('requires a session token and rejects another user\'s token', async () => {
+  it('keeps legacy (untokened) callers working during the migration', async () => {
     await H.mkUser(db, 'u1', { username: 'alice' });
     await H.mkUser(db, 'u2', { username: 'bob' });
 
-    await H.rejectsWith(
-      fns.recordAdWatch.run(H.req('u1', { platform: 'web' })),
-      'invalid-argument', 'ad_session_required');
+    // requireAdSession is false by default, so the shipped APK still earns.
+    const legacy = await fns.recordAdWatch.run(H.req('u1', { platform: 'web' }));
+    assert.equal(legacy.success, true);
 
+    // A token minted for one user is never redeemable by another.
     const session = await fns.startAdSession.run(
       H.req('u1', { platform: 'web' }));
     const stolen = await fns.recordAdWatch.run(H.req('u2', {

@@ -268,21 +268,34 @@ describe('firestore.rules against the emulator', () => {
       }));
     });
 
-    it('new-user create is CF-only (no client-seeded profile)', async () => {
+    it('new-user create: only the exact legacy starter profile is allowed', async () => {
       const db = env.authenticatedContext('uid_new').firestore();
-      await denied(doc(db, 'users/uid_new').set({
-        username: 'new', animeCoins: 100000, weeklyPoints: 100000,
-      }));
+      const legacy = {
+        username: 'new', email: 'new@example.com',
+        totalScore: 500, animeCoins: 0, weeklyPoints: 0,
+        weeklyReset: new Date(), createdAt: new Date(),
+        stats: {
+          gamesPlayed: 0, gamesWon: 0, gamesLost: 0,
+          hseWon: 0, hseLost: 0, hseStaked: 0,
+        },
+      };
+      // TRANSITIONAL: the shipped APK still writes this exact shape.
+      await allowed(doc(db, 'users/uid_new').set(legacy), 'legacy starter profile');
+
+      // But every economy/stat value is pinned and unknown fields are denied.
       await denied(doc(db, 'users/uid_new2').set({
-        username: 'new', premiumActive: true,
+        ...legacy, animeCoins: 100000,
       }));
       await denied(doc(db, 'users/uid_new3').set({
-        username: 'new', friendCode: 'AAAAAA', friendCount: 50,
+        ...legacy, totalScore: 999999,
       }));
       await denied(doc(db, 'users/uid_new4').set({
-        username: 'new', feedbackSentToday: 0, feedbackDate: '2000-01-01',
+        ...legacy, stats: { ...legacy.stats, gamesWon: 999 },
       }));
-      // Even a pristine profile is created by ensureProfile, never the client.
+      await denied(doc(db, 'users/uid_new5').set({
+        ...legacy, premiumActive: true,
+      }));
+      // A partial "clean" profile is not the legacy shape.
       await denied(doc(db, 'users/uid_clean').set({ username: 'clean' }));
     });
 

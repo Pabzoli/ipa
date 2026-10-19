@@ -110,6 +110,42 @@ service cloud.firestore {
     // the whole class of "new account seeded itself a maxed profile" and makes
     // username uniqueness enforceable at creation, not just on edit.
 
+    // ── Transitional legacy-client signup ────────────────────────────────
+    // The APK in distribution still writes its own users/{uid} doc. Until the
+    // App Check build is shipped, allow ONLY the exact legacy starter profile
+    // with every economy/stat value PINNED, so this cannot be used to seed a
+    // balance, points or statistics, and unknown fields are rejected.
+    // Once the new client is live, delete this function and set create:false.
+    function isLegacyStarterProfile(d) {
+      return d.keys().hasOnly([
+               'username', 'email', 'totalScore', 'animeCoins',
+               'weeklyPoints', 'weeklyReset', 'createdAt', 'stats',
+               'university', 'referredBy'
+             ])
+        && d.username is string
+        && d.username.size() >= 3 && d.username.size() <= 64
+        && d.email is string && d.email.size() <= 254
+        && d.totalScore == 500
+        && d.animeCoins == 0
+        && d.weeklyPoints == 0
+        && d.weeklyReset is timestamp
+        && d.createdAt is timestamp
+        && d.stats.keys().hasOnly([
+             'gamesPlayed', 'gamesWon', 'gamesLost',
+             'hseWon', 'hseLost', 'hseStaked'
+           ])
+        && d.stats.gamesPlayed == 0
+        && d.stats.gamesWon == 0
+        && d.stats.gamesLost == 0
+        && d.stats.hseWon == 0
+        && d.stats.hseLost == 0
+        && d.stats.hseStaked == 0
+        && (!('university' in d)
+            || (d.university is string && d.university.size() <= 64))
+        && (!('referredBy' in d)
+            || (d.referredBy is string && d.referredBy.size() <= 64));
+    }
+
     // ── Users ─────────────────────────────────────────────────────────────
     match /users/{userId} {
       allow read: if request.auth != null && (
@@ -118,9 +154,12 @@ service cloud.firestore {
         isSameWeekEntrant(resource.data)
       );
 
-      // Profile creation is CF-only (ensureProfile). A client-create would be
-      // a self-service starting balance + statistics.
-      allow create: if false;
+      // TRANSITIONAL: see isLegacyStarterProfile above. New clients create the
+      // profile through ensureProfile (Admin SDK bypasses rules); this branch
+      // exists only for the currently shipped build.
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isLegacyStarterProfile(request.resource.data);
 
       // POSITIVE ALLOWLIST. Clients may write exactly one field on their own
       // profile: the FCM registration token. Everything else is server-owned:

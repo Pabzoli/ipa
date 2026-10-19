@@ -201,27 +201,41 @@ const db = getFirestore();
 // no token, which is what you watch before flipping switch 2.
 const APP_CHECK_ENFORCE_DEPLOY = process.env.ENFORCE_APP_CHECK === 'true';
 const APP_CHECK_FLAG_TTL_MS = 60 * 1000;
-let _appCheckFlagCache = { enforced: false, at: 0 };
+let _securityFlagsCache = {
+  enforceAppCheck: false,
+  // Migration switch for the rewarded-ad session token. Starts FALSE so the
+  // currently shipped APK (which sends no token) keeps earning coins. The new
+  // client always mints + redeems a token. Flip app_config/security
+  // .requireAdSession to true once the old build is gone.
+  requireAdSession: false,
+  at: 0,
+};
 let _appCheckLastMissLog = 0;
 const APP_CHECK_MISS_LOG_MS = 60 * 1000;
 
-async function _appCheckRuntimeEnforced() {
+async function _securityFlags() {
   const now = Date.now();
-  if (now - _appCheckFlagCache.at < APP_CHECK_FLAG_TTL_MS) {
-    return _appCheckFlagCache.enforced;
+  if (now - _securityFlagsCache.at < APP_CHECK_FLAG_TTL_MS) {
+    return _securityFlagsCache;
   }
-  let enforced = false;
+  let enforceAppCheck = false;
+  let requireAdSession = false;
   try {
     const snap = await db.collection('app_config').doc('security').get();
-    enforced = snap.exists && snap.data()?.enforceAppCheck === true;
+    const data = snap.exists ? (snap.data() || {}) : {};
+    enforceAppCheck = data.enforceAppCheck === true;
+    requireAdSession = data.requireAdSession === true;
   } catch (err) {
     // Fail OPEN in monitor mode: an unreadable flag must never lock players
     // out. The deploy-time switch still enforces where it was turned on.
-    console.warn(`[appcheck] flag read failed, treating as monitor: ${err.message}`);
-    enforced = false;
+    console.warn(`[security] flag read failed, treating as monitor: ${err.message}`);
   }
-  _appCheckFlagCache = { enforced, at: now };
-  return enforced;
+  _securityFlagsCache = { enforceAppCheck, requireAdSession, at: now };
+  return _securityFlagsCache;
+}
+
+async function _appCheckRuntimeEnforced() {
+  return (await _securityFlags()).enforceAppCheck;
 }
 
 async function _assertAppCheck(request, fnName) {
@@ -6336,12 +6350,16 @@ exports.claimReferralBonus = onSecureCall(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Ad sessions + rewarded-ad award ───────────────────────────────────────
-// Rewarded ads are client-observed, so the only thing the server can verify is
-// that the coin award is tied to a session IT issued. startAdSession mints a
-// single-use, 5-minute token; recordAdWatch redeems it exactly once. A script
-// can still drive both calls, but it can no longer skip the session
-// bookkeeping, and the daily cap + spacing rule still bound the payout. Real
-// ad-network server-side verification (SSV) would be the next step.
+// Rewarded ads are client-observed, so the server ties each award to a session
+// IT issued: startAdSession mints a single-use, 5-minute token; recordAdWatch
+// redeems it exactly once. The daily cap (10) + 30s spacing still bound the
+// payout. Real ad-network server-side verification (SSV) would be the next
+// step.
+//
+// MIGRATION: the shipped APK sends no token. app_config/security
+// .requireAdSession defaults to FALSE so those clients keep earning while the
+// new build rolls out; the new client always mints/redeems. Flip the flag once
+// the old build is gone.
 const AD_SESSION_TTL_MS = 5 * 60 * 1000;
 const AD_SESSION_RATE_WINDOW_MS = 60 * 1000;
 const AD_SESSION_RATE_MAX = 6;
@@ -6394,39 +6412,52 @@ exports.recordAdWatch = onSecureCall(
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
 
-    const sessionToken = request.data?.sessionToken;
-    if (typeof sessionToken !== 'string' ||
-        !/^[0-9a-fA-F-]{36}$/.test(sessionToken)) {
-      throw new HttpsError('invalid-argument', 'ad_session_required');
+    const rawToken = request.data?.sessionToken;
+    const hasToken = typeof rawToken === 'string' &&
+      /^[0-9a-fA-F-]{36}$/.test(rawToken);
+
+    // The shipped APK predates sessions. While requireAdSession is false we
+    // still accept an untokened call (same daily cap + spacing as before);
+    // the new client always sends a token. Flip the flag once the old build
+    // is out of circulation, then this branch can be deleted.
+    if (!hasToken) {
+      const flags = await _securityFlags();
+      if (flags.requireAdSession) {
+        throw new HttpsError('invalid-argument', 'ad_session_required');
+      }
     }
 
     const userRef = db.collection('users').doc(uid);
-    const sessionRef = db.collection('adSessions').doc(sessionToken);
+    const sessionRef = hasToken
+      ? db.collection('adSessions').doc(rawToken)
+      : null;
     let result;
 
     await db.runTransaction(async (tx) => {
       // ALL reads first (Firestore transaction requirement).
-      const sessionSnap = await tx.get(sessionRef);
+      const sessionSnap = sessionRef ? await tx.get(sessionRef) : null;
       const snap = await tx.get(userRef);
 
-      if (!sessionSnap.exists) {
-        result = { success: false, error: 'ad_session_invalid' };
-        return;
-      }
-      const session = sessionSnap.data() || {};
-      const expiresAt = session.expiresAt?.toMillis ? session.expiresAt.toMillis() : 0;
-      if (session.uid !== uid || session.used === true ||
-          !expiresAt || expiresAt < Date.now()) {
-        result = { success: false, error: 'ad_session_invalid' };
-        return;
-      }
+      if (sessionRef) {
+        if (!sessionSnap.exists) {
+          result = { success: false, error: 'ad_session_invalid' };
+          return;
+        }
+        const session = sessionSnap.data() || {};
+        const expiresAt = session.expiresAt?.toMillis ? session.expiresAt.toMillis() : 0;
+        if (session.uid !== uid || session.used === true ||
+            !expiresAt || expiresAt < Date.now()) {
+          result = { success: false, error: 'ad_session_invalid' };
+          return;
+        }
 
-      // Burn the token before the award decision: a token is redeemable once,
-      // even when the daily cap or spacing rule then blocks the coins.
-      tx.update(sessionRef, {
-        used: true,
-        usedAt: FieldValue.serverTimestamp(),
-      });
+        // Burn the token before the award decision: a token is redeemable
+        // once, even when the daily cap or spacing rule then blocks the coins.
+        tx.update(sessionRef, {
+          used: true,
+          usedAt: FieldValue.serverTimestamp(),
+        });
+      }
 
       const data = snap.data() || {};
       const todayWAT       = _watDateString();
@@ -6481,11 +6512,11 @@ exports.recordAdWatch = onSecureCall(
 
     if (result.success) {
       console.log(
-        `[recordAdWatch] uid=${uid} +${AD_REWARD_COINS} AC` +
-        ` | dailyAdWatched=${result.dailyAdWatched}/${AD_DAILY_MAX}`
+        `[recordAdWatch] uid=${uid}${hasToken ? '' : ' legacy(no token)'} ` +
+        `+${AD_REWARD_COINS} AC | dailyAdWatched=${result.dailyAdWatched}/${AD_DAILY_MAX}`
       );
     } else {
-      console.log(`[recordAdWatch] uid=${uid} -> ${result.error}`);
+      console.log(`[recordAdWatch] uid=${uid}${hasToken ? '' : ' legacy(no token)'} -> ${result.error}`);
     }
 
     return result;
