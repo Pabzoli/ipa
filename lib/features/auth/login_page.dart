@@ -307,16 +307,6 @@ class _LoginForm extends StatelessWidget {
                             height: 1.1,
                           ),
                         ),
-                        SizedBox(height: 6.h),
-                        Text(
-                          'Sign in to continue your anime journey',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 14.sp,
-                            height: 1.4,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                         SizedBox(height: 32.h),
 
                         GlassCard(
@@ -475,6 +465,15 @@ class _RegisterFormState extends State<RegisterForm> {
         university: _selectedUniversity,
         referredBy: _referralCodeCtrl.text,
       );
+    } on SignUpException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:         Text(e.message),
+            backgroundColor: AppColors.wrong,
+          ),
+        );
+      }
     } on FirebaseAuthException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -526,17 +525,6 @@ class _RegisterFormState extends State<RegisterForm> {
                             ),
                           ),
                         ],
-                      ),
-                      SizedBox(height: 4.h),
-                      Padding(
-                        padding: EdgeInsets.only(left: 44.r),
-                        child: Text(
-                          'Join thousands of anime fans',
-                          style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 13.sp,
-                              fontWeight: FontWeight.w600),
-                        ),
                       ),
                       SizedBox(height: 28.h),
 
@@ -615,7 +603,7 @@ class _RegisterFormState extends State<RegisterForm> {
                             Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                'Enter a friend\'s code to earn rewards together.',
+                                'Earn rewards together when they join.',
                                 style: TextStyle(
                                     color:    AppColors.textMuted,
                                     fontSize: 11.5.sp),
@@ -635,7 +623,7 @@ class _RegisterFormState extends State<RegisterForm> {
                             SizedBox(width: 6.w),
                             Expanded(
                               child: Text(
-                                'Optional — lets you compete on the Campus Leaderboard '
+                                'Lets you compete on the Campus Leaderboard '
                                 'and track your university\'s rivalry.',
                                 style: TextStyle(
                                     color:    AppColors.textMuted,

@@ -10,13 +10,13 @@ import 'core/theme/app_theme.dart';
 import 'core/providers/user_data_provider.dart';
 import 'core/providers/solo_difficulty_provider.dart';
 import 'core/services/ad_service.dart';
+import 'core/services/app_check_service.dart';
 import 'core/services/app_update_service.dart';
 import 'core/services/firestore_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/widgets/update_required_screen.dart';
 import 'features/auth/login_page.dart';
 import 'features/home/home_page.dart';
-import 'features/leaderboard/weekly_leaderboard_page.dart';
 import 'features/player/player_statistics_provider.dart';
 import 'features/prizes/winner_announcement_page.dart';
 import 'firebase_options.dart';
@@ -38,6 +38,12 @@ void main() async {
   ]);
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // App Check must be activated BEFORE any other Firebase service is touched,
+  // so its token can be attached to the first Firestore/Storage/Functions call.
+  // Server-side enforcement is opt-in (monitor mode by default), so a failure
+  // here is logged rather than fatal.
+  await AppCheckService.instance.activate();
 
   // Resolve our own build number/platform BEFORE anything can transact, and
   // register the foreground-resume re-check. Both are needed before runApp so
@@ -65,7 +71,7 @@ void main() async {
         return MultiProvider(
           providers: [
             ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
-            ChangeNotifierProvider(create: (_) => UserDataProvider()..init()),
+            ChangeNotifierProvider(create: (_) => UserDataProvider()),
             ChangeNotifierProvider(create: (_) => SoloDifficultyProvider()..load()),
           ],
           child: const AnimeQuizApp(),
@@ -202,12 +208,9 @@ class _AnnouncementGateState extends State<_AnnouncementGate> {
 
     if (!mounted) return;
 
-    // FIX: the announcement CTA pops with 'leaderboard' (see
-    // WinnerAnnouncementPage._dismiss), but the return value was previously
-    // discarded so the tap did nothing. Capture it and honour it below —
-    // post-frame so _AppShell has built before we push on top of it.
-    String? outcome;
-    outcome = await Navigator.of(context).push<String?>(
+    // The announcement no longer offers a "View leaderboard" action, so the
+    // push simply waits for the player to close the page.
+    await Navigator.of(context).push<void>(
       PageRouteBuilder(
         pageBuilder:        (_, __, ___) => WinnerAnnouncementPage(result: result),
         transitionsBuilder: (_, anim, __, child) =>
@@ -218,17 +221,6 @@ class _AnnouncementGateState extends State<_AnnouncementGate> {
     );
 
     _markReady();
-
-    if (outcome == 'leaderboard' && mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const WeeklyLeaderboardPage(),
-          ),
-        );
-      });
-    }
     return;
   } catch (_) {
     // Any error → skip silently, never block the user from home.

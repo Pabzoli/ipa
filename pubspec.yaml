@@ -34,6 +34,7 @@ dependencies:
   path_provider: ^2.1.3     # getTemporaryDirectory() for the temp file
   flutter_screenutil: ^5.9.3  # responsive scaling (w/h/sp/r)
   package_info_plus: ^9.0.0   # runtime buildNumber -> forced-update gate
+  firebase_app_check: ^0.4.8
 
 dev_dependencies:
   flutter_test:

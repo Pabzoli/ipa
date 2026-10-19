@@ -6,6 +6,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'app_update_service.dart';
+
 /// Singleton that manages all AdMob ad loading, showing, and daily limits.
 class AdService {
   AdService._();
@@ -336,11 +338,29 @@ static String get _appOpenAdId {
         }
 
         // ── Full watch confirmed — call Cloud Function ────────────────────
+        // Two-step, both server-authoritative: mint a single-use session token
+        // for this completed view, then redeem it exactly once for the coins.
+        // A script can still drive both calls, but it cannot bypass the
+        // per-user daily cap or the 30-second spacing enforced with the token.
         try {
-          final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-              .httpsCallable('recordAdWatch');
-          final result = await fn.call<Map<String, dynamic>>();
-          final data = result.data as Map<String, dynamic>;
+          final fn = FirebaseFunctions.instanceFor(region: 'us-central1');
+          final stamp = AppUpdateService.instance.clientBuildStamp;
+
+          final session = await fn
+              .httpsCallable('startAdSession')
+              .call<Map<String, dynamic>>(Map<String, dynamic>.from(stamp));
+          final token = (session.data['sessionToken'] as String?)?.trim() ?? '';
+          if (token.isEmpty) {
+            throw StateError('startAdSession returned no token');
+          }
+
+          final result = await fn
+              .httpsCallable('recordAdWatch')
+              .call<Map<String, dynamic>>({
+            'sessionToken': token,
+            ...stamp,
+          });
+          final data = result.data;
 
           if (data['success'] == true) {
             final coins = (data['coinsAwarded'] as num).toInt();
@@ -350,6 +370,14 @@ static String get _appOpenAdId {
           } else if (data['error'] == 'daily_limit_reached') {
             if (context.mounted) {
               _showSnackBar(context, "You've reached the 10-ad daily limit. Come back tomorrow!");
+            }
+          } else if (data['error'] == 'ad_cooldown_active') {
+            if (context.mounted) {
+              _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
+            }
+          } else if (data['error'] == 'ad_session_invalid') {
+            if (context.mounted) {
+              _showSnackBar(context, 'Ad verification expired. Please try again.');
             }
           }
         } catch (e) {

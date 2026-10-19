@@ -2,6 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import '../../core/services/app_update_service.dart';
+import '../../core/services/firestore_service.dart';
+
 /// Wraps Firebase Auth + Firestore profile operations.
 class AuthService {
   AuthService._();
@@ -35,22 +38,27 @@ class AuthService {
     await cred.user!.updateDisplayName(username.trim());
 
     // ── Optional referral capture ─────────────────────────────────────────────
-    // client-side courtesy only — the real guards (referrer exists, no self-
-    // referral, referralBonusClaimed idempotency, 30-day cap) live in the
-    // claimReferralBonus callable. We only normalize + sanity-check here.
+    // The player types a short code (historically, a uid was accepted instead).
+    // The server resolves it to the referrer's uid, and THAT uid is what gets
+    // stored, so the claimReferralBonus gate is unchanged. Best-effort: a
+    // failed resolution must never fail registration, it only means no
+    // referral, and the server callable stays authoritative.
     String? validReferredBy;
     if (referredBy != null) {
       final trimmed = referredBy.trim();
-      if (trimmed.isNotEmpty && trimmed != cred.user!.uid) {
-        // NOTE (leaderboard visibility rule): reading another user's doc is
-        // now denied unless they share your entry week. A denial here must
-        // NOT fail signup — it only means the code can't be verified, so the
-        // referral is skipped and the server callable remains authoritative.
+      if (trimmed.isNotEmpty) {
         try {
-          final referrerSnap =
-              await _db.collection('users').doc(trimmed).get();
-          if (referrerSnap.exists) {
-            validReferredBy = trimmed;
+          final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('resolveReferralCode')
+              .call<Map<String, dynamic>>({
+            'code': trimmed,
+            ...AppUpdateService.instance.clientBuildStamp,
+          });
+          final resolved = (res.data['uid'] as String?)?.trim();
+          if (resolved != null &&
+              resolved.isNotEmpty &&
+              resolved != cred.user!.uid) {
+            validReferredBy = resolved;
           }
         } catch (_) {
           validReferredBy = null;
@@ -58,47 +66,33 @@ class AuthService {
       }
     }
 
-    // Build the profile document.
-    // - hintCount is gone; animeCoins replaces it.
-    final profile = <String, dynamic>{
-      'username':            username.trim(),
-      'email':               email.trim(),
-      'totalScore':          500,
-      'animeCoins':          0,
-      'weeklyPoints':        0,
-      'weeklyReset':         FieldValue.serverTimestamp(),
-      'createdAt':           FieldValue.serverTimestamp(),
-      'stats': {
-        'gamesPlayed': 0,
-        'gamesWon':    0,
-        'gamesLost':   0,
-        'hseWon':      0,
-        'hseLost':     0,
-        'hseStaked':   0,
-      },
-    };
-
-    // Only persist the university field if the user actually chose one.
-    if (university != null && university.isNotEmpty) {
-      profile['university'] = university;
-    }
-
-    // Only persist the referral field when a valid referrer was supplied.
-    if (validReferredBy != null) {
-      profile['referredBy'] = validReferredBy;
-    }
-
-    await _db.collection('users').doc(cred.user!.uid).set(profile);
-
-    // ── Phase 2 fraud-signal registration ────────────────────────────────────
-    // Best-effort only: records server-side creation IP/timestamp via the
-    // ensureProfile callable. NEVER fails signup — any error is swallowed.
+    // ── Server-authoritative profile creation ────────────────────────────────
+    // The client no longer writes users/{uid} (firestore.rules denies it). The
+    // ensureProfile callable validates the username, claims it in
+    // `usernames/{key}` (so signup cannot create duplicates), seeds
+    // totalScore/stats/animeCoins/weeklyPoints server-side, validates the
+    // university, and resolves the referral itself.
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('ensureProfile')
-          .call({});
-    } catch (_) {
-      // ignored — signal capture must not block registration
+          .call<Map<String, dynamic>>({
+        'username': username.trim(),
+        'email': email.trim(),
+        if (university != null && university.isNotEmpty) 'university': university,
+        if (validReferredBy != null) 'referredBy': validReferredBy,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+    } on FirebaseFunctionsException catch (e) {
+      // Roll back the half-created Auth account so the player can retry the
+      // same username instead of being left with an account that has no
+      // profile (and no way to create one).
+      try {
+        await cred.user!.delete();
+      } catch (_) {
+        // If deletion fails the account still exists; surface the original
+        // reason so the UI can tell them what to do.
+      }
+      throw SignUpException(e.message ?? 'Registration failed.');
     }
 
     return cred;
@@ -118,7 +112,10 @@ class AuthService {
 
   // ── Sign Out ──────────────────────────────────────────────────────────────
 
-  Future<void> signOut() => _auth.signOut();
+  Future<void> signOut() async {
+    FriendsBoardFetch.invalidateFriendsBoardCache();
+    await _auth.signOut();
+  }
 
   // ── Delete Account ────────────────────────────────────────────────────────
 
@@ -134,6 +131,7 @@ class AuthService {
         .httpsCallable('deleteAccount')
         .call<Map<String, dynamic>>();
     // Server already deleted the Auth user; clear the local session too.
+    FriendsBoardFetch.invalidateFriendsBoardCache();
     try {
       await _auth.signOut();
     } catch (_) {
@@ -156,20 +154,24 @@ class AuthService {
     return doc.data();
   }
 
-  Future<void> updateScore(int score) async {
-    final uid = currentUser?.uid;
-    if (uid == null) return;
-    await _db.collection('users').doc(uid).update({'totalScore': score});
-  }
-
-  Future<void> updateStats(Map<String, dynamic> stats) async {
-    final uid = currentUser?.uid;
-    if (uid == null) return;
-    await _db.collection('users').doc(uid).update({'stats': stats});
-  }
+  // REMOVED: updateScore / updateStats.
+  // `totalScore` and `stats` are server-owned (firestore.rules now uses a
+  // positive `hasOnly(['fcmToken'])` allowlist), so these methods could only
+  // ever throw permission-denied. They had no call sites.
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> userProfileStream() {
     final uid = currentUser!.uid;
     return _db.collection('users').doc(uid).snapshots();
   }
+}
+
+/// A registration failure the UI can show verbatim (e.g. "That username is
+/// already taken."). Distinct from [FirebaseAuthException] so the login page
+/// does not need to know about Cloud Functions error codes.
+class SignUpException implements Exception {
+  final String message;
+  const SignUpException(this.message);
+
+  @override
+  String toString() => message;
 }

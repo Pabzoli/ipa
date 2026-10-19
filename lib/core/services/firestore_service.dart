@@ -8,6 +8,10 @@ import 'package:flutter/foundation.dart';
 import '../../features/quiz/questions.dart';
 import '../../features/multiplayer/challenge_model.dart';
 import '../../features/leaderboard/leaderboard_models.dart';
+import '../constants/admin_accounts.dart';
+import '../constants/anime_catalog.dart';
+import '../constants/rival_economy.dart';
+import '../constants/rivalries_paging.dart';
 import '../constants/solo_economy.dart';
 import 'app_update_service.dart';
 import 'prize_pool_service.dart';
@@ -32,6 +36,16 @@ class InsufficientCoinsException implements Exception {
       'only $available available.';
 }
 
+/// Thrown by the `spendCoins` Cloud Function when a Premium-only spend type
+/// (e.g. `spend_retry`) is attempted by a non-Premium account. The UI should
+/// route the user to the Premium upsell instead of a generic error.
+class PremiumRequiredException implements Exception {
+  const PremiumRequiredException();
+
+  @override
+  String toString() => 'PremiumRequiredException: premium_required';
+}
+
 // ─── University Constants ─────────────────────────────────────────────────────
 
 /// Canonical list used in signup dropdown and campus leaderboard queries.
@@ -49,13 +63,6 @@ const List<String> kNigerianUniversities = [
 ];
 
 // ─── Lightweight Models ───────────────────────────────────────────────────────
-
-/// Returned by [FirestoreService.getTopUniversities].
-class UniversityTotal {
-  final String university;
-  final int total;
-  const UniversityTotal({required this.university, required this.total});
-}
 
 /// A single winner entry from a [prize_pool] document's `winners` array.
 class PrizeWinner {
@@ -126,16 +133,12 @@ class WeeklyStanding {
   /// Username of the player in [pointsToNextRank]'s slot, for "beat X" copy.
   final String? nextRankUsername;
 
-  /// Username of the player directly below, for the "hold off Y" nudge.
-  final String? belowRankUsername;
-
   const WeeklyStanding({
     required this.rank,
     required this.totalPlayers,
     required this.myPoints,
     this.pointsToNextRank,
     this.nextRankUsername,
-    this.belowRankUsername,
   });
 
   /// Percentile bucket (1–99) this rank represents, or `null` when it cannot
@@ -246,9 +249,10 @@ class WinnerClaimSummary {
   });
 
   /// True while the destination is locked server-side (submitted and neither
-  /// expired nor paid out): edits must be disabled in this state.
+  /// expired nor paid out): edits must be disabled in this state. `marked`
+  /// means the admin already recorded the transfer, which is also locked.
   bool get isLocked =>
-      (claimStatus == 'pending' || claimStatus == 'approved') && !paid;
+      (claimStatus == 'pending' || claimStatus == 'marked') && !paid;
 
   /// True when the winner can still submit (or re-submit after expiry).
   bool get canClaim =>
@@ -596,101 +600,19 @@ class FirestoreService {
         );
   }
 
-  // ─── Daily Challenge ──────────────────────────────────────────────────────
+  // ─── Daily Challenge (retired) ────────────────────────────────────────────
   //
-  // Implements the "once per WAT day, 1.5× WP multiplier" feature.
-  //
-  // Firestore fields on users/{uid}:
-  //   dailyChallengeDate : String?  — WAT date 'YYYY-MM-DD' of last use
-  //   dailyChallengeUsed : bool     — whether used on [dailyChallengeDate]
-  //
-  // The client writes these fields directly after a successful CF submission.
-  // The actual 1.5× multiplier is applied server-side in submitQuizAnswers CF
-  // when the isDailyChallenge flag is present and true.
-
-  /// Live stream emitting `true` when the signed-in user has already consumed
-  /// their Daily Challenge for today (WAT), `false` otherwise.
-  ///
-  /// Emits `false` when:
-  ///   • [dailyChallengeDate] is absent (new account / first open).
-  ///   • [dailyChallengeDate] differs from today in WAT (new day — auto-reset).
-  ///   • [dailyChallengeUsed] is false.
-  ///   • The user is not authenticated.
-  Stream<bool> dailyChallengeUsedTodayStream() {
-    if (_uid == null) return Stream.value(false);
-    return _userDoc.snapshots().map((snap) {
-      final data = snap.data();
-      if (data == null) return false;
-      final dateStr = data['dailyChallengeDate'] as String?;
-      if (dateStr == null) return false;
-      if (dateStr != _watDateString()) return false; // new WAT day → not used
-      return (data['dailyChallengeUsed'] as bool?) ?? false;
-    });
-  }
-
-  /// Returns `true` if the signed-in user has NOT yet used their Daily
-  /// Challenge today (WAT). Safe to call before the stream has emitted.
-  ///
-  /// Returns `true` for brand-new accounts and at the start of every new WAT day.
-  Future<bool> isDailyChallengeAvailable() async {
-    if (_uid == null) return false;
-    final snap = await _userDoc.get();
-    final data = snap.data();
-    if (data == null) return true; // brand-new account
-    final dateStr = data['dailyChallengeDate'] as String?;
-    if (dateStr == null) return true;
-    if (dateStr != _watDateString()) return true; // new WAT day
-    return !((data['dailyChallengeUsed'] as bool?) ?? false);
-  }
-
-  /// Live stream emitting the number of cooldown-skips the signed-in user has
-  /// performed during the current WAT day. Resets to 0 at WAT midnight.
-  Stream<int> cooldownSkipsTodayStream() {
-    if (_uid == null) return Stream.value(0);
-    return _userDoc.snapshots().map((snap) {
-      final data = snap.data();
-      if (data == null) return 0;
-      final dateStr = data['cooldownSkipsDate'] as String?;
-      if (dateStr == null || dateStr != _watDateString()) return 0;
-      return (data['cooldownSkipsToday'] as int?) ?? 0;
-    });
-  }
-
-  Future<void> ensureCooldownSkipsFields() async {
-    if (_uid == null) return;
-    try {
-      final snap = await _userDoc.get();
-      final data = snap.data();
-      if (data == null) return;
-      final updates = <String, dynamic>{};
-      if (!data.containsKey('cooldownSkipsToday')) {
-        updates['cooldownSkipsToday'] = 0;
-      }
-      if (!data.containsKey('cooldownSkipsDate')) {
-        updates['cooldownSkipsDate'] = null;
-      }
-      if (updates.isNotEmpty) await _userDoc.update(updates);
-    } catch (e) {
-      debugPrint(
-          '[FirestoreService] ensureCooldownSkipsFields error (ignored): $e');
-    }
-  }
-
-  /// No-op — retained so callers compile without changes.
-  ///
-  /// Both [dailyChallengeDate] and [dailyChallengeUsed] are blacklisted from
-  /// direct client writes in Firestore security rules, so the previous
-  /// implementation fired a guaranteed-to-fail write on every app launch for
-  /// pre-DC accounts. Those fields are now populated by the [submitQuizAnswers]
-  /// CF on the user's first Daily Challenge submission. The stream already
-  /// handles absent fields correctly (returns false / "not used").
-  Future<void> ensureDailyChallengeFields() async {}
+  // The old standalone "1.5× WP once per WAT day" Daily Challenge was removed;
+  // its only surviving surface is the Daily Gauntlet, which REUSES the same
+  // users/{uid} fields (dailyChallengeDate / dailyChallengeUsed) and is written
+  // entirely server-side by submitQuizAnswers / submitDailyGauntlet. There is
+  // therefore no client read/write path to keep here.
 
   // ─── Early Anime Unlock ────────────────────────────────────────────────────
 
   /// Unlocks [animeTitle] early by calling the `unlockAnimeEarly` Cloud
   /// Function (Section 18), which validates the title against the unlockable
-  /// set, charges 500 AC transactionally, appends it to
+  /// set, charges 5000 AC transactionally, appends it to
   /// users/{uid}.unlockedAnimes, and logs a `spend_unlock` coin transaction.
   ///
   /// Returns the server payload:
@@ -704,6 +626,58 @@ class FirestoreService {
         .httpsCallable('unlockAnimeEarly');
     final res = await callable.call({'animeTitle': animeTitle});
     return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  // ─── Solo anime cooldowns (server-authoritative) ───────────────────────────
+
+  /// Live cooldown expiries for the signed-in user, keyed by title. Locks are
+  /// written only by Cloud Functions; expired entries are filtered by the caller.
+  Stream<Map<String, DateTime>> cooldownsStream() {
+    if (_uid == null) return Stream.value(<String, DateTime>{});
+    return _userDoc.collection('cooldowns').snapshots().map((snap) {
+      final out = <String, DateTime>{};
+      for (final d in snap.docs) {
+        final data = d.data();
+        final title = (data['title'] as String?) ?? d.id;
+        final expiresAt = data['expiresAt'];
+        if (expiresAt is Timestamp) out[title] = expiresAt.toDate();
+      }
+      return out;
+    });
+  }
+
+  /// Starts the cooldown for [titles] via `startSoloCooldowns`. Returns the new
+  /// expiry (ms since epoch) for each title that was locked; permanently
+  /// unlocked titles are absent. Throws [FirebaseFunctionsException] with
+  /// `failed-precondition` / `cooldown_active` if any title is still locked.
+  Future<Map<String, int>> startSoloCooldowns(List<String> titles) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('startSoloCooldowns');
+    final res = await callable.call(<String, dynamic>{
+      'titles': titles,
+      ...AppUpdateService.instance.clientBuildStamp,
+    });
+    final data = Map<String, dynamic>.from(res.data as Map);
+    final raw = Map<String, dynamic>.from(data['expiresAt'] as Map? ?? const {});
+    return raw.map((k, v) => MapEntry(k, (v as num).toInt()));
+  }
+
+  /// Live anime catalogue from app_config/anime_catalog.titles. Falls back to
+  /// the bundled [kAnimeCatalog] while the doc is absent or empty.
+  Stream<List<String>> animeCatalogStream() {
+    return _db.collection('app_config').doc('anime_catalog').snapshots().map((snap) {
+      final raw = snap.data()?['titles'];
+      if (raw is List) {
+        final titles = raw
+            .whereType<String>()
+            .map((s) => s.trim().toLowerCase())
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .toList();
+        if (titles.isNotEmpty) return titles;
+      }
+      return kAnimeCatalog;
+    });
   }
 
   // ─── Questions ──────────────────────────────────────────────────────────────
@@ -1507,10 +1481,10 @@ class FirestoreService {
   /// Walking is what makes it tie-safe. A COUNT of "strictly greater than me"
   /// is a lower bound only: when other players share my score, a single
   /// `limit(count + 1)` prefix need not reach my own row, and inferring the
-  /// rank from the count would report "not ranked" for someone who is
-  /// visibly on the board. So we page down the ordering and stop as soon as
-  /// we have passed our own row, keeping the immediately-preceding row as the
-  /// overtake target and the next one as the lead to hold.
+  /// rank from the count would report a rank the board does not show for
+  /// someone who is visibly on the board. So we page down the ordering and stop
+  /// once we reach our own row, keeping the immediately-preceding row as the
+  /// overtake target.
   ///
   /// Queries are cohort-filtered, satisfying the `users` read rule. Requires
   /// the `(leaderboardEntryWeekId ASC, weeklyPoints DESC)` composite index
@@ -1541,7 +1515,6 @@ class FirestoreService {
       var rank = 0;
       int? pointsToNextRank;
       String? nextRankUsername;
-      String? belowRankUsername;
 
       // Score/name of the highest row we have walked past — becomes the
       // overtake target once we reach our own row.
@@ -1549,7 +1522,6 @@ class FirestoreService {
       String? prevName;
 
       var found = false;
-      var sawBelow = false;
       DocumentSnapshot<Map<String, dynamic>>? cursor;
 
       // Bounded so a pathological cohort cannot spin: 40 pages of 50 is 2000
@@ -1570,22 +1542,13 @@ class FirestoreService {
           final pts = (data['weeklyPoints'] as int?) ?? 0;
           final name = (data['username'] as String?) ?? 'Anonymous';
 
-          if (found) {
-            // First row past our own — the gap we are protecting.
-            if (!sawBelow) {
-              belowRankUsername = name;
-              sawBelow = true;
-            }
-            continue;
-          }
-
           if (doc.id == uid) {
             found = true;
             pointsToNextRank = prevPoints;
             nextRankUsername = prevName;
             prevPoints = pts;
             prevName = name;
-            continue;
+            break;
           }
 
           rank++;
@@ -1593,8 +1556,8 @@ class FirestoreService {
           prevName = name;
         }
 
-        // Enough once we have our row AND the one below it.
-        if (sawBelow) break;
+        // Our own row is the only thing this walk is for.
+        if (found) break;
       }
 
       if (!found) return WeeklyStanding.none;
@@ -1605,7 +1568,6 @@ class FirestoreService {
         myPoints: myPts,
         pointsToNextRank: pointsToNextRank,
         nextRankUsername: nextRankUsername,
-        belowRankUsername: belowRankUsername,
       );
     } catch (e) {
       debugPrint('[FirestoreService] weeklyStanding error: $e');
@@ -1613,32 +1575,27 @@ class FirestoreService {
     }
   }
 
-  /// Convenience wrapper kept for the existing callers (home header pill,
-  /// profile). Unlike [weeklyStanding] it reports `0` for a player with no
-  /// points yet, which those surfaces render as "—" rather than a real rank.
+  /// Convenience wrapper for the profile badge. Reports `0` ONLY when the
+  /// player is not ranked (not found / not eligible), which that surface
+  /// renders as "—". An eligible entrant with 0 points still has a real
+  /// position and is reported as such.
   ///
-  /// Requires the `(leaderboardEntryWeekId ASC, weeklyPoints DESC)`
-  /// composite index (firestore.indexes.json).
+  /// Delegates to [weeklyStanding] rather than a COUNT: a COUNT of "strictly
+  /// greater than me" is a *competition* rank, which disagrees with the board's
+  /// sequential numbering on ties. Same walk, same number everywhere.
   Future<int> getCurrentUserWeeklyRank({
     String? entryWeekId,
     bool eligible = false,
   }) async {
     if (_uid == null) return 0;
     if (!eligible || (entryWeekId ?? '').isEmpty) return 0;
-    final myDoc = await _userDoc.get();
-    final myPts = (myDoc.data()?['weeklyPoints'] as int?) ?? 0;
-
-    // Not on the weekly board yet.
-    if (myPts == 0) return 0;
-
-    final above = await _db
-        .collection('users')
-        .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
-        .where('weeklyPoints', isGreaterThan: myPts)
-        .count()
-        .get();
-
-    return (above.count ?? 0) + 1;
+    final standing =
+        await weeklyStanding(entryWeekId: entryWeekId, eligible: true);
+    // Report the real (sequential) rank whenever the player was found in the
+    // walk, INCLUDING a legitimate #1..#N who simply has 0 points so far.
+    // Zero is reserved for "not ranked" (not found / not eligible), which the
+    // profile renders as "—".
+    return standing.rank;
   }
 
   // ─── Weekly Points ───────────────────────────────────────────────────────────
@@ -1720,15 +1677,14 @@ class FirestoreService {
   /// all players and rank-free (skipped before rank assignment, so they
   /// occupy no rank slot and shift nobody).
   ///
-  /// Mirror of ADMIN_UIDS (functions/index.js) and kAdminUids
-  /// (lib/features/admin/admin_payout_service.dart). Deliberately enforced
-  /// client-side rather than in Firestore rules: denying the doc server-side
-  /// would make EVERY cohort query containing it fail wholesale for all
-  /// players, and `!=` exclusion filters are incompatible with the
+  /// Derived from [kAdminUids] (lib/core/constants/admin_accounts.dart), the
+  /// single Dart source of truth, which mirrors ADMIN_UIDS in
+  /// functions/index.js and isPayoutAdmin() in firestore.rules. Deliberately
+  /// enforced client-side rather than in Firestore rules: denying the doc
+  /// server-side would make EVERY cohort query containing it fail wholesale
+  /// for all players, and `!=` exclusion filters are incompatible with the
   /// weeklyPoints ordering/counts the boards need.
-  static const List<String> kBoardHiddenUids = <String>[
-    'owMNkXmb6QSzO0xfHkSgMlx0zSJ3',
-  ];
+  static const List<String> kBoardHiddenUids = kAdminUids;
 
   List<BoardEntry> _mapBoardEntries(
     QuerySnapshot<Map<String, dynamic>> snap,
@@ -1766,50 +1722,11 @@ class FirestoreService {
         );
   }
 
-  // ─── Weekly Player Count (Stage 19 — percentile display) ──────────────────
-
-  /// Cached result of [getWeeklyPlayerCount], keyed by entry week.
-  static int? _weeklyPlayerCountCache;
-  static DateTime? _weeklyPlayerCountCacheTime;
-  static String? _weeklyPlayerCountCacheWeek;
-
-  /// Returns the number of users who entered the leaderboard for
-  /// [entryWeekId] (i.e. the paid board size the caller may see).
-  ///
-  /// Uses a Firestore COUNT aggregation on the cohort equality filter — no
-  /// documents are downloaded, and the query satisfies the `users` read
-  /// rule (single-field equality needs no composite index). Pass the
-  /// viewer's own entry week; an empty week returns the cache (or 0).
-  /// The result is cached in a static variable for up to 5 minutes per week.
-  Future<int> getWeeklyPlayerCount({String entryWeekId = ''}) async {
-    final now = DateTime.now();
-    if (_weeklyPlayerCountCache != null &&
-        _weeklyPlayerCountCacheTime != null &&
-        _weeklyPlayerCountCacheWeek == entryWeekId &&
-        now.difference(_weeklyPlayerCountCacheTime!).inMinutes < 5) {
-      return _weeklyPlayerCountCache!;
-    }
-
-    if (entryWeekId.isEmpty) return _weeklyPlayerCountCache ?? 0;
-
-    try {
-      final snap = await _db
-          .collection('users')
-          .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
-          .count()
-          .get();
-
-      final count = snap.count ?? 0;
-      _weeklyPlayerCountCache = count;
-      _weeklyPlayerCountCacheTime = now;
-      _weeklyPlayerCountCacheWeek = entryWeekId;
-      return count;
-    } catch (e) {
-      debugPrint('[FirestoreService] getWeeklyPlayerCount error: $e');
-      // Return cache even if stale rather than surfacing an error to the UI.
-      return _weeklyPlayerCountCache ?? 0;
-    }
-  }
+  // REMOVED: getWeeklyPlayerCount().
+  //
+  // It had no call site. The board's cohort size comes from the
+  // `weeklyStanding` COUNT, which is the same query and already tied to the
+  // player's own entry week, so a second cached counter was redundant.
 
   // REMOVED: getRivalForUser().
   //
@@ -1819,46 +1736,12 @@ class FirestoreService {
   // the cohort board it already has, which is both cheaper and guaranteed to
   // be a row the user can actually see and tap.
 
-  // ─── Campus Leaderboard ──────────────────────────────────────────────────────
-
-  Future<List<BoardEntry>> fetchCampusLeaderboard(
-    String university, {
-    String entryWeekId = '',
-    bool includeAll = false,
-  }) async {
-    if (university.isEmpty) return const <BoardEntry>[];
-    // Non-entrants may read nobody but themselves: issuing the unfiltered
-    // query would fail wholesale with permission-denied (it WOULD match
-    // unreadable docs), so resolve to [] with no query instead. The admin path
-    // passes includeAll:true explicitly.
-    if (!includeAll && entryWeekId.isEmpty) return const <BoardEntry>[];
-
-    // Cohort filter matches the `users` read rule: an empty [entryWeekId]
-    // means "no cohort constraint" — only the payout admin may evaluate
-    // that (the Rankings page passes '' solely for the admin account).
-    // Normal players always pass their own entry week.
-    //
-    // Requires the
-    // `(university ASC, leaderboardEntryWeekId ASC, weeklyPoints DESC)`
-    // composite index when the cohort filter is present, or
-    // `(university ASC, weeklyPoints DESC)` without it
-    // (firestore.indexes.json).
-    var query = _db
-        .collection('users')
-        .where('university', isEqualTo: university);
-    if (entryWeekId.isNotEmpty) {
-      query =
-          query.where('leaderboardEntryWeekId', isEqualTo: entryWeekId);
-    }
-    final snap = await query
-        .orderBy('weeklyPoints', descending: true)
-        .limit(50)
-        .get();
-    // Shared with the global board: one ranking implementation, so a campus
-    // rank and a global rank can never be numbered differently. The campus
-    // query used to inline its own copy of this loop.
-    return _mapBoardEntries(snap);
-  }
+  // REMOVED: fetchCampusLeaderboard().
+  //
+  // The campus board was replaced by the single-query campus chip
+  // ([campusRankCount]): a 50-row campus fetch per refresh for a tab nobody
+  // paid for. The chip shows the one number the campus board was really used
+  // for, at a fraction of the reads.
 
   // ─── University Helpers ──────────────────────────────────────────────────────
 
@@ -1871,55 +1754,28 @@ class FirestoreService {
 
   Future<void> updateUniversity(String university) async {
     if (_uid == null) return;
-    await _userDoc.update({'university': university});
-  }
-
-  // ─── Top Universities (5-minute in-memory cache) ─────────────────────────────
-
-  Map<String, int>? _topUniCache;
-  DateTime? _topUniCacheTime;
-
-  Future<List<UniversityTotal>> getTopUniversities() async {
-    if (_topUniCache != null &&
-        _topUniCacheTime != null &&
-        DateTime.now().difference(_topUniCacheTime!).inMinutes < 5) {
-      return _buildTopTwo(_topUniCache!);
+    if (!kNigerianUniversities.contains(university)) {
+      throw Exception('Choose a university from the list.');
     }
-
-    final snap = await _db
-        .collection('users')
-        .orderBy('weeklyPoints', descending: true)
-        .limit(500)
-        .get();
-
-    final totals = <String, int>{};
-    for (final doc in snap.docs) {
-      final data = doc.data();
-      final uni = data['university'] as String?;
-      final pts = (data['weeklyPoints'] as int?) ?? 0;
-      if (uni != null && uni.isNotEmpty && uni != 'Other') {
-        totals[uni] = (totals[uni] ?? 0) + pts;
-      }
+    // `university` is server-owned: the callable re-validates the canonical
+    // list, so a direct REST write can no longer spoof a campus.
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('updateUniversity');
+    try {
+      await callable.call<void>({
+        'university': university,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+    } on FirebaseFunctionsException catch (e) {
+      throw Exception(e.message ?? 'Could not save campus.');
     }
-
-    _topUniCache = totals;
-    _topUniCacheTime = DateTime.now();
-    return _buildTopTwo(totals);
   }
 
-  void invalidateTopUniCache() {
-    _topUniCache = null;
-    _topUniCacheTime = null;
-  }
-
-  List<UniversityTotal> _buildTopTwo(Map<String, int> totals) {
-    final sorted = totals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    return sorted
-        .take(2)
-        .map((e) => UniversityTotal(university: e.key, total: e.value))
-        .toList();
-  }
+  // REMOVED: getTopUniversities() / UniversityTotal / invalidateTopUniCache().
+  //
+  // No call site. It downloaded 500 docs and ordered by `weeklyPoints` with no
+  // cohort filter, so under the current `users` read rule it permission-fails
+  // for everyone but the payout admin — dead code that could only ever throw.
 
   // ─── Prize Pool ──────────────────────────────────────────────────────────────
 
@@ -2105,7 +1961,7 @@ class FirestoreService {
 
       final data = snap.docs.first.data();
       final weekId = (data['weekId'] as String?) ?? '';
-      final total = ((data['totalNaira'] as num?)?.toDouble()) ?? 0.0;
+      final legacyTotal = ((data['totalNaira'] as num?)?.toDouble()) ?? 0.0;
       final rawList = (data['winners'] as List<dynamic>?) ?? [];
 
       if (rawList.isEmpty) return null;
@@ -2114,6 +1970,13 @@ class FirestoreService {
           .map((w) => PrizeWinner.fromMap(Map<String, dynamic>.from(w as Map)))
           .toList()
         ..sort((a, b) => a.rank.compareTo(b.rank));
+
+      // `totalNaira` is a legacy ad-revenue field that runWeeklyReset never
+      // writes, so it reads 0 — which left the announcement's "Prize pool"
+      // badge effectively unreachable. The real pool is the sum of the winners'
+      // paid shares (the top-5 percentages sum to 1.0), so fall back to that.
+      final shareSum = winners.fold<double>(0.0, (a, w) => a + w.prizeAmount);
+      final total = legacyTotal > 0 ? legacyTotal : shareSum;
 
       return LastWeekResult(
         weekId: weekId,
@@ -2146,17 +2009,37 @@ class FirestoreService {
     return nextAllowed;
   }
 
+  /// Changes the username through the `changeUsername` callable.
+  ///
+  /// The 7-day cooldown AND uniqueness are enforced server-side. The local
+  /// [canChangeUsername] check is UX only — it is no longer the gate, and a
+  /// direct REST/client write to `username` is denied by the rules.
+  /// Throws an [Exception] with the server message on rejection.
   Future<void> updateUsername(String newUsername) async {
     if (_uid == null) return;
-    final canChange = await canChangeUsername();
-    if (!canChange) {
-      throw Exception('Username can only be changed once every 7 days.');
+    final trimmed = newUsername.trim();
+    if (trimmed.length < 3 || trimmed.length > 20) {
+      throw Exception('Username must be 3-20 characters.');
     }
-    await _auth.currentUser!.updateDisplayName(newUsername.trim());
-    await _userDoc.update({
-      'username': newUsername.trim(),
-      'lastUsernameChange': FieldValue.serverTimestamp(),
-    });
+
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('changeUsername');
+    try {
+      final res = await callable.call<Map<String, dynamic>>({
+        'username': trimmed,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+      final applied = (res.data['username'] as String?)?.trim() ?? trimmed;
+      // Server already updated Auth's displayName; keep the local user object
+      // in sync so the UI does not show the old name until the next refresh.
+      try {
+        await _auth.currentUser?.updateDisplayName(applied);
+      } catch (_) {
+        // Cosmetic only — the Firestore field is authoritative.
+      }
+    } on FirebaseFunctionsException catch (e) {
+      throw Exception(e.message ?? 'Could not change username.');
+    }
   }
 
   Future<String> getUsername() async {
@@ -2322,7 +2205,11 @@ class FirestoreService {
         .get();
     int wins = 0, losses = 0, draws = 0;
     for (final doc in snap.docs) {
-      final outcome = doc.data()['outcome'] as String?;
+      final data = doc.data();
+      // Spars are excluded so this matches the "SPAR - never counts" history
+      // copy and the server-side getHeadToHeadRecord callable.
+      if (data['challengeType'] == 'spar') continue;
+      final outcome = data['outcome'] as String?;
       if (outcome == 'win') {
         wins++;
       } else if (outcome == 'lose') {
@@ -2394,13 +2281,36 @@ class FirestoreService {
   /// Ghost sessions (no opponentUid) are skipped. Sorted by most recent
   /// duel first. Each entry carries the running W/L/D vs that rival plus
   /// whether the last meeting was a loss (drives the "revenge" affordance).
-  Future<List<RivalSummary>> recentRivals({int limit = 30}) async {
-    if (_uid == null) return [];
+  ///
+  /// Defaults to a single [kRivalriesPageSize] window. Callers that page the
+  /// list should use [recentRivalsWindow] so they can tell whether more exist.
+  Future<List<RivalSummary>> recentRivals(
+      {int limit = kRivalriesPageSize}) async {
+    final page = await recentRivalsWindow(window: limit);
+    return page.rivals;
+  }
+
+  /// One scanned window of the match history, grouped into named rivals.
+  ///
+  /// [hasMore] is true only when the scan FILLED [window] — i.e. the history
+  /// may hold further matches. The grouped rival count cannot answer that
+  /// question, because repeat matches against one rival collapse into a single
+  /// entry while the raw match count stays at the limit; only the raw count can.
+  ///
+  /// Bounded by [window]: one query, no N+1, no listeners.
+  Future<({List<RivalSummary> rivals, bool hasMore})> recentRivalsWindow({
+    required int window,
+  }) async {
+    if (_uid == null) {
+      return (rivals: const <RivalSummary>[], hasMore: false);
+    }
     final snap = await _userDoc
         .collection('matches')
         .orderBy('timestamp', descending: true)
-        .limit(limit)
+        .limit(window)
         .get();
+    final hasMore = snap.docs.length == window;
+
     final byUid = <String, RivalSummary>{};
     final order = <String>[];
     for (final doc in snap.docs) {
@@ -2430,7 +2340,93 @@ class FirestoreService {
         entry.draws++;
       }
     }
-    return [for (final uid in order) byUid[uid]!];
+    return (
+      rivals: [for (final uid in order) byUid[uid]!],
+      hasMore: hasMore,
+    );
+  }
+
+  /// Client mirror of the server's same-rival staked-duel cooldown, for UI
+  /// preview only. Whole hours remaining (0 = allowed now).
+  ///
+  /// Applies the same two rules `createChallenge` does: the rolling
+  /// `rivalCooldowns` map (with the legacy single-pair fallback), and no
+  /// cooldown inside an active series that already has games. The server stays
+  /// authoritative — a stale read here only mis-times a label, never a stake.
+  Future<int> rivalDuelCooldownHours(
+    String rivalUid, {
+    required bool premium,
+  }) async {
+    final me = _uid;
+    if (me == null || rivalUid.isEmpty) return 0;
+    try {
+      final meSnap = await _userDoc.get();
+      final data = meSnap.data() ?? const <String, dynamic>{};
+      final map = (data['rivalCooldowns'] as Map<String, dynamic>?) ?? const {};
+      final raw = map[rivalUid];
+      DateTime? at;
+      if (raw is Timestamp) {
+        at = raw.toDate();
+      } else {
+        final legacyUid = data['lastRivalUid'] as String?;
+        final legacyAt = data['lastRivalChallenge'];
+        if (legacyUid == rivalUid && legacyAt is Timestamp) {
+          at = legacyAt.toDate();
+        }
+      }
+      if (at == null) return 0;
+
+      // Series-aware skip. Only reached when a cooldown entry exists, which
+      // implies a prior staked duel, which implies the rivalry doc exists.
+      try {
+        final rSnap = await _db
+            .collection('rivalries')
+            .doc(rivalryDocId(me, rivalUid))
+            .get();
+        final r = rSnap.data();
+        if (r != null) {
+          final games = ((r['winsA'] as num?)?.toInt() ?? 0) +
+              ((r['winsB'] as num?)?.toInt() ?? 0);
+          if ((r['status'] as String?) == 'active' && games > 0) return 0;
+        }
+      } catch (_) {
+        // Unreadable series treated as "no active series": the cooldown then
+        // stands, which is the conservative choice the server mirrors.
+      }
+
+      final cooldown =
+          premium ? kRivalCooldownPremiumHours : kRivalCooldownFreeHours;
+      final left = cooldown - DateTime.now().difference(at).inHours;
+      return left > 0 ? left : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// One-shot series state for a set of rivals, for the Rivalries list. Every
+  /// pair doc includes the signed-in player, so the participants-only read rule
+  /// holds. Missing/unreadable docs return no entry (no ranked duel yet). No
+  /// listeners: one bounded round trip sized to the list actually on screen.
+  Future<Map<String, Map<String, dynamic>>> rivalryStates(
+    List<String> otherUids,
+  ) async {
+    final me = _uid;
+    if (me == null || otherUids.isEmpty) return {};
+    final entries = await Future.wait(otherUids.map((u) async {
+      try {
+        final snap = await _db
+            .collection('rivalries')
+            .doc(rivalryDocId(me, u))
+            .get();
+        return MapEntry<String, Map<String, dynamic>?>(u, snap.data());
+      } catch (_) {
+        return MapEntry<String, Map<String, dynamic>?>(u, null);
+      }
+    }));
+    return {
+      for (final e in entries)
+        if (e.value != null) e.key: e.value!,
+    };
   }
 
   /// Same-university, same-week players for the discovery sheet's Campus
@@ -2450,6 +2446,7 @@ class FirestoreService {
     final out = <RivalCandidate>[];
     for (final doc in snap.docs) {
       if (doc.id == _uid) continue;
+      if (kBoardHiddenUids.contains(doc.id)) continue; // ghost admin: never a rival
       final data = doc.data();
       out.add(RivalCandidate(
         uid: doc.id,
@@ -2681,10 +2678,10 @@ class FirestoreService {
     }
   }
 
-  /// Live stream of the current user's reusable `payoutDetails`
-  /// (owner CRUD per rules). After a payout completes, the server purges
-  /// sensitive fields, leaving only `accountMask` — the UI must therefore
-  /// render masked values and never expect full details here.
+  /// Live stream of the current user's reusable `payoutDetails` (owner-read
+  /// only — writes are CF-only now). After a payout completes, the server
+  /// purges sensitive fields, leaving only `accountMask` — the UI must
+  /// therefore render masked values and never expect full details here.
   Stream<List<Map<String, dynamic>>> payoutDetailsStream() {
     if (_uid == null) return Stream.value([]);
     return _db
@@ -2696,9 +2693,11 @@ class FirestoreService {
             snap.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList());
   }
 
-  /// Updates one reusable payout-detail doc. The UI must gate this on lock
-  /// state ([WinnerClaimSummary.isLocked]) — the server independently rejects
-  /// destination changes once a claim is approved.
+  /// Updates one reusable payout-detail doc through the `savePayoutDetail`
+  /// callable. The server validates the payload and appends a before/after
+  /// entry to `payoutDetailAudit` in the same transaction. The UI must still
+  /// gate this on lock state ([WinnerClaimSummary.isLocked]) — the server
+  /// independently rejects destination changes once a claim is approved.
   Future<void> updatePayoutDetail(
     String docId, {
     required String accountNumber,
@@ -2706,17 +2705,22 @@ class FirestoreService {
     required String beneficiaryName,
   }) async {
     if (_uid == null) return;
-    await _db
-        .collection('users')
-        .doc(_uid)
-        .collection('payoutDetails')
-        .doc(docId)
-        .update({
-      'accountNumber': accountNumber,
-      'bankCode': bankCode,
-      'beneficiaryName': beneficiaryName,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('savePayoutDetail');
+    try {
+      await callable.call<void>({
+        'docId': docId,
+        'accountNumber': accountNumber,
+        'bankCode': bankCode,
+        'beneficiaryName': beneficiaryName,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+    } on FirebaseFunctionsException catch (e) {
+      throw PayoutClaimException(
+        code: e.code,
+        message: e.message ?? 'Could not save payout details.',
+      );
+    }
   }
 
   /// Saves the device FCM token for server-side winner/payout notifications.
@@ -2752,13 +2756,17 @@ class FirestoreService {
     return (data['friendCode'] as String?) ?? '';
   }
 
-  Future<void> sendFriendRequest({String? code, String? uid}) async {
+  /// Returns 'pending' for a new request, or 'active' when the other player had
+  /// already asked us (the request is accepted on the spot).
+  Future<String> sendFriendRequest({String? code, String? uid}) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('sendFriendRequest');
-    await callable.call(_friendStamp({
+    final res = await callable.call(_friendStamp({
       if (code != null) 'code': code,
       if (uid != null) 'uid': uid,
     }));
+    final data = Map<String, dynamic>.from(res.data as Map);
+    return (data['status'] as String?) ?? 'pending';
   }
 
   Future<void> respondFriendRequest({
@@ -2768,6 +2776,8 @@ class FirestoreService {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('respondFriendRequest');
     await callable.call(_friendStamp({'otherUid': otherUid, 'accept': accept}));
+    // Accepting adds a friend row: drop the cached board so it shows now.
+    FriendsBoardFetch.invalidateFriendsBoardCache();
   }
 
   Future<void> cancelFriendRequest({required String otherUid}) async {
@@ -2780,47 +2790,40 @@ class FirestoreService {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('blockUser');
     await callable.call(_friendStamp({'otherUid': otherUid}));
+    FriendsBoardFetch.invalidateFriendsBoardCache();
   }
 
   Future<void> unblockUser({required String otherUid}) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('unblockUser');
     await callable.call(_friendStamp({'otherUid': otherUid}));
+    FriendsBoardFetch.invalidateFriendsBoardCache();
   }
 
   Future<void> removeFriend({required String otherUid}) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('removeFriend');
     await callable.call(_friendStamp({'otherUid': otherUid}));
+    // Removing takes a row away: drop the cached board so it disappears now.
+    FriendsBoardFetch.invalidateFriendsBoardCache();
   }
 
-  /// All link uids the caller has in ANY state (friend/incoming/outgoing/
-  /// blocked). Used to exclude people from campus suggestions. One query,
-  /// no listener.
-  Future<Set<String>> getFriendLinkIds() async {
-    if (_uid == null) return {};
-    final snap = await _userDoc.collection('friendLinks').get();
-    return {for (final d in snap.docs) d.id};
-  }
-
-  /// Owner-direct reads of friendLinks by status (incoming/outgoing/blocked).
-  /// Friends themselves come from the getFriendsBoard callable (Sec C
-  /// override: no mirrors). One-shot, no listener.
-  Future<List<Map<String, dynamic>>> getFriendLinksByStatus(
-    String status,
-  ) async {
+  /// Every friendLinks doc the caller owns, in one read (all states). The Add
+  /// Friend page derives its sections and its suggestion filter from this.
+  /// Friends themselves come from the getFriendsBoard callable. One-shot.
+  Future<List<FriendLink>> getFriendLinks() async {
     if (_uid == null) return [];
-    final snap = await _userDoc
-        .collection('friendLinks')
-        .where('status', isEqualTo: status)
-        .get();
-    return [
-      for (final d in snap.docs) {'uid': d.id, ...d.data()}
-    ];
+    final snap = await _userDoc.collection('friendLinks').get();
+    return [for (final d in snap.docs) FriendLink.fromMap(d.id, d.data())];
   }
 
-  /// Campus chip rank: 1 + count of same-campus, same-week players above me.
-  /// Returns null on any failure (chip then shows the campus without a
+  /// Campus chip rank: the player's SEQUENTIAL position among same-campus,
+  /// same-week players, using the exact ordering and tie rule as the Global
+  /// board (`weeklyPoints DESC`, walk-and-count). A COUNT of "strictly greater
+  /// than me" would be a *competition* rank (1,2,2,4) and disagree with the
+  /// board on ties, so we walk instead — one tie rule across both surfaces.
+  ///
+  /// Returns null on any failure (the chip then shows the campus without a
   /// number — never an error state). Uses the existing
   /// (university, entryWeek, weeklyPoints DESC) composite index.
   Future<int?> campusRankCount({
@@ -2829,15 +2832,45 @@ class FirestoreService {
     required int myPoints,
   }) async {
     if (_uid == null || university.isEmpty || entryWeekId.isEmpty) return null;
+    final uid = _uid!;
     try {
-      final snap = await _db
-          .collection('users')
-          .where('university', isEqualTo: university)
-          .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
-          .where('weeklyPoints', isGreaterThan: myPoints)
-          .count()
-          .get();
-      return (snap.count ?? 0) + 1;
+      var rank = 0;
+      var found = false;
+      DocumentSnapshot<Map<String, dynamic>>? cursor;
+      for (var page = 0; page < 40; page++) {
+        var query = _db
+            .collection('users')
+            .where('university', isEqualTo: university)
+            .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
+            .orderBy('weeklyPoints', descending: true);
+        if (cursor != null) query = query.startAfterDocument(cursor);
+        final snap = await query.limit(50).get();
+        if (snap.docs.isEmpty) break;
+        cursor = snap.docs.last;
+
+        for (final doc in snap.docs) {
+          if (kBoardHiddenUids.contains(doc.id)) continue;
+          if (doc.id == uid) {
+            found = true;
+            break;
+          }
+          rank++;
+        }
+        if (found) break;
+      }
+      // Not present in the campus cohort (e.g. no campus entry this week):
+      // fall back to the count-based position rather than inventing one lower.
+      if (!found) {
+        final snap = await _db
+            .collection('users')
+            .where('university', isEqualTo: university)
+            .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
+            .where('weeklyPoints', isGreaterThan: myPoints)
+            .count()
+            .get();
+        return (snap.count ?? 0) + 1;
+      }
+      return rank + 1;
     } catch (e) {
       debugPrint('[FirestoreService] campusRankCount error: $e');
       return null;
@@ -2848,28 +2881,25 @@ class FirestoreService {
   /// Pass [challengeId] when known (challenge cards); omit it and the server
   /// nudges the pair's latest their-turn duel (Friends rows).
   /// Throws [FirebaseFunctionsException]: not_friends / not_their_turn /
-  /// nothing_to_nudge / nudge_limit_reached.
+  /// nothing_to_nudge / nudge_limit_reached / nudge_not_delivered. Success and
+  /// nudge_limit_reached both update [FriendsBoardFetch.friendNudgesToday].
   Future<void> nudgeFriend({required String friendUid, String? challengeId}) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('nudgeFriend');
-    await callable.call(_friendStamp({
-      'friendUid': friendUid,
-      if (challengeId != null) 'challengeId': challengeId,
-    }));
-  }
-
-  /// One fixed-emoji reaction per user per settled challenge (CF-only write
-  /// to challenges/{id}.reactions.{uid}). Emoji must be one of 👏 🔥 😅 GG.
-  Future<void> reactToChallenge({
-    required String challengeId,
-    required String emoji,
-  }) async {
-    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
-        .httpsCallable('reactToChallenge');
-    await callable.call(_friendStamp({
-      'challengeId': challengeId,
-      'emoji': emoji,
-    }));
+    try {
+      await callable.call(_friendStamp({
+        'friendUid': friendUid,
+        if (challengeId != null) 'challengeId': challengeId,
+      }));
+    } on FirebaseFunctionsException catch (e) {
+      // Today's nudge already went out (e.g. from another screen or device):
+      // show it as sent rather than leaving a live button.
+      if (e.message == 'nudge_limit_reached') {
+        FriendsBoardFetch.markFriendNudgedToday(friendUid);
+      }
+      rethrow;
+    }
+    FriendsBoardFetch.markFriendNudgedToday(friendUid);
   }
 }
 
@@ -2885,12 +2915,28 @@ class FriendBoardEntry {
   final int? weeklyPoints;
   final String? entryWeekId;
 
+  /// True when this friend owes a move on a shared duel, so a nudge will land.
+  final bool theirTurn;
+
+  /// True when I owe this friend a move on a shared duel ("Your move").
+  final bool myTurn;
+
+  /// True when I already nudged this friend today (WAT).
+  final bool nudgedToday;
+
+  /// True when this friend played a match today (WAT).
+  final bool playedToday;
+
   const FriendBoardEntry({
     required this.uid,
     required this.username,
     required this.university,
     required this.weeklyPoints,
     required this.entryWeekId,
+    this.theirTurn = false,
+    this.myTurn = false,
+    this.nudgedToday = false,
+    this.playedToday = false,
   });
 
   factory FriendBoardEntry.fromMap(Map<String, dynamic> map) =>
@@ -2900,6 +2946,31 @@ class FriendBoardEntry {
         university: (map['university'] as String?) ?? '',
         weeklyPoints: (map['weeklyPoints'] as num?)?.toInt(),
         entryWeekId: map['entryWeekId'] as String?,
+        theirTurn: map['theirTurn'] == true,
+        myTurn: map['myTurn'] == true,
+        nudgedToday: map['nudgedToday'] == true,
+        playedToday: map['playedToday'] == true,
+      );
+}
+
+/// One row of the caller's own friendLinks: a request in either direction, a
+/// friend, or a block. [status] is one of incoming / outgoing / friend / blocked.
+class FriendLink {
+  final String uid;
+  final String status;
+  final String username;
+
+  const FriendLink({
+    required this.uid,
+    required this.status,
+    required this.username,
+  });
+
+  factory FriendLink.fromMap(String uid, Map<String, dynamic> map) =>
+      FriendLink(
+        uid: uid,
+        status: (map['status'] as String?) ?? '',
+        username: ((map['username'] as String?) ?? '').trim(),
       );
 }
 
@@ -2917,18 +2988,58 @@ extension FriendsBoardFetch on FirestoreService {
   static List<FriendBoardEntry>? _friendsCache;
   static DateTime? _friendsCacheAt;
 
-  /// Calls getFriendsBoard (zero writes server-side) and caches for 6h.
-  /// A forced call (retry) bypasses the cache. Never throws: failures yield
-  /// an empty list with a null fetchedAt so the tab shows its error state.
-  Future<FriendsBoardData> fetchFriendsBoard({bool force = false}) async {
-    final now = DateTime.now();
-    if (!force &&
-        _friendsCache != null &&
-        _friendsCacheAt != null &&
-        now.difference(_friendsCacheAt!).inHours < 6) {
-      return FriendsBoardData(
-          friends: _friendsCache!, fetchedAt: _friendsCacheAt);
+  /// The friends board is re-read on demand (tab open / pull-to-refresh), not
+  /// on a timer. This short TTL is the only floor: it absorbs rapid tab
+  /// flipping and repeated opens without spending a callable per glance.
+  static const Duration _friendsCacheTtl = Duration(minutes: 5);
+
+  /// True while the cached board is still within its TTL. The page uses this to
+  /// avoid re-assigning an identical future (which would flash a spinner) when
+  /// nothing has aged out.
+  bool get friendsBoardCacheFresh {
+    final at = _friendsCacheAt;
+    return _friendsCache != null &&
+        at != null &&
+        DateTime.now().difference(at) < _friendsCacheTtl;
+  }
+
+  /// Friend uids I already nudged today (WAT). The single source for every
+  /// Nudge button: seeded by each board read, updated as soon as a nudge lands.
+  static final ValueNotifier<Set<String>> friendNudgesToday =
+      ValueNotifier<Set<String>>(<String>{});
+
+  static Future<FriendsBoardData>? _inFlightBoard;
+
+  /// Records a nudge to [friendUid] as sent today.
+  static void markFriendNudgedToday(String friendUid) {
+    friendNudgesToday.value = {...friendNudgesToday.value, friendUid};
+  }
+
+  /// Drops the cached board so the next fetch re-reads. Called by every
+  /// mutating friend callable, so a new/removed/blocked friend shows up on the
+  /// next tab open instead of waiting out a cache window.
+  static void invalidateFriendsBoardCache() {
+    _friendsCache = null;
+    _friendsCacheAt = null;
+    friendNudgesToday.value = <String>{};
+  }
+
+  /// Calls getFriendsBoard (zero writes server-side) and caches for
+  /// [_friendsCacheTtl]. A forced call (pull-to-refresh / retry) bypasses the
+  /// cache. Never throws: failures yield an empty list with a null fetchedAt so
+  /// the tab shows its error state.
+  Future<FriendsBoardData> fetchFriendsBoard({bool force = false}) {
+    if (!force && friendsBoardCacheFresh) {
+      return Future.value(FriendsBoardData(
+          friends: _friendsCache!, fetchedAt: _friendsCacheAt));
     }
+    // Several Nudge buttons can ask at once on a cold cache; share one read.
+    return _inFlightBoard ??=
+        _loadFriendsBoard().whenComplete(() => _inFlightBoard = null);
+  }
+
+  Future<FriendsBoardData> _loadFriendsBoard() async {
+    final now = DateTime.now();
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('getFriendsBoard');
@@ -2943,6 +3054,10 @@ extension FriendsBoardFetch on FirestoreService {
           .toList();
       _friendsCache = friends;
       _friendsCacheAt = now;
+      friendNudgesToday.value = {
+        for (final f in friends)
+          if (f.nudgedToday) f.uid,
+      };
       return FriendsBoardData(friends: friends, fetchedAt: now);
     } catch (e) {
       debugPrint('[FirestoreService] fetchFriendsBoard error: $e');
