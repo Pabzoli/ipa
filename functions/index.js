@@ -69,6 +69,21 @@ const ACTIVE_CHALLENGE_STATUSES = [
   'opponent_submitted',
 ];
 
+// Statuses a challenge may still be JOINED from.
+//
+// 'waiting' is the normal invite state. The two *_submitted states are here
+// because a creator may play IMMEDIATELY after creating (createChallenge pushes
+// them straight into the quiz) before the invitee accepts — resolveChallengeOutcome
+// now promotes that score to creator_submitted, and the invite must stay takeable
+// so the assigned opponent (or, for a code challenge, whoever holds the code) can
+// still claim their seat. joinChallenge additionally requires the joiner's own
+// score to be unset, so an already-played seat can never be taken twice.
+const JOINABLE_CHALLENGE_STATUSES = [
+  'waiting',
+  'creator_submitted',
+  'opponent_submitted',
+];
+
 // ─── WP staking limits ────────────────────────────────────────────────────────
 // Raised with the Hard-mode economy (a perfect Hard run pays ~480 raw, so
 // the old 150 daily cap was one duel): stakes need weight to stay
@@ -168,6 +183,79 @@ const PARTIAL_FORFEIT_MINUTES = 15;
 
 initializeApp();
 const db = getFirestore();
+
+// ─── App Check + callable hardening ─────────────────────────────────────────
+// Enforcement has TWO switches. Both default OFF, so a deploy starts in
+// monitor mode and can only get stricter from there:
+//
+//   1. ENFORCE_APP_CHECK=true (deploy-time env var) → passed to onCall as
+//      `enforceAppCheck`, so the Functions SDK rejects a request with no/invalid
+//      App Check token before the handler runs at all.
+//   2. app_config/security.enforceAppCheck (runtime, no redeploy) → checked by
+//      _assertAppCheck inside onSecureCall. Flip it to true once the monitor
+//      logs show every real client is sending a token. Requires authenticated
+//      read (already allowed for app_config/*) and CF-only write (already
+//      denied — set it from the console/Admin SDK).
+//
+// Monitor mode still logs a once-per-instance line per callable that receives
+// no token, which is what you watch before flipping switch 2.
+const APP_CHECK_ENFORCE_DEPLOY = process.env.ENFORCE_APP_CHECK === 'true';
+const APP_CHECK_FLAG_TTL_MS = 60 * 1000;
+let _appCheckFlagCache = { enforced: false, at: 0 };
+let _appCheckLastMissLog = 0;
+const APP_CHECK_MISS_LOG_MS = 60 * 1000;
+
+async function _appCheckRuntimeEnforced() {
+  const now = Date.now();
+  if (now - _appCheckFlagCache.at < APP_CHECK_FLAG_TTL_MS) {
+    return _appCheckFlagCache.enforced;
+  }
+  let enforced = false;
+  try {
+    const snap = await db.collection('app_config').doc('security').get();
+    enforced = snap.exists && snap.data()?.enforceAppCheck === true;
+  } catch (err) {
+    // Fail OPEN in monitor mode: an unreadable flag must never lock players
+    // out. The deploy-time switch still enforces where it was turned on.
+    console.warn(`[appcheck] flag read failed, treating as monitor: ${err.message}`);
+    enforced = false;
+  }
+  _appCheckFlagCache = { enforced, at: now };
+  return enforced;
+}
+
+async function _assertAppCheck(request, fnName) {
+  const hasToken = !!request?.app;
+  if (hasToken) return;
+  const enforced = APP_CHECK_ENFORCE_DEPLOY || await _appCheckRuntimeEnforced();
+  if (enforced) {
+    throw new HttpsError('unauthenticated', 'App verification required.');
+  }
+  if (!hasToken) {
+    const now = Date.now();
+    if (now - _appCheckLastMissLog >= APP_CHECK_MISS_LOG_MS) {
+      _appCheckLastMissLog = now;
+      console.log(
+        `[appcheck] ${fnName} monitor: request without App Check token ` +
+        `uid=${request?.auth?.uid || 'anon'}`
+      );
+    }
+  }
+}
+
+// Every exported callable is declared with this wrapper instead of onCall, so
+// App Check enforcement exists in exactly one place and cannot be forgotten on
+// a newly added function. The handler signature is unchanged, which keeps the
+// in-memory test harness (`fn.run(request)`) working.
+function onSecureCall(options, handler) {
+  return onCall(
+    { ...options, enforceAppCheck: APP_CHECK_ENFORCE_DEPLOY },
+    async (request) => {
+      await _assertAppCheck(request, handler.name || 'callable');
+      return handler(request);
+    }
+  );
+}
 
 // ── Helper: _generateCode ─────────────────────────────────────────────────────
 function _generateCode() {
@@ -593,18 +681,161 @@ async function _logQuizCadence(uid, ip, nowMs) {
   }
 }
 
+// ── Username + university invariants (server-authoritative) ────────────────
+// These live on the server because the client can no longer write `username`
+// or `university` directly (firestore.rules allows only `fcmToken`).
+const USERNAME_MIN_LEN = 3;
+const USERNAME_MAX_LEN = 20;
+const USERNAME_CHANGE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+
+// EXACT mirror of `kNigerianUniversities` in
+// lib/core/services/firestore_service.dart. Keep the two lists in sync.
+const VALID_UNIVERSITIES = [
+  'UNILAG',
+  'UI (University of Ibadan)',
+  'OAU',
+  'FUTA',
+  'UNIABUJA',
+  'UNIBEN',
+  'ABU Zaria',
+  'UNIPORT',
+  'NOUN',
+  'Other',
+];
+
+const NEW_USER_TOTAL_SCORE = 500;
+const NEW_USER_STATS = {
+  gamesPlayed: 0,
+  gamesWon:    0,
+  gamesLost:   0,
+  hseWon:      0,
+  hseLost:     0,
+  hseStaked:   0,
+};
+
+// Returns the trimmed display name, or null when it is not a valid username.
+// 3-20 characters, no control characters (emoji and accents stay allowed).
+function _sanitizeUsername(raw) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (trimmed.length < USERNAME_MIN_LEN || trimmed.length > USERNAME_MAX_LEN) {
+    return null;
+  }
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return null;
+  return trimmed;
+}
+
+// Canonical uniqueness key: usernames are case-insensitive and whitespace-
+// insensitive at the edges, so "Alice" and "alice " cannot coexist.
+function _usernameKey(raw) {
+  return String(raw).trim().toLowerCase();
+}
+
+// null = field absent; undefined = present but invalid; string = accepted.
+function _normalizeUniversity(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') return undefined;
+  return VALID_UNIVERSITIES.includes(raw) ? raw : undefined;
+}
+
 // ── Phase 2: ensureProfile ─────────────────────────────────────────────────
-// Client calls once after sign-up (auth_service.signUp, best-effort �?signup
-// never fails if this fails). Records server-side creation IP/timestamp;
-// account creation itself is a client Firestore write so the server cannot
-// observe signup IP any other way (no Auth blocking function configured).
-// Idempotent: first call wins for createdIp/createdAt, later calls only
-// refresh lastIp/lastSeenAt.
-exports.ensureProfile = onCall(
+// Called once after sign-up. It is now the ONLY way a `users/{uid}` doc can be
+// created (firestore.rules denies client creates), which makes these
+// invariants server-enforced rather than client-attested:
+//   • username is validated and claimed in `usernames/{lowercased}` so two
+//     accounts can never share one (signup included),
+//   • totalScore / stats / animeCoins / weeklyPoints are seeded server-side,
+//     so a client cannot create itself a 10,000-game profile,
+//   • university must be one of the canonical values,
+//   • referredBy is resolved and confirmed server-side.
+// Idempotent: a retry (or a pre-hardening client that already wrote its own
+// profile) never overwrites the existing doc; it only backfills the username
+// claim if the name is still free.
+exports.ensureProfile = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'ensureProfile');
+
+    const username = _sanitizeUsername(request.data?.username);
+    if (request.data?.username !== undefined && username === null) {
+      throw new HttpsError(
+        'invalid-argument',
+        `Username must be ${USERNAME_MIN_LEN}-${USERNAME_MAX_LEN} characters.`
+      );
+    }
+
+    const university = _normalizeUniversity(request.data?.university);
+    if (university === undefined) {
+      throw new HttpsError('invalid-argument', 'Unknown university.');
+    }
+
+    // Resolve before the transaction (a read outside it is fine) and never
+    // trust a client-supplied uid: _resolveReferrerUid confirms the doc exists.
+    let referrerUid = null;
+    try {
+      const resolved = await _resolveReferrerUid(request.data?.referredBy);
+      if (resolved && resolved !== uid) referrerUid = resolved;
+    } catch (_) {
+      // Referral capture is best-effort; registration must not fail.
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    let profileCreated = false;
+    let claimedUsername = '';
+
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      const existing = userSnap.data() || {};
+
+      // An existing profile keeps its username: an attacker cannot re-run
+      // ensureProfile with a different name to bypass the 7-day cooldown.
+      const targetUsername = userSnap.exists
+        ? (typeof existing.username === 'string' ? existing.username : '')
+        : (username || '');
+
+      if (!userSnap.exists && !targetUsername) {
+        throw new HttpsError('invalid-argument', 'Username is required.');
+      }
+
+      const key = targetUsername ? _usernameKey(targetUsername) : '';
+      const nameRef = key ? db.collection('usernames').doc(key) : null;
+      const nameSnap = nameRef ? await tx.get(nameRef) : null;
+
+      if (!userSnap.exists) {
+        if (nameSnap && nameSnap.exists && nameSnap.data()?.uid !== uid) {
+          throw new HttpsError('already-exists', 'That username is already taken.');
+        }
+        tx.set(userRef, {
+          username:       targetUsername,
+          email:          request.auth.token?.email || request.data?.email || '',
+          totalScore:     NEW_USER_TOTAL_SCORE,
+          animeCoins:     0,
+          weeklyPoints:   0,
+          weeklyReset:    FieldValue.serverTimestamp(),
+          createdAt:      FieldValue.serverTimestamp(),
+          stats:          { ...NEW_USER_STATS },
+          ...(university ? { university } : {}),
+          ...(referrerUid ? { referredBy: referrerUid } : {}),
+        });
+        profileCreated = true;
+      }
+
+      if (nameRef && (!nameSnap || !nameSnap.exists)) {
+        tx.set(nameRef, {
+          uid,
+          username:  targetUsername,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } else if (nameRef && nameSnap.exists && nameSnap.data()?.uid !== uid) {
+        // A legacy profile whose name is already claimed: never steal it.
+        console.warn(`[ensureProfile] username already claimed uid=${uid} key=${key}`);
+      }
+
+      claimedUsername = targetUsername;
+    });
+
     const ip = _clientIp(request);
     const ref = db.collection('telemetry').doc('account_signals').collection('users').doc(uid);
     await db.runTransaction(async (tx) => {
@@ -623,9 +854,149 @@ exports.ensureProfile = onCall(
         }, { merge: true });
       }
     });
-    return { success: true, recorded: ip !== null };
+
+    // ── Referral record (best-effort) ────────────────────────────────────
+    // Creates users/{inviter}/referrals/{uid} for the Referrals page. NEVER
+    // fails the callable: the profile and telemetry stay authoritative.
+    try {
+      const inviteeSnap = await userRef.get();
+      const inviteeData = inviteeSnap.data() || {};
+      const recordFor = referrerUid || await _resolveReferrerUid(inviteeData.referredBy);
+      if (recordFor && recordFor !== uid) {
+        const referralRef = db.collection('users').doc(recordFor)
+          .collection('referrals').doc(uid);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(referralRef);
+          // Idempotent: an existing record is never reset (createdAt/status).
+          if (snap.exists) return;
+          tx.set(referralRef, _referralRecordDefaults(inviteeData.username));
+        });
+      }
+    } catch (err) {
+      console.log(`[ensureProfile] referral record skipped: ${err.message}`);
+    }
+
+    return {
+      success: true,
+      recorded: ip !== null,
+      profileCreated,
+      username: claimedUsername,
+    };
   }
 );
+
+// ── changeUsername — server-enforced 7-day cooldown + uniqueness ───────────
+// The old client path wrote `username` + `lastUsernameChange` directly and did
+// the cooldown check in Dart, which a REST call could skip entirely. Both
+// checks now happen here, inside one transaction, with the `usernames/{key}`
+// claim moved atomically so two accounts can never end up with the same name.
+exports.changeUsername = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'changeUsername');
+
+    const username = _sanitizeUsername(request.data?.username);
+    if (!username) {
+      throw new HttpsError(
+        'invalid-argument',
+        `Username must be ${USERNAME_MIN_LEN}-${USERNAME_MAX_LEN} characters.`
+      );
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    const newKey  = _usernameKey(username);
+
+    await db.runTransaction(async (tx) => {
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) throw new HttpsError('not-found', 'Profile not found.');
+      const data = userSnap.data() || {};
+
+      const lastChangeMs = data.lastUsernameChange?.toMillis
+        ? data.lastUsernameChange.toMillis()
+        : 0;
+      const remainingMs = USERNAME_CHANGE_COOLDOWN_MS - (Date.now() - lastChangeMs);
+      if (lastChangeMs && remainingMs > 0) {
+        const days = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+        throw new HttpsError(
+          'failed-precondition',
+          `You can change your username again in ${days} day${days === 1 ? '' : 's'}.`
+        );
+      }
+
+      const oldName = typeof data.username === 'string' ? data.username : '';
+      const oldKey  = oldName ? _usernameKey(oldName) : '';
+      if (oldKey === newKey) {
+        throw new HttpsError('failed-precondition', 'That is already your username.');
+      }
+
+      const newRef  = db.collection('usernames').doc(newKey);
+      const oldRef  = oldKey ? db.collection('usernames').doc(oldKey) : null;
+      const newSnap = await tx.get(newRef);
+      const oldSnap = oldRef ? await tx.get(oldRef) : null;
+
+      if (newSnap.exists && newSnap.data()?.uid !== uid) {
+        throw new HttpsError('already-exists', 'That username is already taken.');
+      }
+
+      if (oldRef && oldSnap && oldSnap.exists && oldSnap.data()?.uid === uid) {
+        tx.delete(oldRef);
+      }
+      if (!newSnap.exists || newSnap.data()?.uid !== uid) {
+        tx.set(newRef, {
+          uid,
+          username,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      tx.update(userRef, {
+        username,
+        lastUsernameChange: FieldValue.serverTimestamp(),
+      });
+    });
+
+    // Auth displayName is cosmetic; a failure must not fail the change.
+    try {
+      await getAuth().updateUser(uid, { displayName: username });
+    } catch (err) {
+      console.warn(`[changeUsername] displayName update failed uid=${uid}: ${err.message}`);
+    }
+
+    console.log(`[changeUsername] uid=${uid} key=${newKey}`);
+    return { success: true, username };
+  }
+);
+
+// ── updateUniversity — CF-only, canonical values only ──────────────────────
+// `university` is used by the campus leaderboard and friend suggestions, so a
+// free-text client write was both a spoofing vector and a way to move between
+// campuses at will. The canonical list is validated here.
+exports.updateUniversity = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'updateUniversity');
+
+    const university = _normalizeUniversity(request.data?.university);
+    if (!university) {
+      throw new HttpsError('invalid-argument', 'Choose a university from the list.');
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    const snap = await userRef.get();
+    if (!snap.exists) throw new HttpsError('not-found', 'Profile not found.');
+    if (snap.data()?.university === university) {
+      return { success: true, university };
+    }
+
+    await userRef.update({ university });
+    console.log(`[updateUniversity] uid=${uid} university=${university}`);
+    return { success: true, university };
+  }
+);
+
 
 // ── deleteAccount (user self-service — NDPA/GDPR right to erasure) ─────────
 //
@@ -684,7 +1055,7 @@ async function _deleteQueryInBatches(query, label) {
   return total;
 }
 
-exports.deleteAccount = onCall(
+exports.deleteAccount = onSecureCall(
   { region: 'us-central1', timeoutSeconds: 540, memory: '512MiB' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -725,8 +1096,33 @@ exports.deleteAccount = onCall(
     // ── 1. Delete user-owned subcollections + the user doc ───────────────
     // recursiveDelete removes users/{uid} and every subcollection beneath it,
     // including payoutDetails (bank account details are destroyed).
+    // Capture the username claim first: after recursiveDelete the profile is
+    // gone, and leaving usernames/{key} behind would permanently reserve the
+    // name of a deleted account.
+    let removedUsernameKey = '';
+    try {
+      const profileSnap = await db.collection('users').doc(uid).get();
+      const profileName = profileSnap.data()?.username;
+      if (typeof profileName === 'string' && profileName.trim()) {
+        removedUsernameKey = _usernameKey(profileName);
+      }
+    } catch (_) { /* best-effort */ }
+
     await db.recursiveDelete(db.collection('users').doc(uid));
     deleted.userDocAndSubcollections = true;
+
+    if (removedUsernameKey) {
+      try {
+        const nameRef = db.collection('usernames').doc(removedUsernameKey);
+        const nameSnap = await nameRef.get();
+        if (nameSnap.exists && nameSnap.data()?.uid === uid) {
+          await nameRef.delete();
+          deleted.usernameClaim = true;
+        }
+      } catch (err) {
+        console.warn(`[deleteAccount] username claim cleanup failed (ignored): ${err.message}`);
+      }
+    }
 
     // ── 2. Standalone user-keyed docs ────────────────────────────────────
     await db.collection('matchmaking_queue').doc(uid).delete().catch(() => {});
@@ -771,9 +1167,27 @@ exports.deleteAccount = onCall(
     } catch (err) {
       console.warn(`[deleteAccount] friendCodes cleanup failed (ignored): ${err.message}`);
     }
+    // referralCodes is keyed by CODE too, so it needs the same by-uid query.
+    // Erasing it releases the code for reuse and leaves no uid behind.
+    try {
+      deleted.referralCodes = await _deleteQueryInBatches(
+        db.collection('referralCodes').where('uid', '==', uid), 'referralCodes');
+    } catch (err) {
+      console.warn(`[deleteAccount] referralCodes cleanup failed (ignored): ${err.message}`);
+    }
 
     deleted.fraudReviews = await _deleteQueryInBatches(
       db.collection('fraudReviews').where('uid', '==', uid), 'fraudReviews');
+
+    // Contact / bug reports carry the sender's uid, username and email, and
+    // may quote personal details in the message body: wipe them with the
+    // account rather than leaving them behind after erasure.
+    try {
+      deleted.feedback = await _deleteQueryInBatches(
+        db.collection('feedback').where('uid', '==', uid), 'feedback');
+    } catch (err) {
+      console.warn(`[deleteAccount] feedback cleanup failed (ignored): ${err.message}`);
+    }
 
     // pendingClaim/{uid} under every cycle.
     //
@@ -922,7 +1336,7 @@ function _antifraudRepairAction(data) {
   return 'ok';
 }
 
-exports.repairAntifraudConfig = onCall(
+exports.repairAntifraudConfig = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -1233,7 +1647,7 @@ async function _buildFraudProfile(uid, userData, weeklyPoints, weekStartMs) {
 // Scores every ranked account in leaderboardCycles/{weekId} and stores
 // fraudReviews/{weekId}_{uid} {score, band, reasons, inputs, scoredAt}.
 // Advisory output only �?writers never touch payouts, claims, or ledger.
-exports.scoreFraudForWeek = onCall(
+exports.scoreFraudForWeek = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -1532,6 +1946,33 @@ async function runWeeklyReset() {
     console.log(`[weeklyReset] New week doc already existed: ${newWeekId}`);
   }
 
+  // ── Ghost sweep: admin accounts hold no player economy ──────────────────
+  // Admin accounts must never be ranked, counted or paid. A redeemed weekly
+  // entry code is the one thing that used to drag the admin into the prize
+  // split, so clear the entry fields every reset (the state can never carry
+  // into a week) and zero the points (a stale score can never leak into any
+  // board or COUNT). The cycle/winner queries below exclude admins anyway —
+  // this is the belt to that suspenders, and it self-heals a legacy admin doc
+  // that still carries an old entry week.
+  for (const adminUid of ADMIN_UIDS) {
+    const adminRef  = db.collection('users').doc(adminUid);
+    const adminSnap = await adminRef.get();
+    if (!adminSnap.exists) continue;
+    const a     = adminSnap.data() || {};
+    const patch = {};
+    if (a.leaderboardEntryWeekId !== undefined) {
+      patch.leaderboardEntryWeekId = FieldValue.delete();
+    }
+    if (a.leaderboardEntryEmail !== undefined) {
+      patch.leaderboardEntryEmail = FieldValue.delete();
+    }
+    if (a.weeklyPoints) patch.weeklyPoints = 0;
+    if (Object.keys(patch).length > 0) {
+      await adminRef.update(patch);
+      console.log(`[weeklyReset] Ghost sweep: cleared admin ${adminUid} from the player economy.`);
+    }
+  }
+
   const BATCH_SIZE  = 200;
   const MAX_BATCHES = 500;
 
@@ -1560,6 +2001,8 @@ async function runWeeklyReset() {
 
       const capBatch = db.batch();
       capSnap.docs.forEach(doc => {
+        // Ghost admin accounts are not part of the player economy.
+        if (isAdminAccountUid(doc.id)) return;
         capBatch.update(doc.ref, { weeklyPoints: WP_WEEKLY_CAP });
       });
 
@@ -1581,6 +2024,11 @@ async function runWeeklyReset() {
   // snapshot and the user reset, so it reads the FINAL eligible rankings before
   // any reset logic clears them. Records each week's pool split (70/30) and the
   // ranked eligible users with payout info for manual processing.
+  //
+  // `winners` is declared out here but filled INSIDE the block, because the
+  // winners are now derived from `ranked`/`prizePool`, which only exist in the
+  // block scope below.
+  let winners = [];
   {
     const eligible = [];
     let lbLastDoc  = null;
@@ -1603,6 +2051,8 @@ async function runWeeklyReset() {
       if (lbSnap.empty) break;
 
       lbSnap.docs.forEach(doc => {
+        // Ghost admin accounts are never ranked and never share the pool.
+        if (isAdminAccountUid(doc.id)) return;
         const d = doc.data();
         eligible.push({
           uid:          doc.id,
@@ -1686,31 +2136,29 @@ async function runWeeklyReset() {
     } else {
       console.log(`[weeklyReset] Leaderboard cycle snapshotted for ${weekId}: 0 eligible, no pool split.`);
     }
-  }
 
-  const topSnap = await db
-    .collection('users')
-    .orderBy('weeklyPoints', 'desc')
-    .limit(5)
-    .get();
-
-  const winners = topSnap.docs.map((doc, i) => {
-    const d    = doc.data();
-    const rank = i + 1;
-    const pct  = prizePct(rank);
-    return {
-      rank,
-      uid:          doc.id,
-      username:     d.username     || 'Anonymous',
-      university:   d.university   || null,
-      weeklyPoints: d.weeklyPoints || 0,
-      prize:        parseFloat((total * pct).toFixed(2)),
-      pct:          pct * 100,
+    // Winners are the PAID entrants from this cycle's `ranked` snapshot — the
+    // same list the payout system reads — not the top-5 by raw points over every
+    // user. The previous version announced non-entrants as winners and priced
+    // the prize from the legacy `totalNaira` field (always 0), so the Monday
+    // announcement showed a ₦0 prize for a week that actually paid out.
+    //
+    // NOTE: this construction was MOVED inside this block (it used to run after
+    // it) because `ranked` and `prizePool` are only in scope here. `winners` is
+    // declared in the enclosing scope so the pool write below still works.
+    winners = ranked.slice(0, 5).map((r) => ({
+      rank:         r.rank,
+      uid:          r.uid,
+      username:     r.username,
+      university:   r.university,
+      weeklyPoints: r.weeklyPoints,
+      prize:        r.share,
+      pct:          r.rank <= 5 ? prizePct(r.rank) * 100 : 0,
       paid:         false,
-    };
-  });
+    }));
 
-  console.log(`[weeklyReset] Top ${winners.length} winners snapshotted. Pool: �?{total}`);
+    console.log(`[weeklyReset] ${winners.length} winners snapshotted from ${ranked.length} paid entrants. Pool: ${prizePool}`);
+  }
 
   await poolRef.set({
     ...poolData,
@@ -1721,7 +2169,7 @@ async function runWeeklyReset() {
   }, { merge: true });
 
   try {
-    await notifyWeeklyWinners(winners);
+    await notifyWeeklyWinners(winners, weekId);
   } catch (err) {
     console.error('[weeklyReset] notifyWeeklyWinners failed (ignored):', err);
   }
@@ -1854,7 +2302,7 @@ exports.triggerWeeklyReset = onRequest(
 // Sanity ceiling. A typo should not create a nine-figure payout obligation.
 const MAX_POOL_NAIRA = 50_000_000; // ₦50,000,000
 
-exports.setPrizePool = onCall(
+exports.setPrizePool = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -1909,7 +2357,7 @@ exports.setPrizePool = onCall(
 // Removes the fixed amount so runWeeklyReset falls back to
 // (entryRevenue * 0.70), which is what it did before this feature
 // feature existed. Same current-week-only restriction as setPrizePool.
-exports.clearPrizePool = onCall(
+exports.clearPrizePool = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -1945,7 +2393,7 @@ exports.clearPrizePool = onCall(
 // Read-only. Returns both the live figures for the CURRENT week and what the
 // pool WILL be if left alone, so the admin can see the gap between their
 // revenue-based expectation and any fixed amount they have set.
-exports.getPrizePoolStatus = onCall(
+exports.getPrizePoolStatus = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -2005,7 +2453,7 @@ exports.getPrizePoolStatus = onCall(
 // ─── createChallenge ─────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.createChallenge = onCall(
+exports.createChallenge = onSecureCall(
   {
     region: 'us-central1',
   },
@@ -2100,7 +2548,7 @@ exports.createChallenge = onCall(
         if (stakeAmount % AC_STAKE_STEP !== 0) {
           throw new HttpsError(
             'invalid-argument',
-            'stake_not_multiple_of_50'
+            'stake_invalid_step'
           );
         }
       }
@@ -2167,35 +2615,11 @@ exports.createChallenge = onCall(
         );
       }
 
-      // ── Check active challenge cap ─────────────────────────────────────────
-      // Premium users are allowed more concurrent active challenges. The
-      // membership flag is read here for the cap decision; the authoritative
-      // read used for stake validation still happens inside the transaction.
-      const capUserSnap = await db.collection('users').doc(uid).get();
-      const capUserData = capUserSnap.exists ? capUserSnap.data() : {};
-      const maxActiveChallenges = capUserData.premiumActive === true
-        ? ACTIVE_CHALLENGES_PREMIUM
-        : ACTIVE_CHALLENGES_FREE;
-
-      const [asCreator, asOpponent] = await Promise.all([
-        db.collection('challenges')
-          .where('creatorUid', '==', uid)
-          .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)
-          .get(),
-
-        db.collection('challenges')
-          .where('opponentUid', '==', uid)
-          .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)
-          .get(),
-      ]);
-
-      if (asCreator.size + asOpponent.size >= maxActiveChallenges) {
-        throw new HttpsError(
-          'resource-exhausted',
-          'too_many_active_challenges'
-        );
-      }
-
+      // ── Active challenge cap ───────────────────────────────────────────────
+      // Moved INSIDE the transaction below: a query run out here only reflects
+      // state at read time, so two concurrent create/join calls could both
+      // pass it and push a user past the cap. The in-tx read is serialized
+      // against the other transaction's committed write.
       // ── Generate challenge ID ──────────────────────────────────────────────
 
       const now = new Date();
@@ -2363,6 +2787,25 @@ exports.createChallenge = onCall(
         const isPremium =
           data.premiumActive === true;
 
+        // ── Active challenge cap (in-tx: race-safe) ───────────────────────────
+        // The query runs inside the transaction so a concurrent create/join
+        // cannot slip past a stale pre-read. Firestore serializes the reads,
+        // so the second transaction observes the first's committed challenge.
+        const capMaxActive = isPremium
+          ? ACTIVE_CHALLENGES_PREMIUM
+          : ACTIVE_CHALLENGES_FREE;
+        const [capAsCreator, capAsOpponent] = await Promise.all([
+          tx.get(db.collection('challenges')
+            .where('creatorUid', '==', uid)
+            .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+          tx.get(db.collection('challenges')
+            .where('opponentUid', '==', uid)
+            .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+        ]);
+        if (capAsCreator.size + capAsOpponent.size >= capMaxActive) {
+          throw new HttpsError('resource-exhausted', 'too_many_active_challenges');
+        }
+
         // ── Validate AC ──────────────────────────────────────────────────────
 
         const animeCoins =
@@ -2433,6 +2876,15 @@ exports.createChallenge = onCall(
             throw new HttpsError('failed-precondition', 'not_friends');
           }
           sparFriendsSkip = true;
+        } else if (cleanOpponentUid && cleanOpponentUid !== 'ghost') {
+          // Staked duels don't need friendship, but a block stops them both ways.
+          const pair = [uid, cleanOpponentUid].sort();
+          const bSnap = await tx.get(
+            db.collection('friendships').doc(`${pair[0]}_${pair[1]}`)
+          );
+          if ((bSnap.data() || {}).status === 'blocked') {
+            throw new HttpsError('failed-precondition', 'blocked');
+          }
         }
 
         // ── Validate WP inside transaction ───────────────────────────────────
@@ -2726,7 +3178,7 @@ exports.createChallenge = onCall(
 // ─── joinChallenge ──────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.joinChallenge = onCall(
+exports.joinChallenge = onSecureCall(
   {
     region: 'us-central1',
     cpu: 0.5,
@@ -2747,24 +3199,6 @@ exports.joinChallenge = onCall(
     const challengeRef = db.collection('challenges').doc(challengeId);
     const userRef = db.collection('users').doc(uid);
 
-    const [capUserSnap, asCreator, asOpponent] = await Promise.all([
-      db.collection('users').doc(uid).get(),
-      db.collection('challenges')
-        .where('creatorUid', '==', uid)
-        .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)
-        .get(),
-      db.collection('challenges')
-        .where('opponentUid', '==', uid)
-        .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)
-        .get(),
-    ]);
-    const capMaxActive = capUserSnap.data()?.premiumActive === true
-      ? ACTIVE_CHALLENGES_PREMIUM
-      : ACTIVE_CHALLENGES_FREE;
-    if (asCreator.size + asOpponent.size >= capMaxActive) {
-      throw new HttpsError('resource-exhausted', 'too_many_active_challenges');
-    }
-
     let stakeAmount, wpStake, creatorUid;
 
     await db.runTransaction(async (tx) => {
@@ -2780,8 +3214,38 @@ exports.joinChallenge = onCall(
       if (challenge.creatorUid === uid) {
         throw new HttpsError('invalid-argument', 'cannot_join_own_challenge');
       }
-      if (challenge.status !== 'waiting') {
+      // Joinable from the plain invite state AND from a state where the creator
+      // has already played. A creator is pushed straight into the quiz by
+      // createChallenge and may finish before anyone accepts; their score is
+      // promoted to creator_submitted, and the invite must stay takeable so the
+      // assigned opponent (or, for a code challenge, whoever holds the code)
+      // can still claim their seat.
+      if (!JOINABLE_CHALLENGE_STATUSES.includes(challenge.status)) {
         throw new HttpsError('failed-precondition', 'challenge_not_waiting');
+      }
+      // A seat is only free while the joiner has not played: an already-written
+      // opponent score means someone already took it.
+      if (challenge.opponentScore != null) {
+        throw new HttpsError('failed-precondition', 'challenge_not_waiting');
+      }
+
+      // ── Active challenge cap (in-tx: race-safe) ───────────────────────────
+      // Queried inside the transaction so a concurrent create/join can't slip
+      // past a stale pre-read and exceed the cap.
+      const capIsPremium = (userSnap.data() || {}).premiumActive === true;
+      const capMaxActive = capIsPremium
+        ? ACTIVE_CHALLENGES_PREMIUM
+        : ACTIVE_CHALLENGES_FREE;
+      const [capAsCreator, capAsOpponent] = await Promise.all([
+        tx.get(db.collection('challenges')
+          .where('creatorUid', '==', uid)
+          .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+        tx.get(db.collection('challenges')
+          .where('opponentUid', '==', uid)
+          .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+      ]);
+      if (capAsCreator.size + capAsOpponent.size >= capMaxActive) {
+        throw new HttpsError('resource-exhausted', 'too_many_active_challenges');
       }
       // Rival challenges are invite-locked: opponentUid is already set to
       // the specific person the creator challenged (see createChallenge).
@@ -2814,6 +3278,15 @@ exports.joinChallenge = onCall(
         const f = fSnap.exists ? (fSnap.data() || {}) : {};
         if (f.status !== 'active') {
           throw new HttpsError('failed-precondition', 'not_friends');
+        }
+      } else if (creatorUid && creatorUid !== 'ghost') {
+        // Staked duels: a block between the pair stops the join either way.
+        const pair = [creatorUid, uid].sort();
+        const bSnap = await tx.get(
+          db.collection('friendships').doc(`${pair[0]}_${pair[1]}`)
+        );
+        if ((bSnap.data() || {}).status === 'blocked') {
+          throw new HttpsError('failed-precondition', 'blocked');
         }
       }
 
@@ -2967,6 +3440,10 @@ exports.joinChallenge = onCall(
         opponentUid: uid,
         opponentUsername: userData.username || 'Anonymous',
         status: 'opponent_joined',
+        // Stamped so the refund/forfeit sweeps can tell a challenge that was
+        // actually joined (both stakes paid) from one whose invitee never
+        // showed up — only the former may refund the opponent or forfeit them.
+        joinedAt: FieldValue.serverTimestamp(),
         expiresAt: Timestamp.fromDate(
           new Date(now.getTime() + CHALLENGE_EXPIRY_HOURS * 60 * 60 * 1000)
         ),
@@ -3000,7 +3477,7 @@ exports.joinChallenge = onCall(
 // AC/WP stake (which was deducted at createChallenge time) and marks the
 // challenge 'declined' so it drops out of ACTIVE_CHALLENGE_STATUSES and no
 // longer counts against either player's active-challenge cap.
-exports.declineChallenge = onCall(
+exports.declineChallenge = onSecureCall(
   {
     region: 'us-central1',
     cpu: 0.5,
@@ -3009,6 +3486,7 @@ exports.declineChallenge = onCall(
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'declineChallenge');
 
     const { challengeId } = request.data;
     if (typeof challengeId !== 'string' || !challengeId.trim()) {
@@ -3032,7 +3510,7 @@ exports.declineChallenge = onCall(
       if (challenge.opponentUid !== uid) {
         throw new HttpsError('permission-denied', 'not_the_invited_opponent');
       }
-      if (challenge.status !== 'waiting') {
+      if (!JOINABLE_CHALLENGE_STATUSES.includes(challenge.status)) {
         throw new HttpsError('failed-precondition', 'challenge_not_pending');
       }
 
@@ -3164,10 +3642,24 @@ async function _resolveChallengeCore(challengeId, challengeRef, after) {
   await db.runTransaction(async (tx) => {
     console.log(`[resolveChallengeCore] ${challengeId} �?transaction started.`);
 
-    const [cSnap, oSnap] = await Promise.all([
+    // Idempotency: the resolve trigger and forceResolveChallenge (or two
+    // concurrent force calls) can race. The committed doc is the only
+    // authority — re-read it inside the transaction and bail if another
+    // transaction already settled this challenge. Without this, both
+    // transactions would credit the same payouts twice.
+    const [cSnap, oSnap, challengeSnap] = await Promise.all([
       tx.get(creatorRef),
       tx.get(opponentRef),
+      tx.get(challengeRef),
     ]);
+
+    if (challengeSnap.exists && challengeSnap.data()?.resolved === true) {
+      console.log(
+        `[resolveChallengeCore] ${challengeId} already resolved by a ` +
+        `concurrent transaction; skipping duplicate settlement.`
+      );
+      return;
+    }
 
     const cData = cSnap.data() || {};
     const oData = oSnap.data() || {};
@@ -3947,10 +4439,17 @@ exports.resolveChallengeOutcome = onDocumentUpdated(
       // and _canPlay logic that key off these two statuses, and the hourly
       // expiredChallengeRefund sweep queries for them directly, so leaving
       // this transition unwritten made both effectively dead paths.
-      // Guarded to only fire once (status must still be 'opponent_joined'),
-      // so the resulting write doesn't cause this trigger to loop forever.
+      // Guards against a loop: once the doc holds a *_submitted status, a later
+      // trigger event finds partialStatus null and writes nothing.
       let partialStatus = null;
-      if (after.status === 'opponent_joined') {
+      // Promote on the first score landing from EITHER the joined state or the
+      // bare invite state. A creator is pushed straight into the quiz by
+      // createChallenge and routinely finishes before the invitee accepts, so
+      // 'waiting' + one score is a NORMAL state; leaving it as 'waiting' hid the
+      // "someone has played" fact from the UI and from the partial-forfeit
+      // sweep. Promotion is idempotent: the next trigger event observes a
+      // *_submitted status and writes nothing, so there is no loop.
+      if (after.status === 'opponent_joined' || after.status === 'waiting') {
         if (after.creatorScore != null) partialStatus = 'creator_submitted';
         else if (after.opponentScore != null) partialStatus = 'opponent_submitted';
       }
@@ -4035,7 +4534,7 @@ exports.resolveChallengeOutcome = onDocumentUpdated(
 // Uses the EXACT same payout logic as the trigger (_resolveChallengeCore) �?
 // no duplicated/divergent math. Restricted to the challenge's own creator or
 // opponent; anyone else gets rejected.
-exports.forceResolveChallenge = onCall(
+exports.forceResolveChallenge = onSecureCall(
   {
     region: 'us-central1',
     cpu: 0.5,
@@ -4044,6 +4543,7 @@ exports.forceResolveChallenge = onCall(
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Sign in required.');
+    await _assertClientBuildAllowed(request, 'forceResolveChallenge');
 
     const challengeId = request.data?.challengeId;
     if (!challengeId) {
@@ -4098,7 +4598,7 @@ exports.forceResolveChallenge = onCall(
 // group matching the rivalry's current seriesNo is counted. Docs without a
 // usable seriesNo are ignored (not guessed). If no evidence exists for the
 // current series, the pair is reported as needsManualReview and NOT written.
-exports.repairRivalrySeries = onCall(
+exports.repairRivalrySeries = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -4318,6 +4818,12 @@ exports.forfeitStalePartialChallenges = onSchedule(
       const missingOpponent = d.opponentScore == null;
       if (!missingCreator === !missingOpponent) continue;
 
+      // Only forfeit a seat that was actually JOINED (both stakes paid). With
+      // the promote-on-'waiting' change, a creator_submitted challenge may not
+      // have an opponent yet; writing opponentScore=0 there would settle the
+      // match and mint a payout for an opponent who never staked anything.
+      if (missingOpponent && !d.joinedAt) continue;
+
       const scoreField = missingCreator ? 'creatorScore' : 'opponentScore';
       const quitUid    = missingCreator ? d.creatorUid : d.opponentUid;
 
@@ -4336,6 +4842,89 @@ exports.forfeitStalePartialChallenges = onSchedule(
 
     if (forfeited > 0) {
       console.log(`[forfeitStalePartialChallenges] Forfeited ${forfeited} stale partial challenge(s).`);
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── expireAbandonedQuickMatches ───────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// A ghost match is reserved (and its token consumed) the moment matchmaking
+// succeeds: the challenge doc is created with status 'ghost' and a 1-hour
+// expiresAt. Nothing else ever touches that status — the forfeit and expiry
+// sweeps only look at the staked statuses — so an abandoned quick match used to
+// linger forever AND its ghost recording stayed spliced out of the pool (ghosts
+// are removed at reserve and never returned). Enough abandons and matchmaking
+// runs dry. This sweep settles them and hands the recording back.
+exports.expireAbandonedQuickMatches = onSchedule(
+  {
+    schedule: '*/10 * * * *',
+    region:   'us-central1',
+    timeoutSeconds: 120,
+    memory:         '256MiB',
+  },
+  async () => {
+    const now = Timestamp.now();
+    const snap = await db.collection('challenges')
+      .where('status', '==', 'ghost')
+      .where('expiresAt', '<=', now)
+      .limit(200)
+      .get();
+
+    let returned = 0;
+    for (const doc of snap.docs) {
+      const d = doc.data();
+      const animeTitle  = typeof d.animeTitle === 'string' ? d.animeTitle : '';
+      const qIds        = Array.isArray(d.questionIds) ? d.questionIds : [];
+      const ghostRef    = animeTitle
+        ? db.collection('ghost_sessions').doc(animeTitle)
+        : null;
+      try {
+        await db.runTransaction(async (tx) => {
+          // Idempotency: touch only a doc still in 'ghost' and not yet settled
+          // by submitQuickMatchResult (which writes 'completed' + resolved).
+          const refs = [tx.get(doc.ref)];
+          if (ghostRef) refs.push(tx.get(ghostRef));
+          const [freshSnap, ghostSnap] = await Promise.all(refs);
+          const fresh = freshSnap.data() || {};
+          if (!freshSnap.exists || fresh.status !== 'ghost' || fresh.resolved === true) {
+            return;
+          }
+
+          if (ghostRef && qIds.length === 10 &&
+              typeof d.ghostSessionId === 'string' && d.ghostSessionId) {
+            const sessions = Array.isArray(ghostSnap.data()?.sessions)
+              ? [...ghostSnap.data().sessions]
+              : [];
+            const alreadyThere = sessions.some((s) => s?.sessionId === d.ghostSessionId);
+            if (!alreadyThere) {
+              if (sessions.length >= 20) sessions.shift();
+              sessions.push({
+                sessionId:   d.ghostSessionId,
+                uid:         d.ghostUid ?? null,
+                username:    d.ghostUsername || 'Ghost Opponent',
+                questionIds: qIds.map(String),
+                answers:     [],
+                score:       Number.isInteger(d.ghostScore) ? d.ghostScore : 0,
+                recordedAt:  Timestamp.now(),
+              });
+              tx.set(ghostRef, { sessions }, { merge: true });
+              returned++;
+            }
+          }
+
+          tx.update(doc.ref, { status: 'expired_refunded', resolved: true });
+        });
+      } catch (err) {
+        console.error(`[expireAbandonedQuickMatches] ERROR on ${doc.id}:`, err);
+      }
+    }
+
+    if (snap.size > 0) {
+      console.log(
+        `[expireAbandonedQuickMatches] Settled ${snap.size} abandoned quick ` +
+        `match(es); returned ${returned} ghost recording(s) to the pool.`
+      );
     }
   }
 );
@@ -4367,7 +4956,15 @@ exports.expiredChallengeRefund = onSchedule(
       const creatorRef = db.collection('users').doc(data.creatorUid);
       try {
         await db.runTransaction(async (tx) => {
-          const creatorSnap = await tx.get(creatorRef);
+          // Idempotency: re-read the challenge INSIDE the tx so a concurrent
+          // resolve/decline/join can never be refunded on top of its real
+          // outcome. Only a doc still in the exact state this sweep queried is
+          // settled — otherwise the last write wins and money is duplicated.
+          const [freshSnap, creatorSnap] = await Promise.all([
+            tx.get(doc.ref),
+            tx.get(creatorRef),
+          ]);
+          if (!freshSnap.exists || freshSnap.data()?.status !== 'waiting') return;
           const creatorData = creatorSnap.data() || {};
           tx.update(doc.ref, { status: 'expired_refunded', resolved: true });
           
@@ -4414,10 +5011,15 @@ exports.expiredChallengeRefund = onSchedule(
       const opponentRef = db.collection('users').doc(data.opponentUid);
       try {
         await db.runTransaction(async (tx) => {
-          const [creatorSnap, opponentSnap] = await Promise.all([
+          // Idempotency: re-read the challenge inside the tx and settle only if
+          // it is STILL an un-joined, un-resolved opponent_joined doc. A
+          // concurrent resolve/decline must never be refunded on top.
+          const [freshSnap, creatorSnap, opponentSnap] = await Promise.all([
+            tx.get(doc.ref),
             tx.get(creatorRef),
             tx.get(opponentRef),
           ]);
+          if (!freshSnap.exists || freshSnap.data()?.status !== 'opponent_joined') return;
           const cData = creatorSnap.data() || {};
           const oData = opponentSnap.data() || {};
           tx.update(doc.ref, { status: 'expired_refunded', resolved: true });
@@ -4485,56 +5087,69 @@ exports.expiredChallengeRefund = onSchedule(
       const opponentRef = db.collection('users').doc(data.opponentUid);
       try {
         await db.runTransaction(async (tx) => {
-          const [creatorSnap, opponentSnap] = await Promise.all([
+          // Idempotency: settle only if the doc is STILL in one of the partial
+          // states this sweep queried. A concurrent resolve (which writes
+          // 'completed' + resolved) must never be refunded on top of its payout.
+          const [freshSnap, creatorSnap, opponentSnap] = await Promise.all([
+            tx.get(doc.ref),
             tx.get(creatorRef),
             tx.get(opponentRef),
           ]);
+          const fresh = freshSnap.data() || {};
+          if (!freshSnap.exists ||
+              !['creator_submitted', 'opponent_submitted'].includes(fresh.status)) {
+            return;
+          }
+          // Refund the opponent's stake ONLY when they actually joined and paid
+          // it. A creator_submitted challenge whose invitee never accepted —
+          // the normal shape now that a creator may play before the invitee
+          // accepts — has only the creator's stake to return.
+          const refundOpponent = !!fresh.joinedAt &&
+            !!data.opponentUid && data.opponentUid !== 'ghost';
           const cData = creatorSnap.data() || {};
           const oData = opponentSnap.data() || {};
           tx.update(doc.ref, { status: 'expired_refunded', resolved: true });
-          
+
           if (stakeAmt > 0) {
             const cCoins = cData.animeCoins || 0;
-            const oCoins = oData.animeCoins || 0;
             tx.update(creatorRef, { animeCoins: FieldValue.increment(stakeAmt) });
-            tx.update(opponentRef, { animeCoins: FieldValue.increment(stakeAmt) });
-            
-            const cTxRef = creatorRef.collection('coinTransactions').doc();
-            tx.set(cTxRef, {
+            tx.set(creatorRef.collection('coinTransactions').doc(), {
               type: 'refund_challenge_stake',
               delta: stakeAmt,
               balanceAfter: cCoins + stakeAmt,
               timestamp: FieldValue.serverTimestamp(),
             });
-            const oTxRef = opponentRef.collection('coinTransactions').doc();
-            tx.set(oTxRef, {
-              type: 'refund_challenge_stake',
-              delta: stakeAmt,
-              balanceAfter: oCoins + stakeAmt,
-              timestamp: FieldValue.serverTimestamp(),
-            });
+            if (refundOpponent) {
+              const oCoins = oData.animeCoins || 0;
+              tx.update(opponentRef, { animeCoins: FieldValue.increment(stakeAmt) });
+              tx.set(opponentRef.collection('coinTransactions').doc(), {
+                type: 'refund_challenge_stake',
+                delta: stakeAmt,
+                balanceAfter: oCoins + stakeAmt,
+                timestamp: FieldValue.serverTimestamp(),
+              });
+            }
           }
-          
+
           if (wpStake > 0) {
             const cWP = cData.weeklyPoints || 0;
-            const oWP = oData.weeklyPoints || 0;
             tx.update(creatorRef, { weeklyPoints: FieldValue.increment(wpStake) });
-            tx.update(opponentRef, { weeklyPoints: FieldValue.increment(wpStake) });
-            
-            const cWpTx = creatorRef.collection('wpTransactions').doc();
-            tx.set(cWpTx, {
+            tx.set(creatorRef.collection('wpTransactions').doc(), {
               type: 'refund_challenge_stake',
               delta: wpStake,
               balanceAfter: cWP + wpStake,
               timestamp: FieldValue.serverTimestamp(),
             });
-            const oWpTx = opponentRef.collection('wpTransactions').doc();
-            tx.set(oWpTx, {
-              type: 'refund_challenge_stake',
-              delta: wpStake,
-              balanceAfter: oWP + wpStake,
-              timestamp: FieldValue.serverTimestamp(),
-            });
+            if (refundOpponent) {
+              const oWP = oData.weeklyPoints || 0;
+              tx.update(opponentRef, { weeklyPoints: FieldValue.increment(wpStake) });
+              tx.set(opponentRef.collection('wpTransactions').doc(), {
+                type: 'refund_challenge_stake',
+                delta: wpStake,
+                balanceAfter: oWP + wpStake,
+                timestamp: FieldValue.serverTimestamp(),
+              });
+            }
           }
         });
         processedCount++;
@@ -4555,7 +5170,7 @@ exports.expiredChallengeRefund = onSchedule(
 // ─── NEW: getHeadToHeadRecord ──────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.getHeadToHeadRecord = onCall(
+exports.getHeadToHeadRecord = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -4586,6 +5201,7 @@ exports.getHeadToHeadRecord = onCall(
     // From uid1's perspective (uid1 vs uid2)
     for (const doc of snap1.docs) {
       const data = doc.data();
+      if (data.challengeType === 'spar') continue; // spars never count
       if (data.outcome === 'win') wins++;
       else if (data.outcome === 'lose') losses++;
       else if (data.outcome === 'draw') draws++;
@@ -4594,6 +5210,7 @@ exports.getHeadToHeadRecord = onCall(
     // From uid2's perspective (uid2 vs uid1) - invert the results
     for (const doc of snap2.docs) {
       const data = doc.data();
+      if (data.challengeType === 'spar') continue; // spars never count
       if (data.outcome === 'win') losses++; // uid2 won = uid1 lost
       else if (data.outcome === 'lose') wins++; // uid2 lost = uid1 won
       else if (data.outcome === 'draw') draws++;
@@ -4608,7 +5225,7 @@ exports.getHeadToHeadRecord = onCall(
 // ─────────────────────────────────────────────────────────────────────────────
 // Friends model (per approved spec):
 //   friendships/{sortedUidPair}: {aUid, bUid, status ('pending'|'active'|
-//     'blocked'), requestedBy, blockedBy?, sparWinsDate, sparWinsCount,
+//     'declined'|'blocked'), requestedBy, declinedAt?, blockedBy?, sparWinsDate, sparWinsCount,
 //     lastNudgeAt {sender_receiver: ts}, createdAt, decidedAt}
 //   users/{uid}/friendLinks/{otherUid}: {otherUid, status ('incoming'|
 //     'outgoing'|'friend'|'blocked'), username, since}
@@ -4623,6 +5240,8 @@ const FRIEND_OUTGOING_PER_DAY = 10;
 const FRIEND_INCOMING_MAX = 20;
 const FRIEND_CODE_ATTEMPTS_PER_DAY = 15;
 const FRIEND_USERNAME_MAX = 30;
+// After a decline, the same requester can't re-send to that player for a week.
+const FRIEND_DECLINE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FRIEND_UNIS = [
   'UNILAG', 'UI (University of Ibadan)', 'OAU', 'FUTA', 'UNIABUJA',
   'UNIBEN', 'ABU Zaria', 'UNIPORT', 'NOUN', 'Other',
@@ -4641,6 +5260,36 @@ function _sanitizeFriendUsername(raw) {
 
 function _sanitizeFriendUniversity(raw) {
   return FRIEND_UNIS.includes(raw) ? raw : '';
+}
+
+// Same cohort as the Add Friend campus suggestions: same university and both
+// in the current leaderboard week.
+function _isSameCampusCohort(me, peer, weekId) {
+  const uni = typeof me.university === 'string' ? me.university : '';
+  return uni !== '' &&
+    peer.university === uni &&
+    peer.leaderboardEntryWeekId === weekId;
+}
+
+// Writes an accepted friendship. Caller must have read meSnap/peerSnap and must
+// not read again in the same transaction.
+function _activateFriendshipTx(tx, { uid, peer, pairRef, meRef, peerRef, meSnap, peerSnap }) {
+  const meCount = Number((meSnap.data() || {}).friendCount || 0);
+  const peerCount = Number((peerSnap.data() || {}).friendCount || 0);
+  const now = FieldValue.serverTimestamp();
+  tx.set(pairRef, { status: 'active', decidedAt: now }, { merge: true });
+  tx.set(meRef.collection('friendLinks').doc(peer), {
+    otherUid: peer, status: 'friend',
+    username: _sanitizeFriendUsername(peerSnap.data().username),
+    since: now,
+  });
+  tx.set(peerRef.collection('friendLinks').doc(uid), {
+    otherUid: uid, status: 'friend',
+    username: _sanitizeFriendUsername((meSnap.data() || {}).username),
+    since: now,
+  });
+  tx.set(meRef, { friendCount: meCount + 1 }, { merge: true });
+  tx.set(peerRef, { friendCount: peerCount + 1 }, { merge: true });
 }
 
 // Lazily mints + returns the caller's friend code. Idempotent: an existing
@@ -4665,7 +5314,7 @@ async function _getOrMintFriendCode(uid, tx) {
   throw new HttpsError('internal', 'code_mint_failed');
 }
 
-exports.getMyFriendCode = onCall(
+exports.getMyFriendCode = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'getMyFriendCode');
@@ -4680,7 +5329,7 @@ exports.getMyFriendCode = onCall(
   }
 );
 
-exports.sendFriendRequest = onCall(
+exports.sendFriendRequest = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'sendFriendRequest');
@@ -4693,30 +5342,41 @@ exports.sendFriendRequest = onCall(
     // collection (never client-readable); uid path is accepted for
     // campus-suggestion rows (uids the caller already legitimately saw).
     let targetUid = null;
+    let viaUid = false;
     if (typeof code === 'string' && code.trim().length === 6) {
       const clean = code.trim().toUpperCase();
       // Failed-lookup rate limit (15/day, WAT) — counted before lookup so
       // enumeration grinding is throttled. Cancel does not refund; failures
       // do not consume the outgoing-request budget.
-      const mePre = await db.collection('users').doc(uid).get();
-      const mePreData = mePre.exists ? (mePre.data() || {}) : {};
-      const attempts = (mePreData.failedCodeDate === todayWAT)
-        ? Number(mePreData.failedCodeCount || 0) : 0;
-      if (attempts >= FRIEND_CODE_ATTEMPTS_PER_DAY) {
-        throw new HttpsError('resource-exhausted', 'too_many_attempts');
-      }
-      const codeSnap = await db.collection('friendCodes').doc(clean).get();
-      if (!codeSnap.exists) {
-        await db.collection('users').doc(uid).set({
-          failedCodeDate: todayWAT,
-          failedCodeCount: attempts + 1,
-        }, { merge: true });
-        // Fixed message for unknown AND blocked (no oracle).
-        throw new HttpsError('not-found', 'not_found');
-      }
-      targetUid = codeSnap.data().uid;
+      // Budget check, code lookup and miss-count in one transaction so parallel
+      // guesses can't all slip under the ceiling.
+      const found = await db.runTransaction(async (tx) => {
+        const userRef = db.collection('users').doc(uid);
+        const [mePre, codeSnap] = await Promise.all([
+          tx.get(userRef),
+          tx.get(db.collection('friendCodes').doc(clean)),
+        ]);
+        const mePreData = mePre.exists ? (mePre.data() || {}) : {};
+        const attempts = (mePreData.failedCodeDate === todayWAT)
+          ? Number(mePreData.failedCodeCount || 0) : 0;
+        if (attempts >= FRIEND_CODE_ATTEMPTS_PER_DAY) {
+          throw new HttpsError('resource-exhausted', 'too_many_attempts');
+        }
+        if (!codeSnap.exists) {
+          tx.set(userRef, {
+            failedCodeDate: todayWAT,
+            failedCodeCount: attempts + 1,
+          }, { merge: true });
+          return null;
+        }
+        return codeSnap.data().uid;
+      });
+      // Fixed message for unknown AND blocked (no oracle).
+      if (!found) throw new HttpsError('not-found', 'not_found');
+      targetUid = found;
     } else if (typeof rawUid === 'string' && rawUid.trim()) {
       targetUid = rawUid.trim();
+      viaUid = true;
     } else {
       throw new HttpsError('invalid-argument', 'missing_code');
     }
@@ -4725,7 +5385,7 @@ exports.sendFriendRequest = onCall(
       throw new HttpsError('invalid-argument', 'cannot_friend_yourself');
     }
 
-    await db.runTransaction(async (tx) => {
+    const txResult = await db.runTransaction(async (tx) => {
       const meRef = db.collection('users').doc(uid);
       const peerRef = db.collection('users').doc(targetUid);
       const pairRef = db.collection('friendships').doc(_friendPairId(uid, targetUid));
@@ -4734,6 +5394,12 @@ exports.sendFriendRequest = onCall(
       ]);
       if (!peerSnap.exists) throw new HttpsError('not-found', 'not_found');
       const me = meSnap.data() || {};
+      const peerData = peerSnap.data() || {};
+      // Raw-uid requests are limited to the same campus cohort the Add Friend
+      // suggestions come from; anything else is indistinguishable from unknown.
+      if (viaUid && !_isSameCampusCohort(me, peerData, currentWeekId())) {
+        throw new HttpsError('not-found', 'not_found');
+      }
       const existing = pairSnap.exists ? (pairSnap.data() || {}) : null;
       // Blocked either way → same fixed message (no oracle).
       if (existing && existing.status === 'blocked') {
@@ -4748,9 +5414,33 @@ exports.sendFriendRequest = onCall(
         if (existing.status === 'active') {
           throw new HttpsError('already-exists', 'already_friends');
         }
+        if (existing.status === 'pending' && existing.requestedBy === targetUid) {
+          // They already asked us: sending back is an acceptance, not a second request.
+          const meCount = Number(me.friendCount || 0);
+          const peerCount = Number(peerData.friendCount || 0);
+          if (meCount >= FRIEND_MAX) throw new HttpsError('resource-exhausted', 'friend_limit_reached');
+          if (peerCount >= FRIEND_MAX) throw new HttpsError('resource-exhausted', 'peer_friend_limit');
+          _activateFriendshipTx(tx, {
+            uid, peer: targetUid, pairRef, meRef, peerRef, meSnap, peerSnap,
+          });
+          return { mutual: true };
+        }
         if (existing.status === 'pending') {
           throw new HttpsError('already-exists', 'already_pending');
         }
+        if (existing.status === 'declined' && existing.requestedBy === uid) {
+          const declinedMs = existing.declinedAt?.toMillis?.() || 0;
+          if (declinedMs && Date.now() - declinedMs < FRIEND_DECLINE_COOLDOWN_MS) {
+            throw new HttpsError('failed-precondition', 'request_cooldown');
+          }
+        }
+      }
+      const meCount = Number(me.friendCount || 0);
+      if (meCount >= FRIEND_MAX) {
+        throw new HttpsError('resource-exhausted', 'friend_limit_reached');
+      }
+      if (Number(peerData.friendCount || 0) >= FRIEND_MAX) {
+        throw new HttpsError('resource-exhausted', 'peer_friend_limit');
       }
       // Outgoing budget: new requests only (cancel does not refund — the
       // counter only ever increments).
@@ -4792,6 +5482,18 @@ exports.sendFriendRequest = onCall(
       });
     });
 
+    if (txResult && txResult.mutual) {
+      try {
+        const meDoc = await db.collection('users').doc(uid).get();
+        await sendToUser(targetUid, {
+          title: 'You are now friends!',
+          body: `${_sanitizeFriendUsername(meDoc.data()?.username)} accepted your request.`,
+          data: { type: 'friend_accepted' },
+        });
+      } catch (_) { /* ignored */ }
+      return { success: true, status: 'active' };
+    }
+
     // Friend-request notification (best-effort, never blocks).
     try {
       const meDoc = await db.collection('users').doc(uid).get();
@@ -4802,11 +5504,11 @@ exports.sendFriendRequest = onCall(
         data: { type: 'friend_request' },
       });
     } catch (_) { /* ignored */ }
-    return { success: true };
+    return { success: true, status: 'pending' };
   }
 );
 
-exports.respondFriendRequest = onCall(
+exports.respondFriendRequest = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'respondFriendRequest');
@@ -4843,22 +5545,16 @@ exports.respondFriendRequest = onCall(
         if (meCount >= FRIEND_MAX || peerCount >= FRIEND_MAX) {
           throw new HttpsError('resource-exhausted', 'friend_limit_reached');
         }
-        const now = FieldValue.serverTimestamp();
-        tx.set(pairRef, { status: 'active', decidedAt: now }, { merge: true });
-        tx.set(myLinkRef, {
-          otherUid: peer, status: 'friend',
-          username: _sanitizeFriendUsername(peerSnap.data().username),
-          since: now,
+        _activateFriendshipTx(tx, {
+          uid, peer, pairRef, meRef, peerRef, meSnap, peerSnap,
         });
-        tx.set(peerLinkRef, {
-          otherUid: uid, status: 'friend',
-          username: _sanitizeFriendUsername((meSnap.data() || {}).username),
-          since: now,
-        });
-        tx.set(meRef, { friendCount: meCount + 1 }, { merge: true });
-        tx.set(peerRef, { friendCount: peerCount + 1 }, { merge: true });
       } else {
-        tx.delete(pairRef);
+        // Keep the pair as 'declined' (no link, no count) so the requester's
+        // cooldown can be enforced; their outgoing link is removed.
+        tx.set(pairRef, {
+          status: 'declined', declinedAt: FieldValue.serverTimestamp(),
+          declinedBy: uid,
+        }, { merge: true });
         tx.delete(myLinkRef);
         tx.delete(peerLinkRef);
       }
@@ -4867,7 +5563,7 @@ exports.respondFriendRequest = onCall(
   }
 );
 
-exports.cancelFriendRequest = onCall(
+exports.cancelFriendRequest = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'cancelFriendRequest');
@@ -4895,7 +5591,7 @@ exports.cancelFriendRequest = onCall(
   }
 );
 
-exports.blockUser = onCall(
+exports.blockUser = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'blockUser');
@@ -4911,8 +5607,14 @@ exports.blockUser = onCall(
     }
     const refunded = [];
     await db.runTransaction(async (tx) => {
+      // All reads first: Firestore rejects a read after any write in a tx.
       const pairRef = db.collection('friendships').doc(_friendPairId(uid, peer));
-      const pairSnap = await tx.get(pairRef);
+      const meRef = db.collection('users').doc(uid);
+      const peerRef = db.collection('users').doc(peer);
+      const [pairSnap, meSnap, peerSnap] = await Promise.all([
+        tx.get(pairRef), tx.get(meRef), tx.get(peerRef),
+      ]);
+      if (!peerSnap.exists) throw new HttpsError('not-found', 'not_found');
       const wasActive = pairSnap.exists &&
         (pairSnap.data() || {}).status === 'active';
       const now = FieldValue.serverTimestamp();
@@ -4933,23 +5635,25 @@ exports.blockUser = onCall(
       // Only a live friendship held a count slot: decrement both sides
       // (floor 0). Pending pairs never incremented, so they decrement nothing.
       if (wasActive) {
-        for (const u of [uid, peer]) {
-          const s = await tx.get(db.collection('users').doc(u));
-          const n = Number((s.data() || {}).friendCount || 0);
-          if (n > 0) tx.set(db.collection('users').doc(u), { friendCount: n - 1 }, { merge: true });
+        for (const [ref, snap] of [[meRef, meSnap], [peerRef, peerSnap]]) {
+          const n = Number((snap.data() || {}).friendCount || 0);
+          if (n > 0) tx.set(ref, { friendCount: n - 1 }, { merge: true });
         }
       }
     });
     // Auto-decline pending INVITES between the pair + refund creators.
-    // Joined/in-play challenges are left to expire/forfeit (spec).
+    // Joined/in-play challenges are left to expire/forfeit (spec). Queried per
+    // direction so the pair's invites are found regardless of global volume.
     try {
-      const pending = await db.collection('challenges')
-        .where('status', '==', 'waiting').limit(50).get();
-      for (const doc of pending.docs) {
-        const c = doc.data() || {};
-        const isPair = (c.creatorUid === uid && c.opponentUid === peer) ||
-          (c.creatorUid === peer && c.opponentUid === uid);
-        if (!isPair) continue;
+      const [asCreator, asOpponent] = await Promise.all([
+        db.collection('challenges').where('creatorUid', '==', uid)
+          .where('opponentUid', '==', peer).where('status', '==', 'waiting')
+          .limit(20).get(),
+        db.collection('challenges').where('creatorUid', '==', peer)
+          .where('opponentUid', '==', uid).where('status', '==', 'waiting')
+          .limit(20).get(),
+      ]);
+      for (const doc of [...asCreator.docs, ...asOpponent.docs]) {
         try {
           await db.runTransaction(async (tx) => {
             const cSnap = await tx.get(doc.ref);
@@ -4996,7 +5700,7 @@ exports.blockUser = onCall(
   }
 );
 
-exports.unblockUser = onCall(
+exports.unblockUser = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'unblockUser');
@@ -5021,7 +5725,7 @@ exports.unblockUser = onCall(
   }
 );
 
-exports.removeFriend = onCall(
+exports.removeFriend = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'removeFriend');
@@ -5033,18 +5737,22 @@ exports.removeFriend = onCall(
     }
     const peer = otherUid.trim();
     await db.runTransaction(async (tx) => {
+      // All reads first: Firestore rejects a read after any write in a tx.
       const pairRef = db.collection('friendships').doc(_friendPairId(uid, peer));
-      const pairSnap = await tx.get(pairRef);
+      const meRef = db.collection('users').doc(uid);
+      const peerRef = db.collection('users').doc(peer);
+      const [pairSnap, meSnap, peerSnap] = await Promise.all([
+        tx.get(pairRef), tx.get(meRef), tx.get(peerRef),
+      ]);
       if (!pairSnap.exists || (pairSnap.data() || {}).status !== 'active') {
         throw new HttpsError('not-found', 'not_friends');
       }
       tx.delete(pairRef);
-      tx.delete(db.collection('users').doc(uid).collection('friendLinks').doc(peer));
-      tx.delete(db.collection('users').doc(peer).collection('friendLinks').doc(uid));
-      for (const u of [uid, peer]) {
-        const s = await tx.get(db.collection('users').doc(u));
-        const n = Number((s.data() || {}).friendCount || 0);
-        if (n > 0) tx.set(db.collection('users').doc(u), { friendCount: n - 1 }, { merge: true });
+      tx.delete(meRef.collection('friendLinks').doc(peer));
+      tx.delete(peerRef.collection('friendLinks').doc(uid));
+      for (const [ref, snap] of [[meRef, meSnap], [peerRef, peerSnap]]) {
+        const n = Number((snap.data() || {}).friendCount || 0);
+        if (n > 0) tx.set(ref, { friendCount: n - 1 }, { merge: true });
       }
     });
     return { success: true };
@@ -5058,7 +5766,7 @@ exports.removeFriend = onCall(
 // when the friend's entryWeekId == the current week; otherwise null and the
 // client renders "-". Client caches the result for the 6h window inside the
 // existing leaderboard refresh — no listeners, no new timers.
-exports.getFriendsBoard = onCall(
+exports.getFriendsBoard = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'getFriendsBoard');
@@ -5069,35 +5777,57 @@ exports.getFriendsBoard = onCall(
       .limit(FRIEND_MAX).get();
     if (linksSnap.empty) return { friends: [] };
     const weekId = currentWeekId();
-    const refs = linksSnap.docs.map((d) => db.collection('users').doc(d.id));
-    const snaps = await db.getAll(...refs);
-    const friends = snaps.map((s) => {
-      if (!s.exists) {
-        return {
-          uid: s.id, username: 'Deleted user', university: '',
-          weeklyPoints: null, entryWeekId: null,
-        };
-      }
-      const d = s.data() || {};
-      const entryWeekId = typeof d.leaderboardEntryWeekId === 'string'
-        ? d.leaderboardEntryWeekId : null;
-      return {
-        uid: s.id,
-        username: _sanitizeFriendUsername(d.username),
-        university: _sanitizeFriendUniversity(d.university),
-        weeklyPoints: entryWeekId === weekId
-          ? Math.max(0, Number(d.weeklyPoints || 0) | 0) : null,
-        entryWeekId,
-      };
+    const todayWAT = _watDateString();
+    const dayStart = _watDayStart(todayWAT);
+    const peerIds = linksSnap.docs.map((d) => d.id);
+    const [snaps, pairSnaps, turns, playedFlags] = await Promise.all([
+      db.getAll(...peerIds.map((p) => db.collection('users').doc(p))),
+      db.getAll(...peerIds.map((p) => db.collection('friendships').doc(_friendPairId(uid, p)))),
+      _duelTurnsFor(uid),
+      Promise.all(peerIds.map((p) => _playedSince(p, dayStart))),
+    ]);
+    // My nudge stamp per friend lives on the pair doc (keyed sender_receiver).
+    const nudgedToday = new Set();
+    pairSnaps.forEach((ps, i) => {
+      const ts = (ps.data() || {}).lastNudgeAt?.[`${uid}_${peerIds[i]}`];
+      if (ts?.toDate && _watDateString(ts.toDate()) === todayWAT) nudgedToday.add(peerIds[i]);
     });
+    const playedToday = new Map(peerIds.map((p, i) => [p, playedFlags[i]]));
+    // Ghost admin accounts never appear on a player's friends board.
+    const friends = snaps
+      .filter((s) => !isAdminAccountUid(s.id))
+      .map((s) => {
+        if (!s.exists) {
+          return {
+            uid: s.id, username: 'Deleted user', university: '',
+            weeklyPoints: null, entryWeekId: null,
+            theirTurn: false, myTurn: false, nudgedToday: false, playedToday: false,
+          };
+        }
+        const d = s.data() || {};
+        const entryWeekId = typeof d.leaderboardEntryWeekId === 'string'
+          ? d.leaderboardEntryWeekId : null;
+        return {
+          uid: s.id,
+          username: _sanitizeFriendUsername(d.username),
+          university: _sanitizeFriendUniversity(d.university),
+          weeklyPoints: entryWeekId === weekId
+            ? Math.max(0, Number(d.weeklyPoints || 0) | 0) : null,
+          entryWeekId,
+          theirTurn: turns.theirTurn.has(s.id),
+          myTurn: turns.myTurn.has(s.id),
+          nudgedToday: nudgedToday.has(s.id),
+          playedToday: playedToday.get(s.id) === true,
+        };
+      });
     return { friends };
   }
 );
 
-// ─── Preset social: nudge + reactions (social-preset batch) ────────────────
+// ─── Preset social: nudge (social-preset batch) ────────────────────────────
 // No free text anywhere: nudge bodies are server-templated (sender username +
-// anime title, both sanitized); reactions are 4 fixed emoji. All writes
-// CF-only (rules deny client challenge writes except own-score).
+// anime title, both sanitized). All writes CF-only (rules deny client
+// challenge writes except own-score).
 
 function _theirTurnOnChallenge(ch, me) {
   const status = ch.status;
@@ -5115,7 +5845,42 @@ function _theirTurnOnChallenge(ch, me) {
   return false;
 }
 
-exports.nudgeFriend = onCall(
+// Bounded read of the caller's duels, split by who owes the next move:
+//   theirTurn — peers who owe the caller a move (the caller can nudge them)
+//   myTurn    — peers the caller owes a move (the friend row says "Your move")
+// The in-code check is the same one nudgeFriend enforces, so the board and the
+// server agree.
+async function _duelTurnsFor(uid) {
+  const [asCreator, asOpponent] = await Promise.all([
+    db.collection('challenges').where('creatorUid', '==', uid).limit(200).get(),
+    db.collection('challenges').where('opponentUid', '==', uid).limit(200).get(),
+  ]);
+  const theirTurn = new Set();
+  const myTurn = new Set();
+  for (const d of [...asCreator.docs, ...asOpponent.docs]) {
+    const c = d.data() || {};
+    const peer = c.creatorUid === uid ? c.opponentUid : c.creatorUid;
+    if (!peer || peer === 'ghost') continue;
+    if (_theirTurnOnChallenge(c, peer)) theirTurn.add(peer);
+    if (_theirTurnOnChallenge(c, uid)) myTurn.add(peer);
+  }
+  return { theirTurn, myTurn };
+}
+
+// Start of today in WAT (UTC+1, no DST), as a Date for timestamp queries.
+function _watDayStart(todayWAT) {
+  return new Date(Date.parse(`${todayWAT}T00:00:00Z`) - 60 * 60 * 1000);
+}
+
+// Did this player play a match (duel, spar or quick match) since [since]?
+// Match docs are written at settlement with a server timestamp.
+async function _playedSince(peerUid, since) {
+  const snap = await db.collection('users').doc(peerUid).collection('matches')
+    .where('timestamp', '>=', since).limit(1).get();
+  return !snap.empty;
+}
+
+exports.nudgeFriend = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     await _assertClientBuildAllowed(request, 'nudgeFriend');
@@ -5175,73 +5940,41 @@ exports.nudgeFriend = onCall(
     }
 
     // Once per friend per day (WAT), keyed sender_receiver on the pair doc.
+    // The stamp is reserved in a transaction so parallel taps can't both pass,
+    // then rolled back if the push does not go out, so a failed nudge does not
+    // use up today's one.
     const nudgeKey = `${uid}_${peer}`;
-    const lastMap = (pair.lastNudgeAt && typeof pair.lastNudgeAt === 'object')
-      ? pair.lastNudgeAt : {};
-    const lastTs = lastMap[nudgeKey];
-    if (lastTs && lastTs.toDate) {
-      try {
-        if (_watDateString(lastTs.toDate()) === todayWAT) {
-          throw new HttpsError('resource-exhausted', 'nudge_limit_reached');
-        }
-      } catch (e) {
-        if (e instanceof HttpsError) throw e;
+    let prevStamp;
+    await db.runTransaction(async (tx) => {
+      const cur = ((await tx.get(pairRef)).data() || {});
+      const lastMap = (cur.lastNudgeAt && typeof cur.lastNudgeAt === 'object')
+        ? cur.lastNudgeAt : {};
+      const lastTs = lastMap[nudgeKey];
+      if (lastTs && lastTs.toDate && _watDateString(lastTs.toDate()) === todayWAT) {
+        throw new HttpsError('resource-exhausted', 'nudge_limit_reached');
       }
-    }
-    await pairRef.set({
-      lastNudgeAt: { ...(pair.lastNudgeAt || {}), [nudgeKey]: FieldValue.serverTimestamp() },
-    }, { merge: true });
+      prevStamp = lastTs;
+      tx.set(pairRef, {
+        lastNudgeAt: { ...lastMap, [nudgeKey]: FieldValue.serverTimestamp() },
+      }, { merge: true });
+    });
 
     try {
       const meDoc = await db.collection('users').doc(uid).get();
       const sender = _sanitizeFriendUsername(meDoc.data()?.username);
       const anime = String(ch.animeTitle || 'your duel').slice(0, 40);
-      await sendToUser(peer, {
+      await _sendPushOrThrow(peer, {
         title: 'Your turn!',
         body: `${sender} is waiting in ${anime}.`,
       });
-    } catch (_) { /* ignored */ }
+    } catch (err) {
+      console.warn(`[nudgeFriend] uid=${uid} peer=${peer} push failed, rolling back: ${err.message}`);
+      await pairRef.update({
+        [`lastNudgeAt.${nudgeKey}`]: prevStamp ?? FieldValue.delete(),
+      }).catch((e) => console.error(`[nudgeFriend] rollback failed: ${e.message}`));
+      throw new HttpsError('unavailable', 'nudge_not_delivered');
+    }
     return { success: true, challengeId: chId };
-  }
-);
-
-const REACTION_EMOJI = ['👏', '🔥', '😅', 'GG'];
-
-exports.reactToChallenge = onCall(
-  { region: 'us-central1' },
-  async (request) => {
-    await _assertClientBuildAllowed(request, 'reactToChallenge');
-    const uid = request.auth?.uid;
-    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
-    const { challengeId, emoji } = request.data || {};
-    if (typeof challengeId !== 'string' || !challengeId.trim()) {
-      throw new HttpsError('invalid-argument', 'invalid_challenge_id');
-    }
-    if (!REACTION_EMOJI.includes(emoji)) {
-      throw new HttpsError('invalid-argument', 'invalid_emoji');
-    }
-    const ref = db.collection('challenges').doc(challengeId.trim());
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) throw new HttpsError('not-found', 'challenge_not_found');
-      const ch = snap.data() || {};
-      const isMine = ch.creatorUid === uid || ch.opponentUid === uid;
-      if (!isMine) throw new HttpsError('permission-denied', 'not_your_duel');
-      if (ch.resolved !== true && ch.status !== 'completed') {
-        throw new HttpsError('failed-precondition', 'not_settled');
-      }
-      // Blocked peers cannot react (even on old settled duels).
-      const peer = ch.creatorUid === uid ? ch.opponentUid : ch.creatorUid;
-      if (peer && peer !== 'ghost') {
-        const pSnap = await tx.get(
-          db.collection('friendships').doc(_friendPairId(uid, peer)));
-        if (pSnap.exists && (pSnap.data() || {}).status === 'blocked') {
-          throw new HttpsError('failed-precondition', 'blocked');
-        }
-      }
-      tx.update(ref, { [`reactions.${uid}`]: emoji });
-    });
-    return { success: true };
   }
 );
 
@@ -5308,10 +6041,154 @@ exports.awardStreakMilestone = onDocumentUpdated(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─── SECTION 4: REFERRAL BONUS (unchanged) ────────────────────────────────
+// ─── SECTION 4: REFERRAL BONUS ────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.claimReferralBonus = onCall(
+// ─── Referral records (users/{inviter}/referrals/{inviteeUid}) ─────────────
+//
+// Display data for the Referrals page only: created by ensureProfile at
+// sign-up, progressed and flipped by claimReferralBonus. These records never
+// gate a payout — the quiz gate, the 30-day cap and the coin ledger in
+// claimReferralBonus remain the sole authority.
+
+// Full initial shape of one referral record. `status` only ever moves
+// 'pending' -> 'rewarded' and is never reset by a re-run.
+function _referralRecordDefaults(inviteeUsername) {
+  return {
+    inviteeUsername:  typeof inviteeUsername === 'string' ? inviteeUsername : null,
+    status:           'pending',
+    quizzesCompleted: 0,
+    quizzesRequired:  3,   // mirrors the gate in claimReferralBonus
+    quizDays:         0,
+    daysRequired:     2,   // mirrors the gate in claimReferralBonus
+    createdAt:        FieldValue.serverTimestamp(),
+    qualifiedAt:      null,
+    expiresAt:        Timestamp.fromMillis(Date.now() + 2 * 24 * 60 * 60 * 1000),
+    rewardAmount:     100, // mirrors the +100 referrer payout
+  };
+}
+
+// Upsert one referral record: missing doc -> full record, existing doc ->
+// merge of the passed fields only, so createdAt / status / inviteeUsername
+// always survive a re-run.
+function _writeReferralRecord(tx, referralRef, referralSnap, inviteeUsername, fields) {
+  if (referralSnap && referralSnap.exists) {
+    tx.set(referralRef, fields, { merge: true });
+  } else {
+    tx.set(referralRef, { ..._referralRecordDefaults(inviteeUsername), ...fields });
+  }
+}
+
+// ─── Referral codes (referralCodes/{CODE}: {uid}, CF-only) ──────────────────
+//
+// The invite artefact. A uid is 28 characters and cannot be read aloud or
+// printed on a card, so the Referrals page mints and shows a 6-character code
+// instead. The code RESOLVES TO A UID: `users/{uid}.referredBy` keeps storing
+// the uid, so the claim gate, the referral records and the coin ledger are all
+// untouched. A uid typed in by hand still works (see _resolveReferrerUid), so
+// every referral created before this feature keeps working unchanged.
+//
+// referralCodes is never client-readable — that would be a uid-enumeration
+// oracle. The client resolves through resolveReferralCode. 36^6 ≈ 2.17e9
+// codes, so collisions are rare and retried in a short loop.
+
+// Lazily mints + returns the caller's referral code. Stable: an existing code
+// that still maps back to this user is returned as-is. Same shape as
+// _getOrMintFriendCode.
+async function _getOrMintReferralCode(uid, tx) {
+  const userRef = db.collection('users').doc(uid);
+  const snap = await tx.get(userRef);
+  const data = snap.exists ? (snap.data() || {}) : {};
+  const existing = data.referralCode;
+  if (typeof existing === 'string' && existing.length === 6) {
+    // Trust the cached field only if the code document still points back at
+    // this user. A code deleted out-of-band would otherwise be displayed and
+    // shared forever while resolving to nobody.
+    const existingSnap = await tx.get(
+      db.collection('referralCodes').doc(existing),
+    );
+    if (existingSnap.exists && (existingSnap.data() || {}).uid === uid) {
+      return existing;
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    const code = _generateCode();
+    const codeRef = db.collection('referralCodes').doc(code);
+    const codeSnap = await tx.get(codeRef);
+    if (codeSnap.exists) continue;
+    tx.set(codeRef, { uid, createdAt: FieldValue.serverTimestamp() });
+    tx.set(userRef, { referralCode: code }, { merge: true });
+    return code;
+  }
+  throw new HttpsError('internal', 'code_mint_failed');
+}
+
+// Resolves a referral code OR a uid to an existing referrer's uid, else null.
+//
+// Used by resolveReferralCode (sign-up) and defensively by ensureProfile and
+// claimReferralBonus, so a profile that somehow stores a raw code still credits
+// the right person.
+async function _resolveReferrerUid(raw) {
+  const value = typeof raw === 'string' ? raw.trim() : '';
+  if (!value) return null;
+
+  // A '/' would make `.doc(value)` throw (an odd-segment path) instead of
+  // returning "unknown". Nobody's uid or code contains one, so treat it as a
+  // bad code rather than an exception on the sign-up path.
+  if (value.includes('/')) return null;
+
+  // 1) uid path. Uids are 28 chars and codes are 6, so the two can never
+  // collide and trying the uid document first is unambiguous.
+  const byUid = await db.collection('users').doc(value).get();
+  if (byUid.exists) return value;
+
+  // 2) short-code path.
+  if (value.length !== 6) return null;
+  const codeSnap = await db
+    .collection('referralCodes').doc(value.toUpperCase()).get();
+  const uid = codeSnap.exists ? (codeSnap.data() || {}).uid : null;
+  if (!uid) return null;
+
+  // A code doc can outlive its owner only if the deleteAccount cleanup failed.
+  // There is no referrer to pay in that case, so report "unknown".
+  const userSnap = await db.collection('users').doc(uid).get();
+  return userSnap.exists ? uid : null;
+}
+
+// The player's own invite code, minted on first open of the Referrals page.
+exports.getMyReferralCode = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await _assertClientBuildAllowed(request, 'getMyReferralCode');
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    let code = '';
+    await db.runTransaction(async (tx) => {
+      code = await _getOrMintReferralCode(uid, tx);
+    });
+    return { referralCode: code };
+  }
+);
+
+// Turns what the player typed on the sign-up form into the uid that gets
+// stored in referredBy. Returns { uid: null } for anything unknown AND for the
+// caller's own code, so the form can never distinguish a bad code from
+// self-referral. Never throws for a bad code: a bad code just means no
+// referral, and it must not fail registration.
+exports.resolveReferralCode = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await _assertClientBuildAllowed(request, 'resolveReferralCode');
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    const { code } = request.data || {};
+    const referrerUid = await _resolveReferrerUid(code);
+    if (!referrerUid || referrerUid === uid) return { uid: null };
+    return { uid: referrerUid };
+  }
+);
+
+exports.claimReferralBonus = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -5322,8 +6199,18 @@ exports.claimReferralBonus = onCall(
       throw new Error('Invalid referredBy uid');
     }
 
+    // referredBy normally holds a uid (the client resolves at sign-up), but a
+    // short code is honored too so a value written by an older client keeps
+    // working. Resolved before the transaction: a code's uid never changes, and
+    // a lookup inside the transaction would add a read to the payout path.
+    const referrerUid = await _resolveReferrerUid(referredBy);
+    // Unknown referrer — same outcome as the old `!referrerSnap.exists` early
+    // return, and the same outcome for a referral whose code was retired.
+    if (!referrerUid) return { success: true };
+
     const userRef     = db.collection('users').doc(uid);
-    const referrerRef = db.collection('users').doc(referredBy);
+    const referrerRef = db.collection('users').doc(referrerUid);
+    const referralRef = referrerRef.collection('referrals').doc(uid);
 
     // ── Gate: the referred account must have completed �? quizzes across �?
     // different calendar (WAT) days before the bonus may fire. Counted from the
@@ -5336,15 +6223,37 @@ exports.claimReferralBonus = onCall(
       const ts = s.data().timestamp;
       if (ts && ts.toDate) quizDays.add(_watDateString(ts.toDate()));
     }
-    if (sessionSnaps.docs.length < 3 || quizDays.size < 2) {
-      // Not enough quiz activity yet �?leave referral state untouched.
+    const quizzesCompleted = sessionSnaps.docs.length;
+    const quizDayCount     = quizDays.size;
+
+    if (quizzesCompleted < 3 || quizDayCount < 2) {
+      // Not enough quiz activity yet. Record the invitee's progress for the
+      // inviter's Referrals page (display only), then leave the referral
+      // economy untouched.
+      await db.runTransaction(async (tx) => {
+        const referralSnap = await tx.get(referralRef);
+        if (referralSnap.exists
+            && (referralSnap.data() || {}).status === 'rewarded') {
+          return;
+        }
+        let username = null;
+        if (!referralSnap.exists) {
+          const inviteeSnap = await tx.get(userRef);
+          username = (inviteeSnap.data() || {}).username;
+        }
+        _writeReferralRecord(tx, referralRef, referralSnap, username, {
+          quizzesCompleted,
+          quizDays: quizDayCount,
+        });
+      });
       return { success: true };
     }
 
     await db.runTransaction(async (tx) => {
-      const [userSnap, referrerSnap] = await Promise.all([
+      const [userSnap, referrerSnap, referralSnap] = await Promise.all([
         tx.get(userRef),
         tx.get(referrerRef),
+        tx.get(referralRef),
       ]);
 
       const userData     = userSnap.data()     || {};
@@ -5352,7 +6261,7 @@ exports.claimReferralBonus = onCall(
 
       if (userData.referralBonusClaimed === true) return;
       if (!referrerSnap.exists) return;
-      if (referredBy === uid) return;
+      if (referrerUid === uid) return;
 
       // ── Per-referrer cap: �?0 successful referral bonuses per rolling
       // 30-day window, tracked with a timestamp-array counter
@@ -5364,7 +6273,23 @@ exports.claimReferralBonus = onCall(
           : (t && t.toDate ? t.toDate().getTime() : new Date(t).getTime());
         return ms >= cutoff;
       });
-      if (occurred.length >= 10) return; // cap reached �?no award, no penalty
+      // Referral record for the inviter's Referrals page. Display-only: final
+      // progress plus 'rewarded' when the payout below runs, progress alone
+      // (status untouched) when the cap blocks it. Written inside this
+      // transaction so the record can never say 'rewarded' without the ledger
+      // writes below.
+      const capBlocked = occurred.length >= 10;
+      _writeReferralRecord(tx, referralRef, referralSnap, userData.username, {
+        quizzesCompleted,
+        quizDays: quizDayCount,
+        ...(capBlocked ? {} : {
+          status:       'rewarded',
+          qualifiedAt:  FieldValue.serverTimestamp(),
+          rewardAmount: 100,
+        }),
+      });
+
+      if (occurred.length >= 10) return; // cap reached — no award, no penalty
 
       const userBalanceAfter     = (userData.animeCoins     || 0) + 50;
       const referrerBalanceAfter = (referrerData.animeCoins || 0) + 100;
@@ -5372,7 +6297,10 @@ exports.claimReferralBonus = onCall(
       tx.update(userRef, {
         firstQuizCompleted:   true,
         referralBonusClaimed: true,
-        referredBy:           referredBy,
+        // Normalize on the way through: a profile carrying a short code gets
+        // upgraded to the uid, so the "referredBy is a uid" invariant holds
+        // again for anything that reads it later.
+        referredBy:           referrerUid,
         animeCoins:           FieldValue.increment(50),
       });
 
@@ -5398,7 +6326,7 @@ exports.claimReferralBonus = onCall(
       });
     });
 
-    console.log(`[claimReferralBonus] uid=${uid} �?referrer=${referredBy} +100 AC`);
+    console.log(`[claimReferralBonus] uid=${uid} �?referrer=${referrerUid} +100 AC`);
     return { success: true };
   }
 );
@@ -5407,54 +6335,130 @@ exports.claimReferralBonus = onCall(
 // ─── SECTION 5: REWARDED AD �?COIN AWARD (unchanged) ──────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.recordAdWatch = onCall(
+// ─── Ad sessions + rewarded-ad award ───────────────────────────────────────
+// Rewarded ads are client-observed, so the only thing the server can verify is
+// that the coin award is tied to a session IT issued. startAdSession mints a
+// single-use, 5-minute token; recordAdWatch redeems it exactly once. A script
+// can still drive both calls, but it can no longer skip the session
+// bookkeeping, and the daily cap + spacing rule still bound the payout. Real
+// ad-network server-side verification (SSV) would be the next step.
+const AD_SESSION_TTL_MS = 5 * 60 * 1000;
+const AD_SESSION_RATE_WINDOW_MS = 60 * 1000;
+const AD_SESSION_RATE_MAX = 6;
+const AD_DAILY_MAX = 10;
+const AD_SPACING_MS = 30 * 1000;
+const AD_REWARD_COINS = 15;
+
+exports.startAdSession = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
-    if (!uid) {
-      throw new HttpsError('unauthenticated', 'Unauthenticated');
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'startAdSession');
+
+    const token = randomUUID();
+    const now = Date.now();
+    const rateRef = db.collection('adSessionRate').doc(uid);
+
+    await db.runTransaction(async (tx) => {
+      const rateSnap = await tx.get(rateRef);
+      const data = rateSnap.data() || {};
+      const windowStart = data.windowStart?.toMillis ? data.windowStart.toMillis() : 0;
+      const inWindow = now - windowStart < AD_SESSION_RATE_WINDOW_MS;
+      const count = inWindow ? (data.count || 0) : 0;
+      if (inWindow && count >= AD_SESSION_RATE_MAX) {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Too many ad sessions. Try again in a minute.'
+        );
+      }
+      tx.set(rateRef, {
+        windowStart: Timestamp.fromMillis(inWindow ? windowStart : now),
+        count: count + 1,
+      }, { merge: true });
+      tx.set(db.collection('adSessions').doc(token), {
+        uid,
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(now + AD_SESSION_TTL_MS),
+        used: false,
+      });
+    });
+
+    return { sessionToken: token, expiresAt: now + AD_SESSION_TTL_MS };
+  }
+);
+
+exports.recordAdWatch = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+
+    const sessionToken = request.data?.sessionToken;
+    if (typeof sessionToken !== 'string' ||
+        !/^[0-9a-fA-F-]{36}$/.test(sessionToken)) {
+      throw new HttpsError('invalid-argument', 'ad_session_required');
     }
 
     const userRef = db.collection('users').doc(uid);
-
+    const sessionRef = db.collection('adSessions').doc(sessionToken);
     let result;
 
     await db.runTransaction(async (tx) => {
+      // ALL reads first (Firestore transaction requirement).
+      const sessionSnap = await tx.get(sessionRef);
       const snap = await tx.get(userRef);
-      const data = snap.data() || {};
 
+      if (!sessionSnap.exists) {
+        result = { success: false, error: 'ad_session_invalid' };
+        return;
+      }
+      const session = sessionSnap.data() || {};
+      const expiresAt = session.expiresAt?.toMillis ? session.expiresAt.toMillis() : 0;
+      if (session.uid !== uid || session.used === true ||
+          !expiresAt || expiresAt < Date.now()) {
+        result = { success: false, error: 'ad_session_invalid' };
+        return;
+      }
+
+      // Burn the token before the award decision: a token is redeemable once,
+      // even when the daily cap or spacing rule then blocks the coins.
+      tx.update(sessionRef, {
+        used: true,
+        usedAt: FieldValue.serverTimestamp(),
+      });
+
+      const data = snap.data() || {};
       const todayWAT       = _watDateString();
       const lastWatchField = data.lastAdWatchDate;
       const lastWatchStr   = lastWatchField?.toDate
         ? _watDateString(lastWatchField.toDate())
         : null;
 
-      let dailyAdWatched = (lastWatchStr === todayWAT)
+      const dailyAdWatched = (lastWatchStr === todayWAT)
         ? (data.dailyAdWatched || 0)
         : 0;
 
-      // Defense-in-depth spacing: reject a call whose last recorded
-      // ad-watch timestamp is under 25 seconds ago. Does not penalize
-      // the daily-10 count (dailyAdWatched is left untouched).
-      const lastWatchDate = lastWatchField && lastWatchField.toDate
-        ? lastWatchField.toDate()
-        : null;
-      if (lastWatchDate && (Date.now() - lastWatchDate.getTime()) < 30000) {
+      // Defense-in-depth spacing: reject a redemption whose last recorded
+      // ad-watch timestamp is under 30 seconds ago. Does not penalize the
+      // daily count (dailyAdWatched is left untouched).
+      const lastWatchDate = lastWatchField?.toDate ? lastWatchField.toDate() : null;
+      if (lastWatchDate && (Date.now() - lastWatchDate.getTime()) < AD_SPACING_MS) {
         result = { success: false, error: 'ad_cooldown_active' };
         return;
       }
 
-      if (dailyAdWatched >= 10) {
+      if (dailyAdWatched >= AD_DAILY_MAX) {
         result = { success: false, error: 'daily_limit_reached' };
         return;
       }
 
-      const currentCoins   = data.animeCoins || 0;
-      const newBalance     = currentCoins + 15;
-      const newDailyCount  = dailyAdWatched + 1;
+      const currentCoins  = data.animeCoins || 0;
+      const newBalance    = currentCoins + AD_REWARD_COINS;
+      const newDailyCount = dailyAdWatched + 1;
 
       tx.update(userRef, {
-        animeCoins:      FieldValue.increment(15),
+        animeCoins:      FieldValue.increment(AD_REWARD_COINS),
         dailyAdWatched:  newDailyCount,
         lastAdWatchDate: FieldValue.serverTimestamp(),
       });
@@ -5462,14 +6466,14 @@ exports.recordAdWatch = onCall(
       const txLogRef = userRef.collection('coinTransactions').doc();
       tx.set(txLogRef, {
         type:        'earn_ad',
-        delta:       15,
+        delta:       AD_REWARD_COINS,
         balanceAfter: newBalance,
         timestamp:   FieldValue.serverTimestamp(),
       });
 
       result = {
         success:        true,
-        coinsAwarded:   15,
+        coinsAwarded:   AD_REWARD_COINS,
         newBalance,
         dailyAdWatched: newDailyCount,
       };
@@ -5477,22 +6481,23 @@ exports.recordAdWatch = onCall(
 
     if (result.success) {
       console.log(
-        `[recordAdWatch] uid=${uid} +15 AC` +
-        ` | dailyAdWatched=${result.dailyAdWatched}/10`
+        `[recordAdWatch] uid=${uid} +${AD_REWARD_COINS} AC` +
+        ` | dailyAdWatched=${result.dailyAdWatched}/${AD_DAILY_MAX}`
       );
     } else {
-      console.log(`[recordAdWatch] uid=${uid} �?${result.error}`);
+      console.log(`[recordAdWatch] uid=${uid} -> ${result.error}`);
     }
 
     return result;
   }
 );
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ─── SECTION 6: DAILY LOGIN (unchanged) ────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.recordDailyLogin = onCall(
+exports.recordDailyLogin = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -5546,6 +6551,130 @@ exports.recordDailyLogin = onCall(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─── SOLO ANIME COOLDOWNS (server-authoritative) ───────────────────────────
+// A lock lives at users/{uid}/cooldowns/{title} = { title, expiresAt }. Only
+// this file writes it (Admin SDK); firestore.rules makes the subcollection
+// owner-readable and never client-writable, so clearing app data cannot skip a
+// lock. Duration is keyed by how many titles were started together: 2 → 10 min,
+// 3 → 7, 4 → 5, 5 → 4, 6 → 3, 7 → 2, 8 → 1, 9–10 → no lock.
+const SOLO_COOLDOWN_SECONDS_BY_COUNT = [0, 0, 600, 420, 300, 240, 180, 120, 60, 0, 0];
+
+// Bundled fallback; the live list is app_config/anime_catalog.titles when set.
+// Mirrors lib/core/constants/anime_catalog.dart.
+const ANIME_CATALOG_FALLBACK = [
+  'attack on titan',
+  'demon slayer',
+  'jujutsu kaisen',
+  'naruto',
+  'one piece',
+  'one punch man',
+  'bleach',
+  'dragon ball z',
+  'my hero academia',
+  'death note',
+];
+let _animeCatalogCache = null;
+
+function soloCooldownSeconds(titleCount) {
+  const i = Math.max(0, Math.min(10, Number(titleCount) || 0));
+  return SOLO_COOLDOWN_SECONDS_BY_COUNT[i];
+}
+
+function _normalizeTitle(raw) {
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+}
+
+async function _loadAnimeCatalog() {
+  const nowMs = Date.now();
+  if (_animeCatalogCache && nowMs - _animeCatalogCache.at < 60000) {
+    return _animeCatalogCache.titles;
+  }
+  let titles = ANIME_CATALOG_FALLBACK;
+  try {
+    const snap = await db.collection('app_config').doc('anime_catalog').get();
+    const raw = snap.exists ? snap.data()?.titles : null;
+    if (Array.isArray(raw)) {
+      const clean = [...new Set(raw.map(_normalizeTitle).filter(Boolean))];
+      if (clean.length) titles = clean;
+    }
+  } catch (err) {
+    console.warn(`[anime_catalog] read failed, using bundled list: ${err.message}`);
+  }
+  _animeCatalogCache = { at: nowMs, titles };
+  return titles;
+}
+
+function _isCooldownActive(snap, nowMs) {
+  if (!snap || !snap.exists) return false;
+  const ts = snap.data()?.expiresAt;
+  return !!ts && typeof ts.toMillis === 'function' && ts.toMillis() > nowMs;
+}
+
+// Starts the solo cooldown for a lineup. Refuses (failed-precondition /
+// cooldown_active) if any picked title is still locked, so the lock is enforced
+// here rather than trusted to the client. Titles the user has permanently
+// unlocked (users/{uid}.unlockedAnimes) are exempt and never get a lock.
+exports.startSoloCooldowns = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError('unauthenticated', 'Unauthenticated');
+    }
+    await _assertClientBuildAllowed(request, 'startSoloCooldowns', { requireStamp: true });
+
+    const raw = request.data?.titles;
+    if (!Array.isArray(raw)) {
+      throw new HttpsError('invalid-argument', 'invalid_titles');
+    }
+    const titles = [...new Set(raw.map(_normalizeTitle))];
+    if (titles.length < 2 || titles.length > 10 || titles.some((t) => !t)) {
+      throw new HttpsError('invalid-argument', 'invalid_titles');
+    }
+    const catalog = await _loadAnimeCatalog();
+    if (titles.some((t) => !catalog.includes(t))) {
+      throw new HttpsError('invalid-argument', 'invalid_anime');
+    }
+
+    const lockSecs = soloCooldownSeconds(titles.length);
+    const nowMs = Date.now();
+    const expiresAtMs = nowMs + lockSecs * 1000;
+    const userRef = db.collection('users').doc(uid);
+    const refs = titles.map((t) => userRef.collection('cooldowns').doc(t));
+    const expiresAt = {};
+
+    await db.runTransaction(async (tx) => {
+      const [userSnap, ...cdSnaps] = await Promise.all([
+        tx.get(userRef),
+        ...refs.map((r) => tx.get(r)),
+      ]);
+      const unlocked = Array.isArray(userSnap.data()?.unlockedAnimes)
+        ? userSnap.data().unlockedAnimes
+        : [];
+
+      const blocked = titles.filter(
+        (t, i) => !unlocked.includes(t) && _isCooldownActive(cdSnaps[i], nowMs)
+      );
+      if (blocked.length) {
+        throw new HttpsError('failed-precondition', 'cooldown_active', { titles: blocked });
+      }
+      if (lockSecs === 0) return;
+
+      titles.forEach((t, i) => {
+        if (unlocked.includes(t)) return;
+        tx.set(refs[i], {
+          title: t,
+          expiresAt: Timestamp.fromMillis(expiresAtMs),
+          startedAt: FieldValue.serverTimestamp(),
+        });
+        expiresAt[t] = expiresAtMs;
+      });
+    });
+
+    return { lockSeconds: lockSecs, expiresAt };
+  }
+);
+
 // ─── SECTION 7: SPEND COINS ────────────────────────────────────────────────
 // spend_timer (20 AC) = Timer Pause power-up: freezes the current question's
 // countdown until the player answers (client-side freeze, one use per
@@ -5553,7 +6682,7 @@ exports.recordDailyLogin = onCall(
 // added server-side.
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.spendCoins = onCall(
+exports.spendCoins = onSecureCall(
   {
     region: 'us-central1',
     minInstances: 0,
@@ -5587,10 +6716,32 @@ exports.spendCoins = onCall(
     const userRef = db.collection('users').doc(uid);
     let result = null;
 
+    // spend_cooldown names the one title whose lock it clears; spend_retry
+    // names the lineup whose locks a paid retry clears.
+    let cooldownRef = null;
+    if (type === 'spend_cooldown') {
+      const title = _normalizeTitle(request.data?.title);
+      const catalog = await _loadAnimeCatalog();
+      if (!title || !catalog.includes(title)) {
+        throw new HttpsError('invalid-argument', 'invalid_anime');
+      }
+      cooldownRef = userRef.collection('cooldowns').doc(title);
+    }
+    const retryTitles = type === 'spend_retry' && Array.isArray(request.data?.titles)
+      ? [...new Set(request.data.titles.map(_normalizeTitle).filter(Boolean))].slice(0, 10)
+      : [];
+
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(userRef);
       const data = snap.data() || {};
       const current = Number(data.animeCoins || 0);
+
+      // Solo retry (40 AC cooldown reset from the summary page) is a Premium
+      // perk. The client routes free users to the upsell; this is the
+      // authoritative check, since the callable is reachable directly.
+      if (type === 'spend_retry' && data.premiumActive !== true) {
+        throw new HttpsError('permission-denied', 'premium_required');
+      }
 
       if (type === 'spend_hint' && amount !== 10) {
         throw new HttpsError('invalid-argument', 'incorrect_hint_cost: expected 10');
@@ -5616,6 +6767,10 @@ exports.spendCoins = onCall(
           cooldownSkipsToday: skipsToday + 1,
           cooldownSkipsDate: todayWAT,
         };
+        const cdSnap = await tx.get(cooldownRef);
+        if (!_isCooldownActive(cdSnap, Date.now())) {
+          throw new HttpsError('failed-precondition', 'cooldown_not_active');
+        }
       }
 
       if (current < deductAmount) {
@@ -5635,6 +6790,12 @@ exports.spendCoins = onCall(
 
       if (skipUpdateFields) {
         tx.update(userRef, skipUpdateFields);
+      }
+      if (cooldownRef) {
+        tx.delete(cooldownRef);
+      }
+      for (const t of retryTitles) {
+        tx.delete(userRef.collection('cooldowns').doc(t));
       }
 
       const txLogRef = userRef.collection('coinTransactions').doc();
@@ -5659,7 +6820,7 @@ exports.spendCoins = onCall(
 // ─── SECTION 9: REWARDED INTERSTITIAL (unchanged) ─────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.recordRewardedInterstitialWatch = onCall(
+exports.recordRewardedInterstitialWatch = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -5693,13 +6854,14 @@ exports.recordRewardedInterstitialWatch = onCall(
 // ─── SECTION 10: SUBMIT QUIZ ANSWERS (unchanged) ──────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.submitQuizAnswers = onCall(
+exports.submitQuizAnswers = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) {
       throw new HttpsError('unauthenticated', 'Unauthenticated');
     }
+    await _assertClientBuildAllowed(request, 'submitQuizAnswers');
 
     const { sessionId, questionIds, selectedAnswers, timings } = request.data;
 
@@ -5985,7 +7147,7 @@ exports.submitQuizAnswers = onCall(
 // Legacy clients that submit without a ticket fall back to the old atomic
 // deduct-at-submit path inside submitDailyGauntlet, so this is backwards
 // compatible.
-exports.enterDailyGauntlet = onCall(
+exports.enterDailyGauntlet = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -6094,7 +7256,7 @@ exports.enterDailyGauntlet = onCall(
 // unaffordable retry is rejected without awarding anything.
 
 // Default titles every player has in their unlocked pool. Mirrors the
-// UNLOCKABLE_ANIMES base set shown in the app's home grid.
+// bundled ANIME_CATALOG_FALLBACK list (the home grid's starting set).
 const GAUNTLET_BASE_TITLES = [
   'attack on titan',
   'demon slayer',
@@ -6133,7 +7295,7 @@ const GAUNTLET_MAX_RETRIES = 6; // max valid index
 // progressively less WP for a rising AC cost. The free attempt is not decayed.
 const GAUNTLET_RETRY_DECAY = 0.55;
 
-exports.submitDailyGauntlet = onCall(
+exports.submitDailyGauntlet = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -6558,7 +7720,7 @@ exports.submitDailyGauntlet = onCall(
 // ─── SECTION 11: LOGIN STREAK WP MILESTONES (unchanged) ────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.awardLoginStreakWP = onCall(
+exports.awardLoginStreakWP = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -6614,11 +7776,12 @@ exports.awardLoginStreakWP = onCall(
 // ─── SECTION 12: QUICK MATCH FUNCTIONS (unchanged) ────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.consumeQMToken = onCall(
+exports.consumeQMToken = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'consumeQMToken');
 
     const now             = new Date();
     // 24/7 QM: the token bucket is the WAT day, never a time window.
@@ -6659,11 +7822,12 @@ exports.consumeQMToken = onCall(
   }
 );
 
-exports.grantAdQMToken = onCall(
+exports.grantAdQMToken = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'grantAdQMToken');
 
     const userRef = db.collection('users').doc(uid);
     let tokensRemaining;
@@ -6715,12 +7879,13 @@ exports.grantAdQMToken = onCall(
 // Ghost-only Quick Match: removes all real-player matchmaking, goes straight
 // to ghost match with no waiting. Real 1v1 matchmaking has been disabled.
 
-exports.joinMatchmakingQueue = onCall(
+exports.joinMatchmakingQueue = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     try {
       const uid = request.auth?.uid;
       if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+      await _assertClientBuildAllowed(request, 'joinMatchmakingQueue');
 
       const now             = new Date();
       // 24/7 QM: the token bucket is the WAT day, never a time window.
@@ -6785,32 +7950,11 @@ exports.joinMatchmakingQueue = onCall(
         };
       }
 
-      // ── Check active challenge cap ─────────────────────────────────────────
-      // Rival and Code challenges (createChallenge/joinChallenge) have always
-      // capped a user at 2 concurrent active challenges. Quick Match never
-      // enforced this, so a user could rack up unlimited concurrent real
-      // matches via the queue with no equivalent guardrail �?inconsistent
-      // with the other two modes and a real way to end up with stuck/
-      // forgotten matches. Ghost challenges don't count (status 'ghost' is
-      // not in ACTIVE_CHALLENGE_STATUSES), so this only limits real 1v1s.
-      const [qmAsCreator, qmAsOpponent] = await Promise.all([
-        db.collection('challenges')
-          .where('creatorUid', '==', uid)
-          .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)
-          .get(),
-
-        db.collection('challenges')
-          .where('opponentUid', '==', uid)
-          .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)
-          .get(),
-      ]);
-
-      if (qmAsCreator.size + qmAsOpponent.size >= (userData.premiumActive === true ? ACTIVE_CHALLENGES_PREMIUM : ACTIVE_CHALLENGES_FREE)) {
-        throw new HttpsError(
-          'resource-exhausted',
-          'too_many_active_challenges'
-        );
-      }
+      // ── Active challenge cap ───────────────────────────────────────────────
+      // Moved INSIDE the ghost-reserve transaction below so two concurrent
+      // quick matches (or a quick match racing a create/join) can't both pass a
+      // stale pre-read. Ghost challenges don't count (status 'ghost' is not in
+      // ACTIVE_CHALLENGE_STATUSES), so this only limits real 1v1s.
 
       // ── Ghost-only Quick Match: removed real player matchmaking ─────────────────
       // Remove self from queue if exists (cleanup from previous attempts)
@@ -6904,6 +8048,24 @@ exports.joinMatchmakingQueue = onCall(
               throw new Error('ghost_unavailable');
             }
 
+            // Active-challenge cap, checked inside the tx (race-safe). Ghost
+            // challenges are excluded by the status filter, so only real 1v1s
+            // count against the user's concurrent-match budget.
+            const [capAsCreator, capAsOpponent] = await Promise.all([
+              tx.get(db.collection('challenges')
+                .where('creatorUid', '==', uid)
+                .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+              tx.get(db.collection('challenges')
+                .where('opponentUid', '==', uid)
+                .where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+            ]);
+            const capMaxActive = userData.premiumActive === true
+              ? ACTIVE_CHALLENGES_PREMIUM
+              : ACTIVE_CHALLENGES_FREE;
+            if (capAsCreator.size + capAsOpponent.size >= capMaxActive) {
+              throw new HttpsError('resource-exhausted', 'too_many_active_challenges');
+            }
+
             reservedGhost = sessions[idx];
             sessions.splice(idx, 1);
 
@@ -6919,6 +8081,10 @@ exports.joinMatchmakingQueue = onCall(
               opponentUid:    'ghost',
               ghostSessionId: reservedGhost.sessionId,
               ghostUsername:  reservedGhost.username,
+              // Recorder uid, kept so an abandoned match can hand the recording
+              // back to the pool with its "never face your own ghost" identity
+              // intact (see expireAbandonedQuickMatches).
+              ghostUid:       reservedGhost.uid ?? null,
               opponentUsername: reservedGhost.username,
                 ghostScore:     reservedGhost.score,
                 animeTitle:     pick.anime,
@@ -6981,12 +8147,13 @@ exports.joinMatchmakingQueue = onCall(
   }
 );
 
-exports.leaveMatchmakingQueue = onCall(
+exports.leaveMatchmakingQueue = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     try {
       const uid = request.auth?.uid;
       if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+      await _assertClientBuildAllowed(request, 'leaveMatchmakingQueue');
 
       await db.collection('matchmaking_queue').doc(uid).delete();
 
@@ -7004,12 +8171,13 @@ exports.leaveMatchmakingQueue = onCall(
 // ─── submitQuickMatchResult (unchanged) ────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.submitQuickMatchResult = onCall(
+exports.submitQuickMatchResult = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     try {
       const uid = request.auth?.uid;
       if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+      await _assertClientBuildAllowed(request, 'submitQuickMatchResult');
 
       const {
         challengeId,
@@ -7163,8 +8331,23 @@ exports.submitQuickMatchResult = onCall(
         const userRef    = db.collection('users').doc(uid);
         const matchRef   = userRef.collection('matches').doc();
 
+        // Idempotency: the pre-tx status check above is not race-safe on its
+        // own. Re-read the challenge inside the tx and bail if a concurrent
+        // submission already settled it, so a double-tap can't pay twice.
+        let alreadySettled = false;
+
         await db.runTransaction(async (tx) => {
-          const userSnap     = await tx.get(userRef);
+          const [userSnap, freshChallengeSnap] = await Promise.all([
+            tx.get(userRef),
+            tx.get(challengeRef),
+          ]);
+          const freshChallenge = freshChallengeSnap.data() || {};
+          if (!freshChallengeSnap.exists ||
+              freshChallenge.resolved === true ||
+              freshChallenge.status === 'completed') {
+            alreadySettled = true;
+            return;
+          }
           const userData     = userSnap.data() || {};
           const currentCoins = userData.animeCoins || 0;
           const newBalance   = currentCoins + acEarned;
@@ -7288,6 +8471,20 @@ exports.submitQuickMatchResult = onCall(
           });
         });
 
+        if (alreadySettled) {
+          console.log(
+            `[submitQuickMatchResult] GHOST uid=${uid}` +
+            ` | challengeId=${challengeId} already settled by a concurrent submission`
+          );
+          return {
+            correctCount,
+            isGhost:  true,
+            outcome:  challenge.outcome || 'opponent_wins',
+            wpEarned: 0,
+            acEarned: 0,
+          };
+        }
+
         console.log(
           `[submitQuickMatchResult] GHOST uid=${uid}` +
           ` | challengeId=${challengeId}` +
@@ -7331,15 +8528,161 @@ exports.submitQuickMatchResult = onCall(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─── saveGhostSession (unchanged) ──────────────────────────────────────────
+// ─── submitChallengeScore (Rival / Code / Spar) ─────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-
-exports.saveGhostSession = onCall(
+// Server-authoritative score for every NON-ghost challenge, exactly as
+// submitQuickMatchResult is for Quick Match. The client no longer writes
+// creatorScore / opponentScore directly (firestore.rules denies it), so a
+// patched client can no longer submit a winning score and steal the opponent's
+// stake. The question set is read straight off the challenge doc, so a caller
+// cannot swap in questions whose answers they know.
+exports.submitChallengeScore = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     try {
       const uid = request.auth?.uid;
       if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+      await _assertClientBuildAllowed(request, 'submitChallengeScore', { requireStamp: true });
+
+      const {
+        challengeId,
+        questionIds,
+        selectedAnswers,
+        timings,
+      } = request.data || {};
+
+      if (typeof challengeId !== 'string' || !challengeId.trim()) {
+        throw new HttpsError('invalid-argument', 'invalid_challenge_id');
+      }
+      if (
+        !Array.isArray(questionIds) || questionIds.length !== 10 ||
+        !questionIds.every((id) => typeof id === 'string' && id.length > 0)
+      ) {
+        throw new HttpsError('invalid-argument', 'invalid_question_ids');
+      }
+      if (new Set(questionIds).size !== 10) {
+        throw new HttpsError('invalid-argument', 'duplicate_question_id');
+      }
+      if (
+        !Array.isArray(selectedAnswers) || selectedAnswers.length !== 10 ||
+        !selectedAnswers.every((a) => Number.isInteger(a) && (a === -1 || (a >= 0 && a <= 3)))
+      ) {
+        throw new HttpsError('invalid-argument', 'invalid_selected_answers');
+      }
+      if (
+        !Array.isArray(timings) || timings.length !== 10 ||
+        !timings.every((t) => Number.isInteger(t) && (t === -1 || (t >= 0 && t <= 60)))
+      ) {
+        throw new HttpsError('invalid-argument', 'invalid_timings');
+      }
+
+      const challengeRef  = db.collection('challenges').doc(challengeId);
+      const challengeSnap = await challengeRef.get();
+      if (!challengeSnap.exists) {
+        throw new HttpsError('not-found', 'challenge_not_found');
+      }
+      const challenge = challengeSnap.data();
+
+      // Quick Match owns its own submission path (it also settles the ghost in
+      // place), so it must never route through here.
+      if (challenge.isQuickMatch === true || challenge.opponentUid === 'ghost') {
+        throw new HttpsError('failed-precondition', 'use_submit_quick_match');
+      }
+      if (challenge.resolved === true || challenge.status === 'completed') {
+        throw new HttpsError('failed-precondition', 'challenge_not_active');
+      }
+
+      const isCreator  = challenge.creatorUid  === uid;
+      const isOpponent = challenge.opponentUid === uid;
+      if (!isCreator && !isOpponent) {
+        throw new HttpsError('permission-denied', 'not_a_participant');
+      }
+
+      // The question set is authoritative on the challenge doc.
+      const authoritativeIds = Array.isArray(challenge.questionIds)
+        ? challenge.questionIds.map(String)
+        : [];
+      if (
+        authoritativeIds.length !== 10 ||
+        authoritativeIds.some((id, idx) => id !== questionIds[idx])
+      ) {
+        throw new HttpsError('failed-precondition', 'question_set_mismatch');
+      }
+
+      // The caller's own seat must still be free.
+      const scoreField = isCreator ? 'creatorScore' : 'opponentScore';
+      if (challenge[scoreField] != null) {
+        throw new HttpsError('failed-precondition', 'score_already_submitted');
+      }
+      // The caller must actually hold a seat: the opponent can only play after
+      // joining (which is what debited their stake); the creator after their own
+      // create (which is why 'waiting' is allowed for the creator only).
+      const allowedStatuses = isCreator
+        ? ['waiting', 'opponent_joined', 'opponent_submitted']
+        : ['opponent_joined', 'creator_submitted'];
+      if (!allowedStatuses.includes(challenge.status)) {
+        throw new HttpsError('failed-precondition', 'challenge_not_active');
+      }
+      // 'creator_submitted' now ALSO occurs while a creator has played but the
+      // invitee has not accepted yet (the invite stays open). In that state the
+      // opponent has not paid a stake, so they must not be able to play: require
+      // joinedAt (set by joinChallenge) before an opponent's score is accepted.
+      // (Legacy docs joined before this field existed are still covered by the
+      // unambiguous 'opponent_joined' state.)
+      if (isOpponent && !challenge.joinedAt) {
+        throw new HttpsError('failed-precondition', 'challenge_not_active');
+      }
+
+      // Score the answers against the real question documents.
+      const refs = questionIds.map((id) => db.collection('questions').doc(id));
+      const snaps = await db.getAll(...refs);
+      let correctCount = 0;
+      for (let i = 0; i < snaps.length; i++) {
+        const snap = snaps[i];
+        if (!snap.exists) {
+          throw new HttpsError('failed-precondition', 'invalid_question_id');
+        }
+        const q = snap.data() || {};
+        if (selectedAnswers[i] === q.correctAnswerIndex) correctCount++;
+      }
+
+      // Write atomically, and only if the seat is STILL free: a double-tap or a
+      // retry must never overwrite/duplicate a submitted score.
+      let wrote = false;
+      await db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(challengeRef);
+        const fresh = freshSnap.data() || {};
+        if (!freshSnap.exists || fresh.resolved === true) return;
+        if (fresh[scoreField] != null) return;
+        tx.update(challengeRef, { [scoreField]: correctCount });
+        wrote = true;
+      });
+
+      console.log(
+        `[submitChallengeScore] uid=${uid} | challengeId=${challengeId}` +
+        ` | ${scoreField}=${correctCount} | wrote=${wrote}`
+      );
+      return { correctCount, scoreField, isCreator, wrote };
+    } catch (err) {
+      if (!(err instanceof HttpsError)) {
+        console.error('[submitChallengeScore] ERROR:', err);
+      }
+      throw err;
+    }
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── saveGhostSession (unchanged) ──────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.saveGhostSession = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    try {
+      const uid = request.auth?.uid;
+      if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+      await _assertClientBuildAllowed(request, 'saveGhostSession');
 
       const { animeTitle, questionIds, answers } = request.data || {};
       const cleanAnimeTitle = typeof animeTitle === 'string' ? animeTitle.trim().toLowerCase() : '';
@@ -7468,7 +8811,7 @@ const IAP_CATALOG = {
   animequiz_coins_3600: { acAmount: 2880, grantChampionBadge: true  },
 };
 
-exports.verifyIAPPurchase = onCall(
+exports.verifyIAPPurchase = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -7544,7 +8887,7 @@ exports.verifyIAPPurchase = onCall(
 // ─── SECTION 14: PREMIUM PASS (unchanged) ──────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.verifyPremiumPurchase = onCall(
+exports.verifyPremiumPurchase = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -7564,7 +8907,7 @@ exports.verifyPremiumPurchase = onCall(
     }
 
     const now      = Timestamp.now();
-    const expiresAt = Timestamp.fromMillis(now.toMillis() + 31 * 24 * 60 * 60 * 1000);
+    const expiresAt = Timestamp.fromMillis(now.toMillis() + 28 * 24 * 60 * 60 * 1000);
 
     await db.runTransaction(async (tx) => {
       const receiptSnap = await tx.get(receiptRef);
@@ -7595,6 +8938,17 @@ exports.verifyPremiumPurchase = onCall(
 // Admin-only gate. FILL IN the real UID before deploying �?the placeholder is
 // intentionally left so it can't be missed.
 const ADMIN_UIDS = ['owMNkXmb6QSzO0xfHkSgMlx0zSJ3'];
+
+// O(1) membership + one named predicate so every admin exclusion reads the
+// same way. Admin accounts are GHOSTS: never ranked, never paid, never
+// notified, never counted on any player-facing board or query.
+// Mirrored in firestore.rules (isPayoutAdmin) and in
+// lib/core/constants/admin_accounts.dart — keep all three in sync when the
+// admin account rotates.
+const ADMIN_UID_SET = new Set(ADMIN_UIDS);
+function isAdminAccountUid(uid) {
+  return !!uid && ADMIN_UID_SET.has(uid);
+}
 
 // Charset for generated codes: uppercase letters + digits, excluding the
 // ambiguous 0/O and 1/I/L. 12 chars (XXXX-XXXX-XXXX) �?31^12 �?7.9e17 combos.
@@ -7675,7 +9029,7 @@ const FLUTTERWAVE_PRODUCTS = {
   'AQ_AC_300':  { txToken: 'AC300',  type: 'ac',      value: 300,  amount: 500,  currency: 'NGN', title: 'Add 300 Anime Coins' },
   'AQ_AC_1100': { txToken: 'AC1100', type: 'ac',      value: 990,  amount: 1500, currency: 'NGN', title: 'Add 990 Anime Coins' },
   'AQ_AC_3600': { txToken: 'AC3600', type: 'ac',      value: 2880, amount: 4000, currency: 'NGN', title: 'Add 2880 Anime Coins (+ Champion badge)' },
-  'AQ_PREM_31': { txToken: 'PREM31', type: 'premium', value: 31,   amount: 2000, currency: 'NGN', title: 'Premium Pass (31 days)' },
+  'AQ_PREM_31': { txToken: 'PREM31', type: 'premium', value: 28,   amount: 2000, currency: 'NGN', title: 'Premium Pass (28 days)' },
   // Leaderboard entry: the week ID is injected at mint time (currentWeekId()),
   // so `value` here is a placeholder. txToken LBWK cannot prefix-collide with
   // AC300/AC1100/AC3600/PREM31 in the tx_ref startsWith resolution.
@@ -7981,10 +9335,55 @@ function _isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+// ─── Redemption failure lockout ────────────────────────────────────────────
+// Code existence, status, type, expiry and duplicate-week failures all return
+// ONE generic message, so a logged-in client cannot use distinct errors as an
+// oracle. Failures are counted per uid in a CF-only doc: five within 15
+// minutes locks redemption for 30 minutes. Success clears the counter.
+const REDEEM_MAX_FAILURES = 5;
+const REDEEM_WINDOW_MS = 15 * 60 * 1000;
+const REDEEM_LOCK_MS = 30 * 60 * 1000;
+const REDEEM_GENERIC_MESSAGE = 'Invalid or expired code.';
+
+async function _assertRedeemNotLocked(uid) {
+  const snap = await db.collection('redeemAttempts').doc(uid).get();
+  const lockedUntil = snap.data()?.lockedUntil;
+  const untilMs = lockedUntil?.toMillis ? lockedUntil.toMillis() : 0;
+  if (untilMs > Date.now()) {
+    throw new HttpsError(
+      'resource-exhausted',
+      'Too many attempts. Try again later.'
+    );
+  }
+}
+
+async function _recordRedeemFailure(uid) {
+  const ref = db.collection('redeemAttempts').doc(uid);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.data() || {};
+    const now = Date.now();
+    const windowStart = data.windowStart?.toMillis ? data.windowStart.toMillis() : 0;
+    const inWindow = windowStart > 0 && (now - windowStart) < REDEEM_WINDOW_MS;
+    const failCount = (inWindow ? (data.failCount || 0) : 0) + 1;
+    const locked = failCount >= REDEEM_MAX_FAILURES;
+    tx.set(ref, {
+      failCount,
+      windowStart: Timestamp.fromMillis(inWindow ? windowStart : now),
+      lastFailAt:  FieldValue.serverTimestamp(),
+      ...(locked ? { lockedUntil: Timestamp.fromMillis(now + REDEEM_LOCK_MS) } : {}),
+    }, { merge: true });
+  });
+}
+
+async function _clearRedeemFailures(uid) {
+  await db.collection('redeemAttempts').doc(uid).delete();
+}
+
 // ─── User-facing redemption ────────────────────────────────────────────────
 // Normalization (consistent with generation, both sides): canonical form is
 // UPPERCASE XXXX-XXXX-XXXX; doc ID for lookup is exactly this string.
-exports.redeemCode = onCall(
+exports.redeemCode = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -8002,12 +9401,15 @@ exports.redeemCode = onCall(
     }
     const code = rawCode.trim().toUpperCase();
 
+    await _assertRedeemNotLocked(uid);
+
     const codeRef = db.collection('redemptionCodes').doc(code);
     const userRef = db.collection('users').doc(uid);
     const now     = Timestamp.now();
 
     let result;
-    await db.runTransaction(async (tx) => {
+    try {
+      await db.runTransaction(async (tx) => {
       // ALL reads happen FIRST, before ANY write (Firestore requirement).
       const codeSnap = await tx.get(codeRef);
       if (!codeSnap.exists) {
@@ -8023,6 +9425,13 @@ exports.redeemCode = onCall(
       const type = data.type;
       if (type !== 'ac' && type !== 'premium' && type !== 'leaderboard_entry') {
         throw new HttpsError('failed-precondition', 'Invalid code type');
+      }
+
+      // Ghost admin accounts are never part of the player economy: an admin
+      // cannot take a leaderboard entry — the one action that used to drag the
+      // admin into the weekly prize split and payout queue.
+      if (type === 'leaderboard_entry' && isAdminAccountUid(uid)) {
+        throw new HttpsError('failed-precondition', 'Admin accounts cannot enter the leaderboard.');
       }
 
       let value = data.value;
@@ -8041,8 +9450,8 @@ exports.redeemCode = onCall(
           throw new HttpsError('failed-precondition', 'You already have leaderboard entry for this week');
         }
       } else {
-        // Premium default: 31 days, matching verifyPremiumPurchase's expiresAt.
-        if (typeof value !== 'number' || !(value > 0)) value = 31;
+        // Premium default: 28 days, matching verifyPremiumPurchase's expiresAt.
+        if (typeof value !== 'number' || !(value > 0)) value = 28;
       }
 
       if (
@@ -8121,15 +9530,37 @@ exports.redeemCode = onCall(
 
         result = { success: true, type, value };
       }
-    });
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) {
+        // Every code-state failure is indistinguishable to the caller, and
+        // each one counts toward the lockout.
+        try {
+          await _recordRedeemFailure(uid);
+        } catch (recordErr) {
+          console.warn(`[redeemCode] failure counter write failed: ${recordErr.message}`);
+        }
+        console.log(`[redeemCode] uid=${uid} rejected (${err.code})`);
+        throw new HttpsError('invalid-argument', REDEEM_GENERIC_MESSAGE);
+      }
+      throw err;
+    }
 
-    console.log(`[redeemCode] uid=${uid} code=${code} �?${JSON.stringify(result)}`);
+    // Success resets the window so a legitimate player who mistyped a code is
+    // not punished after a later success.
+    try {
+      await _clearRedeemFailures(uid);
+    } catch (err) {
+      console.warn(`[redeemCode] failure counter clear failed: ${err.message}`);
+    }
+
+    console.log(`[redeemCode] uid=${uid} code=${code} -> ${JSON.stringify(result)}`);
     return result;
   }
 );
 
 // ─── Admin-only generation (testing / distribution) ────────────────────────
-exports.generateRedemptionCodes = onCall(
+exports.generateRedemptionCodes = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -8194,7 +9625,7 @@ exports.generateRedemptionCodes = onCall(
 // pool falls below this floor, runWeeklyReset bumps the pool up to it (the
 // shortfall is developer-funded and recorded in the cycle's notes). Not
 // automatic �?must be set explicitly per week by an admin.
-exports.setLeaderboardFloor = onCall(
+exports.setLeaderboardFloor = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -8259,7 +9690,7 @@ exports.setLeaderboardFloor = onCall(
 // infra. Fails safely (HttpsError 'unavailable') when Flutterwave is down →
 // the client shows error/retry and never falls back to hardcoded codes.
 const _banksCache = { at: 0, banks: [] };
-exports.listNigerianBanks = onCall(
+exports.listNigerianBanks = onSecureCall(
   { region: 'us-central1', secrets: [FLW_SECRET_KEY] },
   async (request) => {
     if (!request.auth?.uid) {
@@ -8318,7 +9749,105 @@ exports.listNigerianBanks = onCall(
 // Privacy: bank details are stored so the admin can pay the winner. They are
 // NOT purged after payment — the winner may need them again for a future
 // week, and they are never exposed to any other player.
-exports.submitPayoutDetails = onCall(
+// ─── Payout detail writes (CF-only) + audit trail ──────────────────────────
+// users/{uid}/payoutDetails is the reusable destination account the admin pays
+// by hand. It used to be owner-writable from the client, so a stolen session
+// (or a patched app) could swap a winner's account at any time. Writes now go
+// through savePayoutDetail / submitPayoutDetails, and every change appends an
+// immutable entry to payoutDetailAudit (CF-only collection) with the account
+// number reduced to its last four digits.
+function _maskAccountNumber(raw) {
+  const s = String(raw || '');
+  return s.length >= 4 ? `****${s.slice(-4)}` : '****';
+}
+
+function _payoutAuditSnapshot(data) {
+  if (!data) return null;
+  return {
+    bankName: typeof data.bankName === 'string' ? data.bankName : '',
+    bankCode: typeof data.bankCode === 'string' ? data.bankCode : '',
+    beneficiaryName: typeof data.beneficiaryName === 'string' ? data.beneficiaryName : '',
+    accountMask: _maskAccountNumber(data.accountNumber || data.accountMask || ''),
+  };
+}
+
+function _validatePayoutPayload(data) {
+  const { accountNumber, bankCode, beneficiaryName, bankName } = data || {};
+  if (typeof accountNumber !== 'string' || !/^\d{10}$/.test(accountNumber.trim())) {
+    throw new HttpsError('invalid-argument', 'accountNumber must be a 10-digit string');
+  }
+  if (typeof bankCode !== 'string' || !/^\d{2,10}$/.test(bankCode.trim())) {
+    throw new HttpsError('invalid-argument', 'bankCode must be a valid bank code');
+  }
+  if (typeof beneficiaryName !== 'string' ||
+      beneficiaryName.trim().length < 3 ||
+      beneficiaryName.trim().length > 100) {
+    throw new HttpsError('invalid-argument', 'beneficiaryName must be 3-100 characters');
+  }
+  if (bankName !== undefined &&
+      (typeof bankName !== 'string' || bankName.trim().length > 80)) {
+    throw new HttpsError('invalid-argument', 'bankName is invalid');
+  }
+  return {
+    accountNumber: accountNumber.trim(),
+    bankCode: bankCode.trim(),
+    beneficiaryName: beneficiaryName.trim(),
+    bankName: typeof bankName === 'string' ? bankName.trim() : '',
+  };
+}
+
+// Creates or updates ONE reusable payout detail. The detail write and its audit
+// entry happen in the same transaction, so an account change can never be
+// recorded without its before/after trail (or vice versa).
+exports.savePayoutDetail = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    await _assertClientBuildAllowed(request, 'savePayoutDetail');
+
+    const payload = _validatePayoutPayload(request.data);
+    const rawDocId = request.data?.docId;
+    const docId = typeof rawDocId === 'string' && rawDocId.trim()
+      ? rawDocId.trim()
+      : null;
+    if (docId && !/^[A-Za-z0-9_-]{1,120}$/.test(docId)) {
+      throw new HttpsError('invalid-argument', 'docId is invalid');
+    }
+
+    const coll = db.collection('users').doc(uid).collection('payoutDetails');
+    const ref = docId ? coll.doc(docId) : coll.doc();
+    const action = docId ? 'update' : 'create';
+
+    await db.runTransaction(async (tx) => {
+      const beforeSnap = docId ? await tx.get(ref) : null;
+      if (docId && !beforeSnap.exists) {
+        throw new HttpsError('not-found', 'Payout detail not found.');
+      }
+      const before = beforeSnap?.data() || null;
+
+      tx.set(ref, {
+        ...payload,
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(docId ? {} : { createdAt: FieldValue.serverTimestamp() }),
+      }, { merge: true });
+
+      tx.set(db.collection('payoutDetailAudit').doc(), {
+        uid,
+        docId: ref.id,
+        action,
+        before: _payoutAuditSnapshot(before),
+        after:  _payoutAuditSnapshot(payload),
+        at:     FieldValue.serverTimestamp(),
+      });
+    });
+
+    console.log(`[savePayoutDetail] uid=${uid} doc=${ref.id} action=${action}`);
+    return { success: true, id: ref.id };
+  }
+);
+
+exports.submitPayoutDetails = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -8363,6 +9892,27 @@ exports.submitPayoutDetails = onCall(
     }
     if (ranked[idx].paid === true) {
       throw new HttpsError('failed-precondition', 'Your prize has already been paid out');
+    }
+
+    const share = Number(ranked[idx].share) || 0;
+    if (share <= 0) {
+      throw new HttpsError(
+        'failed-precondition',
+        'No prize share for that rank: only the top 5 paid entrants win a prize.'
+      );
+    }
+
+    // The advertised 3-day claim window is enforced here, not just in copy.
+    // Without it a winner could submit after expiry and enter a
+    // submit-then-expire loop, and non-submitters were never forfeited at all.
+    const CLAIM_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+    const calculatedAt = cycleData.calculatedAt;
+    if (calculatedAt?.toMillis &&
+        calculatedAt.toMillis() + CLAIM_WINDOW_MS < Date.now()) {
+      throw new HttpsError(
+        'failed-precondition',
+        'The claim window has closed (3 days after the week closed) and this share was forfeited.'
+      );
     }
 
     const claimRef   = cycleRef.collection('pendingClaim').doc(uid);
@@ -8413,7 +9963,10 @@ exports.submitPayoutDetails = onCall(
       .collection('payoutDetails')
       .where('accountNumber', '==', cleanAccount).limit(1).get();
 
+    const auditBefore = existingDetail.empty ? null : existingDetail.docs[0].data();
+    let auditDocId = '';
     if (!existingDetail.empty) {
+      auditDocId = existingDetail.docs[0].id;
       await existingDetail.docs[0].ref.update({
         bankCode: cleanBank,
         bankName: '',
@@ -8421,7 +9974,7 @@ exports.submitPayoutDetails = onCall(
         updatedAt: FieldValue.serverTimestamp(),
       });
     } else {
-      await db.collection('users').doc(uid).collection('payoutDetails').add({
+      const created = await db.collection('users').doc(uid).collection('payoutDetails').add({
         accountNumber:   cleanAccount,
         bankCode:        cleanBank,
         bankName:        '',
@@ -8429,6 +9982,30 @@ exports.submitPayoutDetails = onCall(
         updatedAt:       FieldValue.serverTimestamp(),
         createdAt:       FieldValue.serverTimestamp(),
       });
+      auditDocId = created.id;
+    }
+
+    // Audit every destination change. The detail write above is already
+    // committed, so an audit failure is logged rather than surfacing as a
+    // submission failure (retrying would be treated as already_submitted).
+    try {
+      await db.collection('payoutDetailAudit').add({
+        uid,
+        docId: auditDocId,
+        action: auditBefore ? 'update' : 'create',
+        source: 'submitPayoutDetails',
+        cycleWeekId: weekId,
+        before: _payoutAuditSnapshot(auditBefore),
+        after: _payoutAuditSnapshot({
+          accountNumber: cleanAccount,
+          bankCode: cleanBank,
+          beneficiaryName: cleanName,
+          bankName: '',
+        }),
+        at: FieldValue.serverTimestamp(),
+      });
+    } catch (auditErr) {
+      console.error(`[submitPayoutDetails] audit write failed uid=${uid}: ${auditErr.message}`);
     }
 
     console.log(`[submitPayoutDetails] uid=${uid} week=${weekId} account=****${cleanAccount.slice(-4)} bank=${cleanBank}`);
@@ -8456,7 +10033,7 @@ exports.submitPayoutDetails = onCall(
 //
 // Undo: pass paid=false to reverse a mistaken mark. Supported as long as the
 // cycle has not been fully settled — see the allPaid recomputation below.
-exports.markLeaderboardPayout = onCall(
+exports.markLeaderboardPayout = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -8578,8 +10155,9 @@ exports.markLeaderboardPayout = onCall(
 // 2.3 checkPendingClaim — daily 3-day claim expiry (NO rollover)
 // ─────────────────────────────────────────────────────────────────────────────
 // Runs daily. For each leaderboardCycles/{weekId} whose calculatedAt is 3 days
-// old and whose status is still 'calculated' (not 'paid'), any winner whose
-// pendingClaim is still 'pending' (never marked as sent) is expired.
+// old and whose status is still 'calculated' (not 'paid'), any unpaid winner
+// whose pendingClaim is still 'pending' OR was never submitted at all is
+// expired and their share forfeited.
 //
 // WHAT HAPPENS TO THE MONEY: nothing is paid and nothing is carried forward.
 // The share is FORFEITED — it stays inside that week already-snapshotted
@@ -8633,35 +10211,46 @@ exports.checkPendingClaim = onSchedule(
         const share = Number(winner.share) || 0;
         const claimRef = cycleDoc.ref.collection('pendingClaim').doc(uid);
 
-        // Read-before-write tx: re-read claim + live cycle; only expire if the
-        // claim is still 'pending' AND the winner is still unpaid. Both checks
-        // happen inside the tx so a concurrent mark-paid cannot be clobbered
-        // and a re-run cannot double-count the forfeiture.
+        // Read-before-write tx: re-read claim + live cycle; expire if the claim
+        // is still 'pending' OR was never submitted at all, AND the winner is
+        // still unpaid. Both checks happen inside the tx so a concurrent
+        // mark-paid cannot be clobbered and a re-run cannot double-count the
+        // forfeiture.
         try {
-          await db.runTransaction(async (tx) => {
+          // Resolves true only when this run actually forfeited the share, so a
+          // re-run that finds the winner already settled is not counted again.
+          const forfeited = await db.runTransaction(async (tx) => {
+            // All reads first.
             const freshClaim = await tx.get(claimRef);
-            if (!freshClaim.exists || freshClaim.data().status !== 'pending') return;
-
-            // Re-check paid state inside the tx against the live cycle doc.
             const freshCycle = await tx.get(cycleDoc.ref);
+
             const liveData   = freshCycle.data() || {};
             const liveRanked = Array.isArray(liveData.ranked) ? liveData.ranked : [];
             const liveWinner = liveRanked.find((r) => r && r.uid === uid);
-            if (!liveWinner || liveWinner.paid === true) return;
+            if (!liveWinner || liveWinner.paid === true) return false;
 
-            tx.update(claimRef, {
-              status:    'expired',
-              expiredAt: FieldValue.serverTimestamp(),
+            const status = freshClaim.exists ? freshClaim.data().status : null;
+            // Already settled or already expired/forfeited.
+            if (status === 'marked' || status === 'expired') return false;
+
+            // 'pending' (submitted, never marked) OR no claim at all → expire
+            // and record the forfeiture. The never-submitted case previously
+            // left the share unaccounted for forever.
+            tx.set(claimRef, {
+              ...(freshClaim.exists ? freshClaim.data() : {}),
+              uid,
+              status:         'expired',
+              expiredAt:      FieldValue.serverTimestamp(),
               forfeitedNaira: share,
-            });
+              ...(freshClaim.exists ? {} : { neverSubmitted: true }),
+            }, { merge: true });
 
-            // Accounting only — no pool is incremented and nothing is carried
-            // forward. This keeps prizePool reconcilable:
-            //   sum(paid shares) + forfeitedNaira === prizePool
             tx.update(cycleDoc.ref, {
               forfeitedNaira: FieldValue.increment(share),
             });
+            return true;
           });
+          if (!forfeited) continue;
           expiredCount++;
           cycleForfeited += share;
           forfeitedTotal += share;
@@ -8689,7 +10278,7 @@ exports.checkPendingClaim = onSchedule(
 //
 // NEVER includes bank account numbers or beneficiary names — bookkeeping only.
 // Account numbers stay inside the app's admin queue and are never bulk-exported.
-exports.exportPayoutLog = onCall(
+exports.exportPayoutLog = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -8780,7 +10369,7 @@ exports.exportPayoutLog = onCall(
 //     the single hardcoded admin account.
 //   - markLeaderboardPayout remains the ONLY state transition available here.
 // ─────────────────────────────────────────────────────────────────────────────
-exports.listPayoutClaims = onCall(
+exports.listPayoutClaims = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
@@ -9386,6 +10975,7 @@ exports.awardPremiumMonday = onSchedule(
 
       const batch = db.batch();
       for (const doc of snap.docs) {
+        if (isAdminAccountUid(doc.id)) continue; // ghost admin: no economy
         const data       = doc.data();
         const newBalance = (data.animeCoins || 0) + 30;
 
@@ -9451,6 +11041,7 @@ exports.awardPremiumMonthlyWP = onSchedule(
 
       const batch = db.batch();
       for (const doc of snap.docs) {
+        if (isAdminAccountUid(doc.id)) continue; // ghost admin: no economy
         const data   = doc.data();
         const granted = data.premiumMonthlyWPGranted;
 
@@ -9578,7 +11169,7 @@ exports.expireExpiredPremium = onSchedule(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Cosmetic catalog removed �?cosmetic shop is closed.
-exports.purchaseCosmetic = onCall(
+exports.purchaseCosmetic = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -9590,7 +11181,7 @@ exports.purchaseCosmetic = onCall(
 
 // COSMETIC_CATALOG removed �?cosmetic shop is closed.
 
-exports.equipCosmetic = onCall(
+exports.equipCosmetic = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -9633,7 +11224,7 @@ exports.equipCosmetic = onCall(
 // ─── SECTION 16: PHONE OTP VERIFICATION (unchanged) ───────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-exports.confirmPhoneVerification = onCall(
+exports.confirmPhoneVerification = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -9689,13 +11280,23 @@ async function sendToUser(uid, { title, body, data }) {
   }
 }
 
-async function sendToTokens(tokens, { title, body }) {
+// Like sendToUser, but reports failure: callers that must know whether the
+// message went out (nudgeFriend rolls its daily stamp back on a throw).
+async function _sendPushOrThrow(uid, { title, body }) {
+  const snap = await db.collection('users').doc(uid).get();
+  const token = snap.data()?.fcmToken;
+  if (!token) throw new Error('no_fcm_token');
+  await getMessaging().send({ token, notification: { title, body } });
+}
+
+async function sendToTokens(tokens, { title, body, data }) {
   const clean = tokens.filter(Boolean);
   if (clean.length === 0) return;
   try {
     await getMessaging().sendEachForMulticast({
       tokens: clean,
       notification: { title, body },
+      ...(data ? { data } : {}),
     });
   } catch (err) {
     console.warn(`[sendToTokens] batch of ${clean.length} failed (ignored): ${err.message}`);
@@ -9707,7 +11308,11 @@ exports.mondayPrizePoolAnnouncement = onSchedule(
   async () => {
     const weekId = currentWeekId();
     const poolSnap = await db.collection('prize_pool').doc(weekId).get();
-    const total = poolSnap.data()?.totalNaira || 0;
+    const poolData = poolSnap.data() || {};
+    const adminPool = Number(poolData.adminPoolNaira);
+    const total = (Number.isFinite(adminPool) && adminPool > 0)
+      ? adminPool
+      : (Number(poolData.entryCodeRevenue) || 0) * 0.70;
 
     const title = '⚔️ New week, new prize pool!';
     const body  = `�?{total.toLocaleString()} up for grabs. The competition starts now.`;
@@ -9720,8 +11325,11 @@ exports.mondayPrizePoolAnnouncement = onSchedule(
       const snap = await q.get();
       if (snap.empty) break;
 
-      const tokens = snap.docs.map((d) => d.data().fcmToken).filter(Boolean);
-      await sendToTokens(tokens, { title, body });
+      const tokens = snap.docs
+        .filter((d) => !isAdminAccountUid(d.id))
+        .map((d) => d.data().fcmToken)
+        .filter(Boolean);
+      await sendToTokens(tokens, { title, body, data: { type: 'leaderboard' } });
       sent += tokens.length;
 
       lastDoc = snap.docs[snap.docs.length - 1];
@@ -9736,10 +11344,11 @@ exports.thursdayNearMiss = onSchedule(
   async () => {
     const top50 = await db.collection('users')
       .orderBy('weeklyPoints', 'desc')
-      .limit(50)
+      .limit(50 + ADMIN_UIDS.length)
       .get();
 
-    const docs = top50.docs;
+    // Ghost admin accounts hold no rank and get no player notifications.
+    const docs = top50.docs.filter((d) => !isAdminAccountUid(d.id));
     if (docs.length < 4) return;
 
     const thirdPlaceWP = docs[2].data().weeklyPoints || 0;
@@ -9754,6 +11363,7 @@ exports.thursdayNearMiss = onSchedule(
       await sendToUser(docs[i].id, {
         title: '📊 You\'re within reach!',
         body:  `You're rank ${rank} �?${gap} WP behind 3rd place. 3 days left.`,
+        data:  { type: 'leaderboard' },
       });
       sent++;
     }
@@ -9766,7 +11376,11 @@ exports.sundayUrgency = onSchedule(
   async () => {
     const weekId   = currentWeekId();
     const poolSnap = await db.collection('prize_pool').doc(weekId).get();
-    const total    = poolSnap.data()?.totalNaira || 0;
+    const poolData = poolSnap.data() || {};
+    const adminPool = Number(poolData.adminPoolNaira);
+    const total = (Number.isFinite(adminPool) && adminPool > 0)
+      ? adminPool
+      : (Number(poolData.entryCodeRevenue) || 0) * 0.70;
 
     const title = '�?6 hours left!';
     const body  = `Prize pool: �?{total.toLocaleString()}. Don't let someone sneak past you.`;
@@ -9779,8 +11393,11 @@ exports.sundayUrgency = onSchedule(
       const snap = await q.get();
       if (snap.empty) break;
 
-      const tokens = snap.docs.map((d) => d.data().fcmToken).filter(Boolean);
-      await sendToTokens(tokens, { title, body });
+      const tokens = snap.docs
+        .filter((d) => !isAdminAccountUid(d.id))
+        .map((d) => d.data().fcmToken)
+        .filter(Boolean);
+      await sendToTokens(tokens, { title, body, data: { type: 'leaderboard' } });
       sent += tokens.length;
 
       lastDoc = snap.docs[snap.docs.length - 1];
@@ -9790,13 +11407,14 @@ exports.sundayUrgency = onSchedule(
   }
 );
 
-async function notifyWeeklyWinners(winners) {
+async function notifyWeeklyWinners(winners, weekId) {
   const winnerUidSet = new Set(winners.map((w) => w.uid));
 
   for (const w of winners) {
     await sendToUser(w.uid, {
       title: '🏆 You won!',
       body:  `You finished #${w.rank} and won �?{w.prize.toLocaleString()}. Claim in the app.`,
+      data:  { type: 'winner_claim', weekId },
     });
   }
 
@@ -9816,10 +11434,10 @@ async function notifyWeeklyWinners(winners) {
     if (snap.empty) break;
 
     const tokens = snap.docs
-      .filter((d) => !winnerUidSet.has(d.id))
+      .filter((d) => !winnerUidSet.has(d.id) && !isAdminAccountUid(d.id))
       .map((d) => d.data().fcmToken)
       .filter(Boolean);
-    await sendToTokens(tokens, { title: genericTitle, body: genericBody });
+    await sendToTokens(tokens, { title: genericTitle, body: genericBody, data: { type: 'leaderboard' } });
 
     lastDoc = snap.docs[snap.docs.length - 1];
     if (snap.docs.length < BATCH_SIZE) break;
@@ -9840,7 +11458,10 @@ async function _broadcastQMWindow(windowName, title, body) {
     const snap = await q.get();
     if (snap.empty) break;
 
-    const tokens = snap.docs.map((d) => d.data().fcmToken).filter(Boolean);
+    const tokens = snap.docs
+      .filter((d) => !isAdminAccountUid(d.id))
+      .map((d) => d.data().fcmToken)
+      .filter(Boolean);
     await sendToTokens(tokens, { title, body });
     sent += tokens.length;
 
@@ -9882,6 +11503,7 @@ async function _remindQMUnspentTokens(title) {
     if (snap.empty) break;
 
     for (const doc of snap.docs) {
+      if (isAdminAccountUid(doc.id)) continue; // ghost admin: no notifications
       const d = doc.data();
       if (!d.fcmToken) continue;
       const tokens = d.qmTokens;
@@ -9912,20 +11534,7 @@ exports.qmUnspentTokenReminder = onSchedule(
 // homepage spend surface (lib/features/home/home_page.dart).
 const EARLY_UNLOCK_COST = 5000;
 
-const UNLOCKABLE_ANIMES = new Set([
-  'attack on titan',
-  'demon slayer',
-  'jujutsu kaisen',
-  'naruto',
-  'one piece',
-  'one punch man',
-  'bleach',
-  'dragon ball z',
-  'my hero academia',
-  'death note',
-]);
-
-exports.unlockAnimeEarly = onCall(
+exports.unlockAnimeEarly = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -9933,8 +11542,9 @@ exports.unlockAnimeEarly = onCall(
       throw new HttpsError('unauthenticated', 'Unauthenticated');
     }
 
-    const animeTitle = request.data?.animeTitle;
-    if (typeof animeTitle !== 'string' || !UNLOCKABLE_ANIMES.has(animeTitle)) {
+    const animeTitle = _normalizeTitle(request.data?.animeTitle);
+    const catalog = await _loadAnimeCatalog();
+    if (!animeTitle || !catalog.includes(animeTitle)) {
       throw new HttpsError('invalid-argument', 'invalid_anime');
     }
 
@@ -9974,6 +11584,7 @@ exports.unlockAnimeEarly = onCall(
         animeCoins: FieldValue.increment(-cost),
         unlockedAnimes: FieldValue.arrayUnion(animeTitle),
       });
+      tx.delete(userRef.collection('cooldowns').doc(animeTitle));
 
       const txLogRef = userRef.collection('coinTransactions').doc();
       tx.set(txLogRef, {
@@ -10078,7 +11689,7 @@ async function _markQuestionsSeen(uid, questionIds, questionMap) {
 // counters. Mark-as-seen writes (submit flows) are Step 5b and NOT in this
 // change �?nothing below touches submitQuizAnswers, submitDailyGauntlet,
 // submitQuickMatchResult, or challenge resolution.
-exports.resetSeenPool = onCall(
+exports.resetSeenPool = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
     const uid = request.auth?.uid;
@@ -10158,6 +11769,109 @@ exports.resetSeenPool = onCall(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─── Contact / bug reports / suggestions ─────────────────────────────────────
+// One callable for every "talk to us" message. Writes are server-only: the
+// feedback collection is unreadable and unwritable from clients (see
+// firestore.rules), so a patched client cannot backfill, re-label or delete
+// reports. Deliberately NOT build-gated: an outdated install is exactly the
+// client most likely to be reporting that it is stuck.
+const FEEDBACK_CATEGORIES = ['bug', 'suggestion', 'other'];
+const FEEDBACK_SUBJECT_MAX = 120;
+const FEEDBACK_MESSAGE_MIN = 10;
+const FEEDBACK_MESSAGE_MAX = 2000;
+const FEEDBACK_DAILY_LIMIT = 10;
+const FEEDBACK_COOLDOWN_MS = 30 * 1000;
+
+exports.submitFeedback = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError('unauthenticated', 'Sign in to send feedback.');
+    }
+
+    const data = request.data || {};
+    const category = typeof data.category === 'string'
+      ? data.category.trim().toLowerCase() : '';
+    if (!FEEDBACK_CATEGORIES.includes(category)) {
+      throw new HttpsError('invalid-argument', 'invalid_category');
+    }
+
+    const message = typeof data.message === 'string' ? data.message.trim() : '';
+    if (message.length < FEEDBACK_MESSAGE_MIN) {
+      throw new HttpsError(
+        'invalid-argument',
+        `message_too_short:${FEEDBACK_MESSAGE_MIN}`,
+      );
+    }
+    if (message.length > FEEDBACK_MESSAGE_MAX) {
+      throw new HttpsError(
+        'invalid-argument',
+        `message_too_long:${FEEDBACK_MESSAGE_MAX}`,
+      );
+    }
+
+    // Subject is optional; the category is the fallback label for triage.
+    const subjectRaw = typeof data.subject === 'string' ? data.subject.trim() : '';
+    const subject = (subjectRaw || category).slice(0, FEEDBACK_SUBJECT_MAX);
+
+    // Diagnostic context, best-effort. Never trusted for anything but triage.
+    const platform = typeof data.platform === 'string'
+      ? data.platform.slice(0, 16) : 'unknown';
+    const appBuild = Number.isInteger(data.appBuild) ? data.appBuild : null;
+
+    let docId = '';
+    await db.runTransaction(async (tx) => {
+      const userRef = db.collection('users').doc(uid);
+      const userSnap = await tx.get(userRef);
+      const user = userSnap.exists ? (userSnap.data() || {}) : {};
+
+      // Flood guard: one message per 30s plus a per-WAT-day budget. Enforced
+      // in the same transaction as the write so two parallel calls cannot
+      // both pass the check.
+      const lastAt = user.feedbackLastAt?.toDate?.();
+      if (lastAt && Date.now() - lastAt.getTime() < FEEDBACK_COOLDOWN_MS) {
+        throw new HttpsError(
+          'resource-exhausted',
+          'Please wait a moment before sending another message.',
+        );
+      }
+      const today = _watDateString();
+      const sentToday = user.feedbackDate === today
+        ? Number(user.feedbackSentToday || 0) : 0;
+      if (sentToday >= FEEDBACK_DAILY_LIMIT) {
+        throw new HttpsError(
+          'resource-exhausted',
+          'You have reached today\'s feedback limit. Try again tomorrow.',
+        );
+      }
+
+      const ref = db.collection('feedback').doc();
+      docId = ref.id;
+      tx.set(ref, {
+        uid,
+        username: user.username || 'Anonymous',
+        email: user.email || request.auth?.token?.email || '',
+        category,
+        subject,
+        message,
+        platform,
+        appBuild,
+        status: 'new',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      tx.set(userRef, {
+        feedbackLastAt: FieldValue.serverTimestamp(),
+        feedbackDate: today,
+        feedbackSentToday: sentToday + 1,
+      }, { merge: true });
+    });
+
+    console.log(`[submitFeedback] uid=${uid} category=${category} id=${docId}`);
+    return { success: true, id: docId };
+  }
+);
+
 // ─── SECTION: AUTH USER CLEANUP (orphan prevention) ─────────────────────────
 // Fires AFTER a Firebase Auth user is deleted (console or Admin SDK) and
 // recursively wipes users/{uid} + every subcollection (matches, coin/wp
@@ -10193,6 +11907,17 @@ exports.cleanupDeletedUser = onUserDeleted(async (event) => {
   try {
     await db.recursiveDelete(ref);
     console.log(`[cleanupDeletedUser] wiped users/${uid} tree`);
+    // Root-level feedback bears the uid/email too. deleteAccount already
+    // wipes it on the self-service path; this covers console/Admin deletions.
+    try {
+      const removed = await _deleteQueryInBatches(
+        db.collection('feedback').where('uid', '==', uid), 'feedback');
+      if (removed > 0) {
+        console.log(`[cleanupDeletedUser] deleted ${removed} feedback docs for ${uid}`);
+      }
+    } catch (err) {
+      console.warn(`[cleanupDeletedUser] feedback cleanup failed uid=${uid}: ${err.message}`);
+    }
   } catch (err) {
     // Surfaced in Cloud logs; manual fallback is scripts/purge_users.js
     // (dry-run default). Rethrown so the failure is visible as a function

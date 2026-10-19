@@ -339,14 +339,23 @@ class FakeDb {
     return new ColRef(this, p);
   }
   async runTransaction(fn) {
+    // Mirrors @google-cloud/firestore: every read must precede every write.
+    let wrote = false;
+    const readGuard = () => {
+      if (wrote) throw new Error('Firestore transactions require all reads to be executed before all writes.');
+    };
     const tx = {
       get: (refOrQuery) => {
-        if (refOrQuery instanceof DocRef) return refOrQuery.get();
+        readGuard();
         return refOrQuery.get();
       },
-      set: (ref, data, opts) => ref.set(data, opts),
-      update: (ref, data) => ref.update(data),
-      delete: (ref) => ref.delete(),
+      getAll: (...refs) => {
+        readGuard();
+        return Promise.all(refs.map((r) => r.get()));
+      },
+      set: (ref, data, opts) => { wrote = true; return ref.set(data, opts); },
+      update: (ref, data) => { wrote = true; return ref.update(data); },
+      delete: (ref) => { wrote = true; return ref.delete(); },
     };
     return fn(tx);
   }
@@ -396,6 +405,7 @@ function installFakes() {
   const db = new FakeDb(store);
   const sentPush = [];
   const deletedAuthUsers = [];
+  const pushFlags = { failPush: false };
 
   intercept('firebase-admin/app', {
     initializeApp: () => ({}),
@@ -411,11 +421,13 @@ function installFakes() {
       deleteUser: async (uid) => {
         deletedAuthUsers.push(uid);
       },
+      updateUser: async (uid) => ({ uid }),
     }),
   });
   intercept('firebase-admin/messaging', {
     getMessaging: () => ({
       send: async (msg) => {
+        if (pushFlags.failPush) throw new Error('fake fcm outage');
         sentPush.push(msg);
         return 'fake-msg-id';
       },
@@ -460,7 +472,7 @@ function installFakes() {
     onUserDeleted: (handler) => ({ run: (e) => handler(e) }),
   });
 
-  return { db, store, sentPush, deletedAuthUsers, HttpsError, FakeTimestamp };
+  return { db, store, sentPush, pushFlags, deletedAuthUsers, HttpsError, FakeTimestamp };
 }
 
 module.exports = { installFakes, FakeTimestamp };

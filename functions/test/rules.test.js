@@ -30,6 +30,10 @@ const seed = {
     outgoingReqDate: '', outgoingReqCount: 0,
     rivalCooldowns: {},
   },
+  [`users/${ALICE}/payoutDetails/d1`]: {
+    accountNumber: '0123456789', bankCode: '058',
+    beneficiaryName: 'Alice', bankName: 'GTBank',
+  },
   [`users/${BOB}`]: {
     username: 'bob', animeCoins: 300, weeklyPoints: 400,
     premiumActive: false, university: 'UNILAG',
@@ -72,6 +76,7 @@ const seed = {
   'telemetry/user_blocks/events/ev1': { blockedBy: ALICE, blockedUid: BOB },
   'app_config/android': { minBuild: 2, latestBuild: 3, apkUrl: 'https://x.test/a.apk' },
   'friendCodes/AAAAAAAAAA': { uid: BOB },
+  'referralCodes/ZZZZZZ': { uid: BOB },
 };
 
 // Partitioned into paths usable directly as collection/doc refs.
@@ -175,67 +180,23 @@ describe('firestore.rules against the emulator', () => {
       }));
     });
 
-    it('participant may write ONLY their own score, once', async () => {
-      const db = env.authenticatedContext(ALICE).firestore();
-      await allowed(
-        doc(db, 'challenges/ch1').update({ creatorScore: 7 }),
-        'alice writes own score');
-    });
-
-    it('opponent may write only their own score', async () => {
-      const db = env.authenticatedContext(BOB).firestore();
-      await allowed(
-        doc(db, 'challenges/ch1').update({ opponentScore: 4 }),
-        'bob writes own score');
-    });
-
-    it('participant may NOT write the OTHER side score', async () => {
-      const db = env.authenticatedContext(ALICE).firestore();
-      await denied(
-        doc(db, 'challenges/ch1').update({ opponentScore: 10 }));
-    });
-
-    it('score cannot exceed the question count', async () => {
-      const db = env.authenticatedContext(ALICE).firestore();
-      // ch1 has 10 questions → 11 is out of range, 10 is in range.
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 11 }));
-    });
-
-    it('score must be an int (no bool/string/double sneaking in)', async () => {
-      const db = env.authenticatedContext(ALICE).firestore();
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: '7' }));
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7.5 }));
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: true }));
-    });
-
-    it('score may not be negative', async () => {
-      const db = env.authenticatedContext(ALICE).firestore();
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: -1 }));
-    });
-
-    it('no mass-assignment: status alongside own score is denied', async () => {
-      const db = env.authenticatedContext(ALICE).firestore();
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, status: 'completed' }));
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, resolved: true }));
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, outcome: 'creator_wins' }));
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, stakeAmount: 0 }));
-    });
-
-    it('opponentUid-claim branch is gone (joins are CF-only)', async () => {
-      const db = env.authenticatedContext(CAROL).firestore();
-      await denied(doc(db, 'challenges/ch_code').update({ opponentUid: CAROL }));
-    });
-
-    it('score is write-once: a second write is denied', async () => {
-      // ch1 now has creatorScore=7 from an earlier test (rules enforce live).
-      const db = env.authenticatedContext(ALICE).firestore();
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 9 }));
-    });
-
-    it('non-participant may not write anything', async () => {
-      const db = env.authenticatedContext(CAROL).firestore();
-      await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7 }));
-      await denied(doc(db, 'challenges/ch1').update({ opponentScore: 7 }));
+    it('client may NOT write any challenge field (scores are server-authoritative)', async () => {
+      // Scores used to be client-writable, which made the payout input
+      // client-attested: a patched client could submit a perfect score and
+      // steal the opponent's stake. They now go through the
+      // submitChallengeScore / submitQuickMatchResult callables, so the rules
+      // deny every client update outright.
+      for (const uid of [ALICE, BOB, CAROL]) {
+        const db = env.authenticatedContext(uid).firestore();
+        await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7 }));
+        await denied(doc(db, 'challenges/ch1').update({ opponentScore: 4 }));
+        await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, status: 'completed' }));
+        await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, resolved: true }));
+        await denied(doc(db, 'challenges/ch1').update({ creatorScore: 7, stakeAmount: 0 }));
+      }
+      // The old code-challenge "claim the opponent seat" branch is gone with it.
+      const carol = env.authenticatedContext(CAROL).firestore();
+      await denied(doc(carol, 'challenges/ch_code').update({ opponentUid: CAROL }));
     });
 
     it('challenge deletes are impossible for clients', async () => {
@@ -284,6 +245,8 @@ describe('firestore.rules against the emulator', () => {
         'rivalCooldowns', 'lastRivalUid', 'lastRivalChallenge',
         'achievementsGranted', 'ownedCosmetics', 'dailyAdWatched',
         'unlockedCategories', 'phoneVerified', 'leaderboardEntryEmail',
+        // Feedback flood guard: a client must never reset its own counters.
+        'feedbackLastAt', 'feedbackDate', 'feedbackSentToday',
       ]) {
         await denied(
           doc(db, `users/${ALICE}`).update({ [f]: 1 }),
@@ -291,14 +254,21 @@ describe('firestore.rules against the emulator', () => {
       }
     });
 
-    it('self-update CAN change cosmetic-free display fields', async () => {
+    it('self-update CAN change only the FCM token', async () => {
       const db = env.authenticatedContext(ALICE).firestore();
       await allowed(
-        doc(db, `users/${ALICE}`).update({ username: 'alice2', university: 'OAU' }),
-        'alice updates username/university');
+        doc(db, `users/${ALICE}`).update({ fcmToken: 'token_abc' }),
+        'alice updates her FCM token');
+      // Username and university are now server-owned (changeUsername /
+      // updateUniversity callables), so a direct write must be denied.
+      await denied(doc(db, `users/${ALICE}`).update({ username: 'alice2' }));
+      await denied(doc(db, `users/${ALICE}`).update({ university: 'OAU' }));
+      await denied(doc(db, `users/${ALICE}`).update({
+        fcmToken: 'ok', username: 'smuggled',
+      }));
     });
 
-    it('new-user create must NOT seed economy fields', async () => {
+    it('new-user create is CF-only (no client-seeded profile)', async () => {
       const db = env.authenticatedContext('uid_new').firestore();
       await denied(doc(db, 'users/uid_new').set({
         username: 'new', animeCoins: 100000, weeklyPoints: 100000,
@@ -309,11 +279,11 @@ describe('firestore.rules against the emulator', () => {
       await denied(doc(db, 'users/uid_new3').set({
         username: 'new', friendCode: 'AAAAAA', friendCount: 50,
       }));
-    });
-
-    it('new-user create of a clean minimal profile is allowed', async () => {
-      const db = env.authenticatedContext('uid_clean').firestore();
-      await allowed(doc(db, 'users/uid_clean').set({ username: 'clean' }));
+      await denied(doc(db, 'users/uid_new4').set({
+        username: 'new', feedbackSentToday: 0, feedbackDate: '2000-01-01',
+      }));
+      // Even a pristine profile is created by ensureProfile, never the client.
+      await denied(doc(db, 'users/uid_clean').set({ username: 'clean' }));
     });
 
     it('cannot create or update another user doc', async () => {
@@ -338,6 +308,15 @@ describe('firestore.rules against the emulator', () => {
       await denied(doc(alice, 'friendCodes/ZZZZZZZZZZ').set({ uid: ALICE }));
       const anon = env.unauthenticatedContext().firestore();
       await denied(doc(anon, 'friendCodes/AAAAAAAAAA').get());
+    });
+
+    it('referralCodes is a sealed collection (no uid-enumeration oracle)', async () => {
+      const alice = env.authenticatedContext(ALICE).firestore();
+      await denied(doc(alice, 'referralCodes/ZZZZZZ').get());
+      await denied(col(alice, 'referralCodes').get());
+      await denied(doc(alice, 'referralCodes/QQQQQQ').set({ uid: ALICE }));
+      const anon = env.unauthenticatedContext().firestore();
+      await denied(doc(anon, 'referralCodes/ZZZZZZ').get());
     });
 
     it('friendship pair doc: participants read, everyone else denied', async () => {
@@ -397,30 +376,59 @@ describe('firestore.rules against the emulator', () => {
 
   // ── ledgers + misc collections ────────────────────────────────────────────
   describe('ledgers and reads', () => {
-    it('coinTransactions: owner appends with a whitelisted type, no updates', async () => {
+    it('coinTransactions: owner reads, every write is CF-only', async () => {
       const a = env.authenticatedContext(ALICE).firestore();
       const base = 'users/uid_alice/coinTransactions';
-      await allowed(doc(a, `${base}/ok`).set({
+      // The ledger is audit data: a client-forged entry (even a whitelisted
+      // type) is now denied outright.
+      await denied(doc(a, `${base}/ok`).set({
         type: 'earn_quiz', delta: 5, balanceAfter: 505, timestamp: 0,
-      }), 'whitelisted coin tx');
+      }));
       await denied(doc(a, `${base}/bad`).set({
         type: 'earn_admin_cheat', delta: 999999, balanceAfter: 999999, timestamp: 0,
       }));
       await denied(doc(a, `${base}/ok`).update({ delta: 999999 }));
       await denied(doc(a, `${base}/ok`).delete());
-      await denied(doc(a, `${base}/bad2`).set({ delta: 5, balanceAfter: 1 }));
     });
 
-    it('wpTransactions: owner appends with a whitelisted type only', async () => {
+    it('wpTransactions: owner reads, every write is CF-only', async () => {
       const a = env.authenticatedContext(ALICE).firestore();
       const base = 'users/uid_alice/wpTransactions';
-      await allowed(doc(a, `${base}/ok`).set({
+      await denied(doc(a, `${base}/ok`).set({
         type: 'earn_challenge_win', delta: 100, balanceAfter: 600, timestamp: 0,
-      }), 'whitelisted wp tx');
-      await denied(doc(a, `${base}/bad`).set({
-        type: 'earn_challenge_win_legacy', delta: 1, balanceAfter: 1, timestamp: 0,
       }));
       await denied(doc(a, `${base}/ok`).update({ delta: 1 }));
+      await denied(doc(a, `${base}/ok`).delete());
+    });
+
+    it('payoutDetails: owner reads, every write is CF-only', async () => {
+      const a = env.authenticatedContext(ALICE).firestore();
+      const b = env.authenticatedContext(BOB).firestore();
+      await allowed(doc(a, `users/${ALICE}/payoutDetails/d1`).get(), 'owner read');
+      await denied(doc(b, `users/${ALICE}/payoutDetails/d1`).get());
+      await denied(doc(a, `users/${ALICE}/payoutDetails/d1`).set({
+        accountNumber: '9999999999', bankCode: '999',
+      }));
+      await denied(doc(a, `users/${ALICE}/payoutDetails/d1`).update({
+        accountNumber: '9999999999',
+      }));
+      await denied(doc(a, `users/${ALICE}/payoutDetails/d1`).delete());
+    });
+
+    it('security collections are sealed to every client', async () => {
+      const a = env.authenticatedContext(ALICE).firestore();
+      const anon = env.unauthenticatedContext().firestore();
+      for (const p of [
+        'usernames/alice',
+        'adSessions/11111111-1111-1111-1111-111111111111',
+        'adSessionRate/uid_alice',
+        'redeemAttempts/uid_alice',
+        'payoutDetailAudit/audit1',
+      ]) {
+        await denied(doc(a, p).get());
+        await denied(doc(a, p).set({ uid: ALICE }));
+        await denied(doc(anon, p).get());
+      }
     });
 
     it('matches subcollection: owner read only, no client writes', async () => {
@@ -430,6 +438,16 @@ describe('firestore.rules against the emulator', () => {
       await denied(doc(b, 'users/uid_alice/matches/m1').get());
       await denied(doc(a, 'users/uid_alice/matches/handmade')
         .set({ outcome: 'win' }));
+    });
+
+    it('cooldowns: owner reads own locks, no client writes or deletes', async () => {
+      const a = env.authenticatedContext(ALICE).firestore();
+      const b = env.authenticatedContext(BOB).firestore();
+      await allowed(doc(a, 'users/uid_alice/cooldowns/naruto').get(), 'owner reads own lock');
+      await denied(doc(b, 'users/uid_alice/cooldowns/naruto').get());
+      await denied(doc(a, 'users/uid_alice/cooldowns/naruto')
+        .set({ title: 'naruto', expiresAt: new Date(Date.now() + 60000) }));
+      await denied(doc(a, 'users/uid_alice/cooldowns/naruto').delete());
     });
 
     it('questions: authenticated read, write denied', async () => {
@@ -456,6 +474,18 @@ describe('firestore.rules against the emulator', () => {
       await denied(doc(a, 'telemetry/user_blocks/events/ev1')
         .set({ blockedBy: 'x' }));
       await denied(doc(a, 'telemetry/any/deep/path').set({ x: 1 }));
+    });
+
+    it('feedback is sealed both ways', async () => {
+      const a = env.authenticatedContext(ALICE).firestore();
+      const anon = env.unauthenticatedContext().firestore();
+      // Server-only intake (submitFeedback callable): players can neither read
+      // nor write reports — not even their own.
+      await denied(doc(a, 'feedback/r1').get());
+      await denied(doc(anon, 'feedback/r1').get());
+      await denied(doc(a, 'feedback/r1').set({ uid: ALICE, message: 'x' }));
+      await denied(doc(a, 'feedback/r1').update({ status: 'closed' }));
+      await denied(doc(a, 'feedback/r1').delete());
     });
 
     it('app_config/android: publicly readable, admin-only writable', async () => {
