@@ -1210,19 +1210,34 @@ exports.deleteAccount = onSecureCall(
     // was still 'pending', so nothing is owed at this point and no money is
     // lost by keeping the record. Bank fields are PII and are redacted; the
     // amount, timestamps and markedBy stay for accounting.
+    //
+    // ONLY documents that already exist are updated. A player who never won a
+    // prize has no claim in most (or all) cycles; writing with set({merge:true})
+    // used to CREATE an anonymized claim for every cycle, polluting the payout
+    // ledger with phantom winners. update() is used instead, and a missing doc
+    // is skipped.
+    let anonymizedClaims = 0;
     for (const c of cycleSnaps.docs) {
-      await c.ref.collection('pendingClaim').doc(uid).set({
-        uid,
-        accountNumber:   FieldValue.delete(),
-        bankCode:        FieldValue.delete(),
-        beneficiaryName: FieldValue.delete(),
-        status:          'anonymized',
-        anonymizedAt:    FieldValue.serverTimestamp(),
-      }, { merge: true }).catch(() => {
-        // No claim for this cycle — nothing to anonymize.
-      });
+      const claimRef = c.ref.collection('pendingClaim').doc(uid);
+      try {
+        const claimSnap = await claimRef.get();
+        if (!claimSnap.exists) continue;
+        await claimRef.update({
+          accountNumber:   FieldValue.delete(),
+          bankCode:        FieldValue.delete(),
+          beneficiaryName: FieldValue.delete(),
+          status:          'anonymized',
+          anonymizedAt:    FieldValue.serverTimestamp(),
+        });
+        anonymizedClaims++;
+      } catch (err) {
+        // Never fail account erasure on a claim that cannot be updated; log so
+        // a persistent PII-leftover can still be spotted in the logs.
+        console.warn(
+          `[deleteAccount] pendingClaim anonymize skipped ${c.id}: ${err.message}`);
+      }
     }
-    deleted.pendingClaims = true;
+    if (anonymizedClaims > 0) anonymized.pendingClaims = anonymizedClaims;
 
     // ── 3. Anonymize shared / financial records ──────────────────────────
     const REDACTED_NAME = 'Deleted user';
