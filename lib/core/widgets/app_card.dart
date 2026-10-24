@@ -34,14 +34,44 @@ class AppCard extends StatelessWidget {
         AppCardTier.feature => AppRadii.feature,
       };
 
-  Border get _border => accentColor == null
-      ? Border.all(color: borderColor ?? AppColors.divider, width: 1)
-      : Border(
-          left: BorderSide(color: accentColor!, width: 4),
-          top: const BorderSide(color: AppColors.divider, width: 1),
-          right: const BorderSide(color: AppColors.divider, width: 1),
-          bottom: const BorderSide(color: AppColors.divider, width: 1),
-        );
+  /// A rounded border must use one colour on every side — Flutter asserts on
+  /// mixed colours with a `borderRadius`, and the paint throws, taking the
+  /// card's child (all of its text) down with it. The accent is therefore a
+  /// 4px stripe painted behind the content, not a heavier left border.
+  Border get _border =>
+      Border.all(color: borderColor ?? AppColors.divider, width: 1);
+
+  static const double _accentWidth = 4;
+
+  /// Pads [child] [padding] and, when [accentColor] is set, lays the accent
+  /// stripe inside the card's rounded clip so it never doubles as a border.
+  Widget _content(BorderRadius effectRadius) {
+    if (accentColor == null) {
+      return Padding(padding: padding, child: child);
+    }
+
+    return ClipRRect(
+      borderRadius: effectRadius,
+      child: Stack(
+        children: [
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            width: _accentWidth,
+            child: ColoredBox(color: accentColor!),
+          ),
+          Padding(
+            padding: padding,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(start: _accentWidth),
+              child: child,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,11 +92,12 @@ class AppCard extends StatelessWidget {
           : null,
     );
 
+    final content = _content(effectRadius);
+
     if (onTap == null) {
       return Container(
-        padding: padding,
         decoration: decoration,
-        child: child,
+        child: content,
       );
     }
 
@@ -79,10 +110,7 @@ class AppCard extends StatelessWidget {
           borderRadius: effectRadius,
           splashColor: AppColors.primary.withValues(alpha: 0.12),
           highlightColor: AppColors.primary.withValues(alpha: 0.08),
-          child: Padding(
-            padding: padding,
-            child: child,
-          ),
+          child: content,
         ),
       ),
     );

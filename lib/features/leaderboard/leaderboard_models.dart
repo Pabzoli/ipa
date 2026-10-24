@@ -9,51 +9,20 @@
 /// against this type instead.
 library;
 
-import '../../core/services/prize_pool_service.dart';
-
-/// How often the weekly leaderboard re-reads its data: **four times a day**.
+/// How old the board may get before a resume is allowed to re-read it.
 ///
-/// The board was previously backed by live Firestore snapshots, which hold an
-/// open websocket per board for as long as the page is mounted and push every
-/// `weeklyPoints` write from every cohort member. For a screen that shows a
-/// weekly ranking, that is a lot of traffic and battery spent delivering
-/// changes nobody acts on within the hour.
+/// This is **not** a poll cadence: there is no timer, no scheduled wake-up.
+/// The Global board loads when the page opens, re-reads on pull-to-refresh, and
+/// re-reads on resume only once the last successful fetch is at least this old.
+/// Between those events the app performs **zero** Firestore reads for this
+/// screen.
 ///
-/// Between refreshes the app performs **zero** Firestore reads for this screen:
-/// there is no poll timer, no pull-to-refresh, and no re-read on score change.
-/// The only reads are the initial fetch, the scheduled refresh, a resume when
-/// the cache has aged out, and an explicit retry after a failure.
+/// The board was previously backed by live Firestore snapshots (an open
+/// websocket per board, streaming every cohort member's `weeklyPoints` write),
+/// then by a self-rearming six-hour timer. Both delivered changes nobody acts
+/// on that fast while costing reads and battery; load-on-open plus a deliberate
+/// pull-to-refresh gives the player the same control with none of the idle work.
 const Duration kLeaderboardRefreshInterval = Duration(hours: 6);
-
-/// When the next scheduled read should happen: the earliest of
-///
-///   * [fetchedAt] + [kLeaderboardRefreshInterval] — the routine cadence;
-///   * the coming weekly reset (Sunday [PrizePoolService.resetHourUtc]:00 UTC),
-///     which snapshots and zeroes every player's points;
-///   * the coming week-id rollover (Monday 00:00 UTC), which changes which
-///     cohort the board is even querying.
-///
-/// The two week boundaries are an hour apart, so a refresh at the reset
-/// reschedules for the rollover and vice versa — each boundary therefore
-/// triggers exactly one fetch rather than two.
-///
-/// Pure, so the schedule is pinned by tests rather than by reading the page.
-DateTime nextRefreshAt({required DateTime fetchedAt, required DateTime now}) {
-  final nowUtc = now.toUtc();
-  final candidates = <DateTime>[
-    fetchedAt.toUtc().add(kLeaderboardRefreshInterval),
-    PrizePoolService.nextResetDate(now: nowUtc),
-    // Next Monday 00:00 UTC: the current week's start plus one week.
-    PrizePoolService.weekStartUtc(now: nowUtc).add(const Duration(days: 7)),
-  ];
-
-  var earliest = candidates.first;
-  for (final candidate in candidates) {
-    if (candidate.isBefore(earliest)) earliest = candidate;
-  }
-  // Defensive: never schedule in the past, which would busy-loop the timer.
-  return earliest.isAfter(nowUtc) ? earliest : nowUtc.add(const Duration(minutes: 1));
-}
 
 /// Whether data fetched at [lastFetchAt] (bound to [fetchedWeek]) needs to be
 /// re-read, as of [now].
@@ -95,16 +64,40 @@ bool shouldRefetchOnProviderChange({
 }) =>
     previousEntryWeek != nextEntryWeek;
 
-/// The rank implied by a stored snapshot for a live point total:
-/// one more than the number of rows scoring strictly higher.
+/// The rank the signed-in player would hold against a stored snapshot at
+/// [myPoints], using the same sequential numbering the board applies.
 ///
-/// Purely arithmetic over data already in memory, which is what lets the
-/// player's own position stay exact between refreshes with no network access.
+/// The board numbers rows 1..N in query order down the `weeklyPoints desc`
+/// ordering (ties broken by document id), NOT by competition rank — see
+/// [BoardEntry.rank]. Counting rows with *strictly* higher points would
+/// disagree with the visible row whenever scores tie.
+///
+/// So the stored order is used, with the player's live [myPoints] in place of
+/// their stored score. A row stored *before* the player is ahead of them when
+/// it has at least [myPoints] (a tie keeps document order); a row stored
+/// *after* them is ahead only when it is strictly higher. Both cases handle the
+/// live points moving either way, so scoring between refreshes still moves the
+/// rank with no network read.
+///
+/// When the player is absent (ranked beyond the 100-row window) there is no
+/// position to anchor to, every row is compared strictly, and the result exceeds
+/// `entries.length`; [resolveDisplayRank] then uses the COUNT-captured rank.
 int rankInSnapshot({
   required List<BoardEntry> entries,
   required int myPoints,
-}) =>
-    1 + entries.where((e) => e.weeklyPoints > myPoints).length;
+}) {
+  final mine = entries.indexWhere((e) => e.isCurrentUser);
+  var rank = 1;
+  for (var i = 0; i < entries.length; i++) {
+    final e = entries[i];
+    if (i == mine || !e.isRanked) continue;
+    final ahead = (mine >= 0 && i < mine)
+        ? e.weeklyPoints >= myPoints
+        : e.weeklyPoints > myPoints;
+    if (ahead) rank++;
+  }
+  return rank;
+}
 
 /// The rank to display for the signed-in player.
 ///
@@ -132,10 +125,6 @@ class LeaderboardSnapshot {
   /// Global cohort board, already ranked.
   final List<BoardEntry> global;
 
-  /// Campus board for the signed-in player's university. Empty when no campus
-  /// is set or the user has no entry.
-  final List<BoardEntry> campus;
-
   /// `prize_pool/{currentWeek}`.
   final Map<String, dynamic> pool;
 
@@ -156,7 +145,6 @@ class LeaderboardSnapshot {
 
   const LeaderboardSnapshot({
     required this.global,
-    required this.campus,
     required this.pool,
     required this.guaranteedFloor,
     required this.lastWeekPool,
@@ -169,7 +157,6 @@ class LeaderboardSnapshot {
 
   static const LeaderboardSnapshot empty = LeaderboardSnapshot(
     global: <BoardEntry>[],
-    campus: <BoardEntry>[],
     pool: <String, dynamic>{},
     guaranteedFloor: 0,
     lastWeekPool: null,
@@ -239,9 +226,8 @@ class BoardEntry {
       other.entryWeekId == entryWeekId;
 
   @override
-  int get hashCode =>
-      Object.hash(rank, uid, username, university, weeklyPoints,
-          isCurrentUser, entryWeekId);
+  int get hashCode => Object.hash(rank, uid, username, university, weeklyPoints,
+      isCurrentUser, entryWeekId);
 
   @override
   String toString() => 'BoardEntry(#$rank $uid $username $weeklyPoints pts)';
@@ -265,8 +251,7 @@ class BoardEntry {
   // The podium is a prefix of the ranked rows; `rest` must therefore start
   // after it. Deriving both independently let a short board (one or two
   // entrants) list the same row as both podium and list entry.
-  final podium =
-      ranked.length <= 3 ? List.of(ranked) : ranked.sublist(0, 3);
+  final podium = ranked.length <= 3 ? List.of(ranked) : ranked.sublist(0, 3);
   final rest = <BoardEntry>[...ranked.skip(podium.length), ...unranked];
 
   return (podium: podium, rest: rest);
@@ -358,7 +343,8 @@ List<BoardSlot> buildBoardSlots(
       if (groupIndex != lastGroupIndex) {
         lastGroupIndex = groupIndex;
         final from = groupIndex * groupSize + 1;
-        final to = (from + groupSize - 1) > maxRank ? maxRank : from + groupSize - 1;
+        final to =
+            (from + groupSize - 1) > maxRank ? maxRank : from + groupSize - 1;
         slots.add(GroupSlot('Ranks $from–$to', from, to));
       }
     }

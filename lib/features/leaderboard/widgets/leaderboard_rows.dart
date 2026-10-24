@@ -11,15 +11,21 @@ import 'leaderboard_pool_card.dart';
 /// Requires at least two entrants before it renders at all: with a single
 /// entrant the old layout stretched one card across the full page width, which
 /// read as a broken row rather than a podium.
+///
+/// Every ranked card that is not the signed-in player is tappable: tapping one
+/// opens that player's page. [rivalUids] no longer controls tappability — it
+/// only decides which card carries the RIVAL badge, and it names the single
+/// player sitting directly above the signed-in player.
 class LeaderboardPodium extends StatelessWidget {
   final List<BoardEntry> entries;
 
   /// Rank → prize, from the live projection.
   final Map<int, double> prizes;
 
-  /// Rows that open the rival sheet.
+  /// Entries that carry the RIVAL badge (the player one place above you).
   final Set<String> rivalUids;
 
+  /// Opens the player page for a tapped card.
   final void Function(BoardEntry entry) onRivalTap;
 
   const LeaderboardPodium({
@@ -45,11 +51,11 @@ class LeaderboardPodium extends StatelessWidget {
             Expanded(
               child: PodiumCard(
                 entry: sorted[i],
-                prize: sorted[i].isRanked
-                    ? prizes[sorted[i].rank]
-                    : null,
+                prize: sorted[i].isRanked ? prizes[sorted[i].rank] : null,
                 isRival: rivalUids.contains(sorted[i].uid),
-                onTap: rivalUids.contains(sorted[i].uid)
+                // Any ranked player other than you opens their page. The
+                // signed-in player's own card is not a target.
+                onTap: (sorted[i].isRanked && !sorted[i].isCurrentUser)
                     ? () => onRivalTap(sorted[i])
                     : null,
               ),
@@ -81,10 +87,10 @@ class PodiumCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final rank = entry.rank;
     final isMe = entry.isCurrentUser;
-    final color = isMe
-        ? LeaderboardPalette.mine
-        : LeaderboardPalette.forRank(rank);
+    final color =
+        isMe ? LeaderboardPalette.mine : LeaderboardPalette.forRank(rank);
     final isFirst = rank == 1;
+    final tappable = onTap != null;
 
     final card = Container(
       padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 14.r),
@@ -173,8 +179,7 @@ class PodiumCard extends StatelessWidget {
             if (entry.isRanked && prize != null && prize! > 0) ...[
               SizedBox(height: 8.h),
               Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(AppRadii.full),
@@ -204,6 +209,10 @@ class PodiumCard extends StatelessWidget {
               SizedBox(height: 6.h),
               const _MiniTag(label: 'RIVAL', color: LeaderboardPalette.rival),
             ],
+            if (tappable) ...[
+              SizedBox(height: 8.h),
+              const _PlayerPageCue(compact: true),
+            ],
           ],
         ),
       ),
@@ -224,6 +233,7 @@ class PodiumCard extends StatelessWidget {
       if (entry.isRanked && prize != null && prize! > 0)
         PrizePoolService.formatExact(prize!),
       if (isRival) 'your rival',
+      if (onTap != null) 'opens their player page',
     ];
     return parts.join(', ');
   }
@@ -242,6 +252,9 @@ class RankRow extends StatelessWidget {
   /// Marks the row that sits directly below the player.
   final bool isBelowRank;
 
+  /// Non-null for every row that is not the signed-in player. Drives both the
+  /// tap target and the chevron cue so tappability is visible rather than
+  /// hidden. Tapping opens the player's page.
   final VoidCallback? onTap;
 
   const RankRow({
@@ -335,7 +348,8 @@ class RankRow extends StatelessWidget {
                         ),
                         if (isMe) ...[
                           SizedBox(width: 5.w),
-                          const _MiniTag(label: 'YOU', color: AppColors.primary),
+                          const _MiniTag(
+                              label: 'YOU', color: AppColors.primary),
                         ],
                         if (isRival) ...[
                           SizedBox(width: 5.w),
@@ -356,7 +370,7 @@ class RankRow extends StatelessWidget {
                     ),
                     SizedBox(height: 2.h),
                     Text(
-                      '${entry.weeklyPoints} weekly pts',
+                      '${entry.weeklyPoints} pts',
                       style: TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 10.sp,
@@ -377,8 +391,7 @@ class RankRow extends StatelessWidget {
                 )
               else if (prize != null && prize! > 0)
                 Container(
-                  padding:
-                      EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
+                  padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
                   decoration: BoxDecoration(
                     color: AppColors.correct.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8.r),
@@ -392,6 +405,10 @@ class RankRow extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (onTap != null) ...[
+                SizedBox(width: 8.w),
+                const _PlayerPageCue(),
+              ],
             ],
           ),
         ),
@@ -408,6 +425,7 @@ class RankRow extends StatelessWidget {
         PrizePoolService.formatExact(prize!),
       if (isRival) 'rival',
       if (isNextRank) 'one place above you',
+      if (onTap != null) 'opens their player page',
     ];
     return parts.join(', ');
   }
@@ -498,17 +516,24 @@ class RowGap extends StatelessWidget {
 /// six-hour cadence, a player has no way to tell fresh rows from rows up to six
 /// hours old except by being told.
 class BoardFooter extends StatelessWidget {
-  final int shown;
-  final int totalPlayers;
+  /// Entrant counts for the first line. Omit both when the list is not a
+  /// ranked cohort (the Friends tab), so the footer shows only freshness.
+  final int? shown;
+  final int? totalPlayers;
 
   /// When the snapshot was read. Null only before the first fetch lands.
   final DateTime? fetchedAt;
 
+  /// Overrides the second (freshness) line. The Global tab keeps the scheduled
+  /// cadence wording; the Friends tab, which loads on demand, says so instead.
+  final String? subtitle;
+
   const BoardFooter({
     super.key,
-    required this.shown,
-    required this.totalPlayers,
+    this.shown,
+    this.totalPlayers,
     required this.fetchedAt,
+    this.subtitle,
   });
 
   /// `HH:MM` in the player's local time — when *they* last saw this data, not
@@ -520,32 +545,43 @@ class BoardFooter extends StatelessWidget {
     return '$h:$m';
   }
 
+  // totalPlayers == 0 means the true cohort size is unknown (e.g. the ghost
+  // admin's view, which has no standing). Never claim such a capped board is
+  // complete — fall back to "top N shown".
+  static String _countLine(int shown, int totalPlayers) {
+    final known = totalPlayers > 0;
+    final stale = !known || totalPlayers > shown;
+    final totalText = known && totalPlayers > shown ? ' of $totalPlayers' : '';
+    return stale
+        ? 'Showing top $shown$totalText entrants'
+        : 'All $totalPlayers entrants shown';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final stale = totalPlayers > shown;
-    final totalText = stale ? ' of $totalPlayers' : '';
     final at = fetchedAt;
+    final shownCount = shown;
+    final total = totalPlayers;
 
     return Padding(
       padding: EdgeInsets.only(top: 14.h, bottom: 6.h),
       child: Column(
         children: [
-          Text(
-            stale
-                ? 'Showing top $shown$totalText entrants'
-                : 'All $totalText entrants shown',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10.sp,
-              fontWeight: FontWeight.w600,
+          if (shownCount != null && total != null) ...[
+            Text(
+              _countLine(shownCount, total),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 10.sp,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          SizedBox(height: 3.h),
+            SizedBox(height: 3.h),
+          ],
           Text(
-            at == null
-                ? 'Updating…'
-                : 'Updated ${_clockTime(at)} · refreshes every 6 hours',
+            subtitle ??
+                (at == null ? 'Updating…' : 'Updated ${_clockTime(at)}'),
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.textMuted.withValues(alpha: 0.75),
@@ -582,6 +618,53 @@ class _MiniTag extends StatelessWidget {
           letterSpacing: 0.5,
         ),
       ),
+    );
+  }
+}
+
+/// The visible "this row opens a player" cue.
+///
+/// A row that is tappable but looks inert is the same bug in a new costume, so
+/// every tappable row and podium card carries this. It is decorative only: the
+/// whole card owns the tap target, so there is no nested gesture to fight over
+/// and screen readers still announce the card as one button.
+class _PlayerPageCue extends StatelessWidget {
+  /// Podium cards are too narrow for the label, so they carry the glyph alone.
+  final bool compact;
+
+  const _PlayerPageCue({this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    if (compact) {
+      return Container(
+        width: 30.r,
+        height: 30.r,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppRadii.full),
+          border: Border.all(
+            color: AppColors.primary.withValues(alpha: 0.40),
+          ),
+        ),
+        child: Icon(
+          Icons.chevron_right_rounded,
+          color: AppColors.primary,
+          size: 18.r,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.chevron_right_rounded,
+          color: AppColors.textMuted,
+          size: 18.r,
+        ),
+      ],
     );
   }
 }

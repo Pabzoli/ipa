@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_badge.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/no_refunds_note.dart';
 import '../../core/widgets/shop_link_note.dart';
 
 /// Premium Pass upsell screen. Premium is currently sold on the website as a
-/// one-time 31-day code (₦2,000) redeemed under Profile → Redeem Code; the
+/// one-time 28-day code (₦2,000) redeemed under Profile → Redeem Code; the
 /// Play Billing path below is dormant and kept for re-enable.
 class PremiumUpsellScreen extends StatefulWidget {
   const PremiumUpsellScreen({super.key});
@@ -17,8 +24,27 @@ class PremiumUpsellScreen extends StatefulWidget {
 }
 
 class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
-  // Fallback price shown across the premium UI (website shop price, ₦2,000/31d).
+  // Fallback price shown across the premium UI (website shop price, ₦2,000/28d).
   static const String _kPriceFallback = '₦2,000';
+
+  /// Hands off to the website shop, which is where the 28-day code is sold.
+  /// Mirrors [ShopLinkNote]'s fallback: if no browser can take the URL, copy
+  /// it instead of leaving the tap dead.
+  Future<void> _openShop(BuildContext context) async {
+    final uri = Uri.parse(kShopUrl);
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (opened) return;
+
+    await Clipboard.setData(const ClipboardData(text: kShopUrl));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Couldn\'t open the browser — shop link copied instead.',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +55,7 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ── Header ───────────────────────────────────────────────
+            // ── Header (matches Earn Coins / Referrals) ──────────────
             Padding(
               padding: EdgeInsets.fromLTRB(8.r, 10.r, 16.r, 8.r),
               child: Row(
@@ -49,15 +75,22 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
                       'Premium Pass',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
+                      style: AppTypography.heading2.copyWith(
                         fontSize: 26.sp,
-                        fontWeight: FontWeight.w900,
                         letterSpacing: -0.5,
                         height: 1.05,
                       ),
                     ),
                   ),
+                  if (premium) ...[
+                    SizedBox(width: 8.w),
+                    const AppBadge(
+                      label: 'Active',
+                      color: AppColors.correct,
+                      icon: Icons.workspace_premium_rounded,
+                      dot: false,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -69,42 +102,28 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ── Hero: crown + price ─────────────────────────
-                    const _HeroCard(price: _kPriceFallback),
+                    // ── Hero: plan, price and the headline numbers ──
+                    _PremiumHero(
+                      premium: premium,
+                      price: _kPriceFallback,
+                      onGetPremium: () => _openShop(context),
+                    ),
 
-                    SizedBox(height: 26.h),
+                    SizedBox(height: 28.h),
 
                     // ── Perks section ───────────────────────────────
-                    const _SectionHeader(
+                    _SectionHeader(
                       icon: Icons.auto_awesome_rounded,
                       title: 'What you get',
-                      color: AppColors.secondary,
+                      color: AppColors.accent,
                     ),
-                    SizedBox(height: 12.h),
+                    SizedBox(height: AppSpacing.md),
                     const _PerksList(),
 
-                    SizedBox(height: 26.h),
+                    SizedBox(height: AppSpacing.xl),
 
-                    // ── Already premium / how to get it ────────────
-                    if (premium)
-                      const _AlreadyPremiumCard()
-                    else
-                      const _ShopPremiumCard(),
-
-                    SizedBox(height: 12.h),
-
-                    Text(
-                      '31 days of Premium, activated once. Renew anytime from '
-                      'the website.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontFamily: 'Nunito',
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textMuted,
-                        height: 1.5,
-                      ),
-                    ),
+                    // ── How to get it (buying only) ─────────────────
+                    if (!premium) const _ShopPremiumCard(),
                   ],
                 ),
               ),
@@ -116,7 +135,7 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
   }
 }
 
-// ─── Section header (matches Home / Battle / Rankings) ─────────────────────
+// ─── Section header (matches Home / Battle / Earn Coins) ───────────────────
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -130,112 +149,227 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 28.r,
-          height: 28.r,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.14),
-            borderRadius: BorderRadius.circular(9.r),
-          ),
-          child: Icon(icon, color: color, size: 15.r),
-        ),
-        SizedBox(width: 10.w),
-        Expanded(
-          child: Text(
-            title,
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 16.sp,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.3,
+        Row(
+          children: [
+            Container(
+              width: 28.r,
+              height: 28.r,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(9.r),
+              ),
+              child: Icon(icon, color: color, size: 15.r),
             ),
-          ),
+            SizedBox(width: 10.w),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTypography.titleMedium.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 }
 
-// ─── Hero: crown + price ───────────────────────────────────────────────────
-class _HeroCard extends StatelessWidget {
-  const _HeroCard({required this.price});
+// ─── Hero: plan, price and headline numbers ────────────────────────────────
+class _PremiumHero extends StatelessWidget {
+  final bool premium;
   final String price;
+  final VoidCallback onGetPremium;
+
+  const _PremiumHero({
+    required this.premium,
+    required this.price,
+    required this.onGetPremium,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 24.r, horizontal: 18.r),
+      padding: EdgeInsets.all(18.r),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppColors.accent.withOpacity(0.18),
-            AppColors.secondary.withOpacity(0.10),
+            AppColors.accent.withValues(alpha: premium ? 0.14 : 0.20),
+            AppColors.secondary.withValues(alpha: 0.10),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(22.r),
-        border: Border.all(color: AppColors.accent.withOpacity(0.35)),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Crown icon tile
-          Container(
-            width: 68.r,
-            height: 68.r,
-            decoration: BoxDecoration(
-              color: AppColors.accent.withOpacity(0.20),
-              borderRadius: BorderRadius.circular(20.r),
-              border: Border.all(color: AppColors.accent.withOpacity(0.40)),
-            ),
-            child: Center(
-              child: Text('👑', style: TextStyle(fontSize: 34.sp)),
-            ),
-          ),
-          SizedBox(height: 14.h),
-
-          Text(
-            'Premium Pass',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 20.sp,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.4,
-            ),
-          ),
-          SizedBox(height: 6.h),
-
-          // Price hero
+          // ── Top row: crown tile + plan + price ───────────────────
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
-                price,
-                style: TextStyle(
-                  color: AppColors.accent,
-                  fontSize: 34.sp,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.8,
-                  height: 1.05,
+              Container(
+                width: 56.r,
+                height: 56.r,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(17.r),
+                  border: Border.all(
+                    color: AppColors.accent.withValues(alpha: 0.36),
+                  ),
+                ),
+                child: Center(
+                  child: Text('👑', style: TextStyle(fontSize: 24.sp)),
                 ),
               ),
+              SizedBox(width: 14.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      premium ? '28 days from activation' : '28 days · one-time',
+                      style: AppTypography.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (!premium) ...[
+                SizedBox(width: 10.w),
+                _PricePill(price: price),
+              ],
             ],
           ),
-          SizedBox(height: 3.h),
-          Text(
-            'per 31 days',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12.sp,
-              fontWeight: FontWeight.w700,
+          SizedBox(height: 16.h),
+
+          // ── Divider ──────────────────────────────────────────────
+          Container(height: 1, color: AppColors.divider),
+          SizedBox(height: 14.h),
+
+          // ── At-a-glance numbers ──────────────────────────────────
+          Row(
+            children: [
+              const _HeroStat(value: '1.20×', label: 'WP boost'),
+              const _StatDivider(),
+              const _HeroStat(value: '5,000', label: 'AC max stake'),
+              const _StatDivider(),
+              const _HeroStat(value: '8/day', label: 'Quick Match'),
+            ],
+          ),
+          SizedBox(height: 18.h),
+
+          // ── Action ───────────────────────────────────────────────
+          if (premium)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: AppColors.correct,
+                  size: 15.r,
+                ),
+                SizedBox(width: 6.w),
+                Flexible(
+                  child: Text(
+                    'All Premium benefits are active on this account.',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else ...[
+            AppButton(
+              label: 'Get Premium Pass',
+              size: AppButtonSize.large,
+              icon: const Icon(Icons.workspace_premium_rounded),
+              onPressed: onGetPremium,
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PricePill extends StatelessWidget {
+  final String price;
+  const _PricePill({required this.price});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.36)),
+      ),
+      child: Text(
+        price,
+        style: AppTypography.titleLarge.copyWith(
+          color: AppColors.accent,
+          fontWeight: FontWeight.w900,
+          letterSpacing: -0.3,
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroStat extends StatelessWidget {
+  final String value;
+  final String label;
+  const _HeroStat({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: AppTypography.heading3.copyWith(
+                fontSize: 17.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ),
+          SizedBox(height: 2.h),
+          Text(
+            label.toUpperCase(),
+            textAlign: TextAlign.center,
+            style: AppTypography.labelSmall.copyWith(letterSpacing: 0.5),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 26.r,
+      margin: EdgeInsets.symmetric(horizontal: 6.w),
+      color: AppColors.divider,
     );
   }
 }
@@ -248,6 +382,7 @@ class _HeroCard extends StatelessWidget {
 ///   - rival rematches:            same-rival WP-staked cooldown 6h (vs 12h);
 ///                                 spars have no cooldown for anyone
 ///   - submitDailyGauntlet:        Premium first retry FREE, then 40/60/90/…
+///   - solo_summary_page.dart:     instant solo retry (40 AC) is Premium-only
 ///   - awardPremiumMonday/Monthly: +75 WP Mondays + 100 WP monthly (flat grants)
 ///   - challenge/WP settlement:    1.20× eligible WP (flat grants excluded)
 ///   - Quick Match:                8 daily battles (vs 5), open 24/7
@@ -276,6 +411,12 @@ const List<({IconData icon, String title, String detail})> _kPerks = [
         'Premium first retry each day costs 0 AC, then 40 · 60 · 90 · 135 · 203 AC.',
   ),
   (
+    icon: Icons.replay_rounded,
+    title: 'Instant solo retry',
+    detail: 'Replay a finished solo lineup right away — 40 AC clears the '
+        'cooldown. Free players can\'t retry.',
+  ),
+  (
     icon: Icons.bolt_rounded,
     title: 'Faster rival rematches',
     detail: 'Re-match the same rival in 6h instead of 12h. Spars never wait.',
@@ -298,22 +439,18 @@ class _PerksList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(12.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.divider),
-      ),
+    return AppCard(
+      tier: AppCardTier.elevated,
+      padding: EdgeInsets.all(AppSpacing.md),
       child: Column(
         children: [
           for (int i = 0; i < _kPerks.length; i++) ...[
             _PerkRow(perk: _kPerks[i]),
             if (i != _kPerks.length - 1)
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 6.r),
-                child:
-                    Divider(height: 1, thickness: 1, color: AppColors.divider),
+              const Divider(
+                height: AppSpacing.lg,
+                thickness: 1,
+                color: AppColors.divider,
               ),
           ],
         ],
@@ -337,10 +474,13 @@ class _PerkRow extends StatelessWidget {
             width: 38.r,
             height: 38.r,
             decoration: BoxDecoration(
-              color: AppColors.secondary.withOpacity(0.14),
+              color: AppColors.accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(11.r),
+              border: Border.all(
+                color: AppColors.accent.withValues(alpha: 0.22),
+              ),
             ),
-            child: Icon(perk.icon, color: AppColors.secondary, size: 19.r),
+            child: Icon(perk.icon, color: AppColors.accent, size: 19.r),
           ),
           SizedBox(width: 12.w),
           Expanded(
@@ -350,24 +490,14 @@ class _PerkRow extends StatelessWidget {
               children: [
                 Text(
                   perk.title,
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 14.sp,
+                  style: AppTypography.labelLarge.copyWith(
                     fontWeight: FontWeight.w900,
                     letterSpacing: -0.2,
                     height: 1.2,
                   ),
                 ),
                 SizedBox(height: 3.h),
-                Text(
-                  perk.detail,
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
-                  ),
-                ),
+                Text(perk.detail, style: AppTypography.bodySmall),
               ],
             ),
           ),
@@ -381,123 +511,114 @@ class _PerkRow extends StatelessWidget {
 class _ShopPremiumCard extends StatelessWidget {
   const _ShopPremiumCard();
 
+  static const List<String> _steps = [
+    'Pay ₦2,000 — you get a one-time code on the payment page.',
+    'Redeem it under Profile → Redeem Code and Premium goes live on your '
+        'account.',
+  ];
+
   @override
   Widget build(BuildContext context) {
     // Premium is sold on the website shop; the card below always shows the
     // shop link (Android included).
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(16.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.divider),
-      ),
+    return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 28.r,
-                height: 28.r,
-                decoration: BoxDecoration(
-                  color: AppColors.accent.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(9.r),
-                ),
-                child: Icon(Icons.shopping_bag_rounded,
-                    color: AppColors.accent, size: 15.r),
-              ),
-              SizedBox(width: 10.w),
-              Text(
-                'How to get it',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15.sp,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.3,
-                ),
-              ),
-            ],
+          _CardTitle(
+            icon: Icons.shopping_bag_rounded,
+            title: 'How to get it',
           ),
-          SizedBox(height: 12.h),
-          Text(
-            "Get Premium on the website — it costs ₦2,000 for 31 days. "
-            "You'll receive a one-time code on the payment page, then redeem "
-            "it under Profile → Redeem Code and Premium is live on your "
-            "account.",
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w600,
-              height: 1.5,
-            ),
-          ),
-          SizedBox(height: 14.h),
+          SizedBox(height: AppSpacing.lg),
+
+          for (final (index, step) in _steps.indexed) ...[
+            if (index > 0) SizedBox(height: AppSpacing.md),
+            _NumberedStep(index: index, text: step),
+          ],
+
+          SizedBox(height: AppSpacing.lg),
+          Container(height: 1, color: AppColors.divider),
+          SizedBox(height: AppSpacing.md),
           const ShopLinkNote(),
+          SizedBox(height: AppSpacing.sm),
+          const NoRefundsMiniNote(),
         ],
       ),
     );
   }
 }
 
-// ─── Already Premium card ────────────────────────────────────────────────
-class _AlreadyPremiumCard extends StatelessWidget {
-  const _AlreadyPremiumCard();
+// ─── Card title (matches the shop / coin-pack card headers) ───────────────
+class _CardTitle extends StatelessWidget {
+  final IconData icon;
+  final String title;
+
+  const _CardTitle({required this.icon, required this.title});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(vertical: 22.r, horizontal: 18.r),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.accent.withOpacity(0.16),
-            AppColors.secondary.withOpacity(0.08),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(color: AppColors.accent.withOpacity(0.40)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 56.r,
-            height: 56.r,
-            decoration: BoxDecoration(
-              color: AppColors.accent.withOpacity(0.20),
-              borderRadius: BorderRadius.circular(16.r),
-            ),
-            child: Center(
-              child: Text('👑', style: TextStyle(fontSize: 28.sp)),
-            ),
+    return Row(
+      children: [
+        Container(
+          width: 28.r,
+          height: 28.r,
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(9.r),
           ),
-          SizedBox(height: 12.h),
-          Text(
-            "You're Premium",
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 18.sp,
+          child: Icon(icon, color: AppColors.accent, size: 15.r),
+        ),
+        SizedBox(width: 10.w),
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.titleMedium.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.3,
             ),
           ),
-          SizedBox(height: 4.h),
-          Text(
-            'All Premium benefits are active on this account.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w600,
-              height: 1.4,
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Numbered step row (matches Referrals explainer) ──────────────────────
+class _NumberedStep extends StatelessWidget {
+  final int index;
+  final String text;
+
+  const _NumberedStep({required this.index, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22.r,
+          height: 22.r,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.30),
             ),
           ),
-        ],
-      ),
+          child: Text(
+            '${index + 1}',
+            style: AppTypography.labelMedium.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Text(text, style: AppTypography.bodyMedium),
+        ),
+      ],
     );
   }
 }

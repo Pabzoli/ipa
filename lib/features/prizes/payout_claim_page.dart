@@ -16,6 +16,7 @@
 //
 // States: loading-claim / idle-form / submitting / submitted (awaiting
 // payment) / already-submitted / expired (re-claim allowed) / paid / error.
+import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -33,6 +34,8 @@ enum _ClaimView {
   submittedPending,
   paid,
   notWinner,
+  noPrize,
+  forfeited,
   error,
 }
 
@@ -61,10 +64,6 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
   final _nameCtrl = TextEditingController();
   String? _formError;
   bool _submitting = false;
-
-  // Last submission result message (e.g. "already submitted" notice).
-  String _resultMessage = '';
-  bool _wasAlreadySubmitted = false;
 
   @override
   void initState() {
@@ -104,8 +103,8 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       return;
     }
 
-    final cycle = await FirestoreService.instance
-        .getLeaderboardCycle(widget.weekId);
+    final cycle =
+        await FirestoreService.instance.getLeaderboardCycle(widget.weekId);
     if (!mounted) return;
 
     if (cycle == null) {
@@ -132,9 +131,19 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
     }
 
     final paid = mine['paid'] == true;
+    final share = (mine['share'] as num?)?.toDouble() ?? 0;
     final claim =
         await FirestoreService.instance.getPendingClaim(widget.weekId);
     if (!mounted) return;
+
+    // The server enforces the 3-day window against the cycle's calculatedAt;
+    // mirror it here so a closed window shows the outcome instead of a form
+    // that would only be rejected on submit.
+    final calculatedAt = cycle['calculatedAt'];
+    final windowClosed = calculatedAt is Timestamp &&
+        DateTime.now().isAfter(
+          calculatedAt.toDate().add(const Duration(days: 3)),
+        );
 
     final status = claim?['status'] as String?;
     final storedAccount = claim?['accountNumber'] as String?;
@@ -142,10 +151,9 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
     setState(() {
       _rank = ((mine?['rank'] as num?)?.toInt()) ?? 0;
       _claimStatus = status;
-      _maskedAccount =
-          storedAccount != null && storedAccount.isNotEmpty
-              ? _mask(storedAccount)
-              : null;
+      _maskedAccount = storedAccount != null && storedAccount.isNotEmpty
+          ? _mask(storedAccount)
+          : null;
       // Only "Paid" when the backend says paid == true.
       if (paid) {
         _view = _ClaimView.paid;
@@ -153,8 +161,12 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
         // 'marked' without ranked[].paid yet means the admin recorded it but
         // the cycle write is still settling — same visible state either way.
         _view = _ClaimView.submittedPending;
+      } else if (share <= 0) {
+        _view = _ClaimView.noPrize;
+      } else if (windowClosed) {
+        _view = _ClaimView.forfeited;
       } else {
-        // No claim yet, or expired (re-claim allowed) — show the form.
+        // No claim yet, or the claim was never submitted in time — show the form.
         _view = _ClaimView.form;
       }
     });
@@ -212,7 +224,7 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
     });
 
     try {
-      final result = await FirestoreService.instance.submitPayoutDetails(
+      await FirestoreService.instance.submitPayoutDetails(
         weekId: widget.weekId,
         accountNumber: account,
         bankCode: _bank!.code,
@@ -221,8 +233,6 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       if (!mounted) return;
       setState(() {
         _submitting = false;
-        _resultMessage = result.message;
-        _wasAlreadySubmitted = result.alreadySubmitted;
         _maskedAccount = _mask(account);
       });
       // Reflect the server's new claim state (pending) instead of guessing.
@@ -298,9 +308,8 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                   ),
                 ),
                 child: Text(
-                  'The account must be yours. Submitting locks these details '
-                  'until your prize is paid, so contact an admin if something '
-                  'is wrong afterwards.',
+                  'Submitting locks these details until your prize is paid, so '
+                  'contact an admin if something is wrong afterwards.',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 12.sp,
@@ -363,6 +372,15 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
       );
       return;
     }
+    final lower = e.message.toLowerCase();
+    if (e.code == 'failed-precondition' && lower.contains('no prize share')) {
+      setState(() => _view = _ClaimView.noPrize);
+      return;
+    }
+    if (e.code == 'failed-precondition' && lower.contains('claim window')) {
+      setState(() => _view = _ClaimView.forfeited);
+      return;
+    }
     setState(() => _formError = e.message);
   }
 
@@ -400,8 +418,6 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     formError: _formError,
                     submitting: _submitting,
                     expiredBefore: _claimStatus == 'expired',
-                    resultMessage: _resultMessage,
-                    wasAlreadySubmitted: _wasAlreadySubmitted,
                     onPickBank: _pickBank,
                     onSubmit: _submit,
                   ),
@@ -409,8 +425,7 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     icon: Icons.hourglass_top_rounded,
                     color: AppColors.accent,
                     title: 'Awaiting payment',
-                    body:
-                        'Your bank details are with the admin, who will send '
+                    body: 'Your bank details are with the admin, who will send '
                         'your prize from their own bank. Submitting does NOT '
                         'mean you have been paid — check your account after '
                         'the transfer arrives.',
@@ -421,8 +436,7 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     icon: Icons.check_circle_rounded,
                     color: AppColors.correct,
                     title: 'Paid',
-                    body:
-                        'Your prize has been sent to your bank account. '
+                    body: 'Your prize has been sent to your bank account. '
                         'Thanks for playing.',
                     maskedAccount: _maskedAccount,
                     onRefresh: _loadClaimState,
@@ -433,6 +447,23 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     title: 'Not a winner',
                     body:
                         'This account is not in the winning list for that week.',
+                  ),
+                _ClaimView.noPrize => const _StatusCard(
+                    icon: Icons.info_outline_rounded,
+                    color: AppColors.textMuted,
+                    title: 'No prize this week',
+                    body:
+                        'Only the top 5 paid entrants win a prize. Your finishing '
+                        'rank was outside those paid places.',
+                  ),
+                _ClaimView.forfeited => const _StatusCard(
+                    icon: Icons.event_busy_rounded,
+                    color: AppColors.textMuted,
+                    title: 'Claim window closed',
+                    body:
+                        'The 3-day window to claim this prize has passed, so this '
+                        "week's share was forfeited. Prizes are not carried over "
+                        'to a later week.',
                   ),
                 _ClaimView.error => _StatusCard(
                     icon: Icons.error_outline_rounded,
@@ -487,20 +518,13 @@ class _WeekHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  rank > 0 ? 'Week of $weekId · Rank #$rank' : 'Week of $weekId',
+                  rank > 0
+                      ? 'Week of $weekId · Rank #$rank'
+                      : 'Week of $weekId',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 14.sp,
                     fontWeight: FontWeight.w900,
-                  ),
-                ),
-                SizedBox(height: 2.h),
-                Text(
-                  'Prize amount is confirmed by the server.',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -539,8 +563,6 @@ class _ClaimForm extends StatelessWidget {
   final String? formError;
   final bool submitting;
   final bool expiredBefore;
-  final String resultMessage;
-  final bool wasAlreadySubmitted;
   final VoidCallback onPickBank;
   final VoidCallback onSubmit;
 
@@ -551,8 +573,6 @@ class _ClaimForm extends StatelessWidget {
     required this.formError,
     required this.submitting,
     required this.expiredBefore,
-    required this.resultMessage,
-    required this.wasAlreadySubmitted,
     required this.onPickBank,
     required this.onSubmit,
   });
@@ -578,14 +598,6 @@ class _ClaimForm extends StatelessWidget {
             ),
             SizedBox(height: 12.h),
           ],
-          if (wasAlreadySubmitted && resultMessage.isNotEmpty) ...[
-            _NoticeRow(
-              icon: Icons.info_outline_rounded,
-              color: AppColors.secondary,
-              text: resultMessage,
-            ),
-            SizedBox(height: 12.h),
-          ],
           Text(
             'BANK',
             style: TextStyle(
@@ -600,8 +612,7 @@ class _ClaimForm extends StatelessWidget {
             onTap: submitting ? null : onPickBank,
             child: Container(
               width: double.infinity,
-              padding:
-                  EdgeInsets.symmetric(horizontal: 12.r, vertical: 13.r),
+              padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 13.r),
               decoration: BoxDecoration(
                 color: AppColors.surfaceAlt,
                 borderRadius: BorderRadius.circular(11.r),
@@ -660,8 +671,7 @@ class _ClaimForm extends StatelessWidget {
             ),
             decoration: InputDecoration(
               hintText: '0123456789',
-              hintStyle:
-                  TextStyle(color: AppColors.textMuted, fontSize: 15.sp),
+              hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 15.sp),
               filled: true,
               fillColor: AppColors.surfaceAlt,
               contentPadding:
@@ -703,8 +713,7 @@ class _ClaimForm extends StatelessWidget {
             ),
             decoration: InputDecoration(
               hintText: 'Name on the bank account',
-              hintStyle:
-                  TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
+              hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
               filled: true,
               fillColor: AppColors.surfaceAlt,
               contentPadding:
@@ -909,8 +918,7 @@ class _StatusCard extends StatelessWidget {
           if (maskedAccount != null) ...[
             SizedBox(height: 10.h),
             Container(
-              padding:
-                  EdgeInsets.symmetric(horizontal: 12.r, vertical: 7.r),
+              padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 7.r),
               decoration: BoxDecoration(
                 color: AppColors.surfaceAlt,
                 borderRadius: BorderRadius.circular(9.r),
@@ -954,8 +962,7 @@ class _SecurityNote extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.secondary.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12.r),
-        border:
-            Border.all(color: AppColors.secondary.withOpacity(0.24)),
+        border: Border.all(color: AppColors.secondary.withOpacity(0.24)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -965,9 +972,7 @@ class _SecurityNote extends StatelessWidget {
           SizedBox(width: 10.w),
           Expanded(
             child: Text(
-              'The account must belong to you, the winner. Your prize is sent manually '
-              'by the admin from their own bank, so submitting your details '
-              'does not mean you have been paid. You must claim within 3 days '
+              'The account must belong to you, the winner. Claim within 3 days '
               'of the week closing — after that your share is forfeited.',
               style: TextStyle(
                 color: AppColors.textPrimary,

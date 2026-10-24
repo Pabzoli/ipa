@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
@@ -13,6 +13,7 @@ import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../../core/widgets/coin_balance_widget.dart';
+import '../../core/widgets/weekly_points_pill.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/providers/solo_difficulty_provider.dart';
 import '../../core/services/firestore_service.dart';
@@ -20,9 +21,11 @@ import '../../core/services/prize_pool_service.dart';
 import '../admin/admin_payout_dashboard.dart';
 import '../auth/auth_service.dart';
 import '../quiz/questions_page.dart';
-import '../quiz/quiz_controller.dart' show kGauntletQuestionCount;
+import '../quiz/quiz_controller.dart'
+    show kGauntletQuestionCount, kGauntletTiers;
 import '../../core/constants/gauntlet_economy.dart';
 import '../../core/constants/solo_economy.dart';
+import '../../core/constants/anime_catalog.dart';
 import '../player/pi_page.dart';
 import '../../features/multiplayer/multiplayer_hub_page.dart';
 import '../leaderboard/weekly_leaderboard_page.dart';
@@ -45,13 +48,14 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
 
-  // Built lazily. The previous `static const` list meant an IndexedStack laid
-  // out and mounted all four tabs at app launch, so the leaderboard opened two
-  // Firestore listeners and started a timer for every session whether or not
-  // the player ever looked at Rankings. Each tab is now constructed on first
-  // visit and kept alive afterwards, which is the point of the IndexedStack.
+  // Built lazily. A `static const` list would make the IndexedStack lay out and
+  // mount all four tabs at app launch, so the leaderboard would run its first
+  // Firestore read for every session whether or not the player ever looked at
+  // Rankings. Each tab's State is now created on first visit and kept alive
+  // afterwards, which is the point of the IndexedStack. (The widget objects are
+  // cheap to build; it is the State, and its reads, that the visit gate defers.)
   late final List<Widget> _pages = <Widget>[
-    const _HomeTab(),
+    _HomeTab(onOpenRankings: () => setState(() => _tab = 2)),
     const MultiplayerHubPage(),
     const WeeklyLeaderboardPage(),
     const PInform(),
@@ -105,8 +109,8 @@ class _AppBottomNav extends StatelessWidget {
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
           padding: EdgeInsets.only(
-            top: 10,
-            bottom: MediaQuery.of(context).padding.bottom + 8,
+            top: 10.h,
+            bottom: MediaQuery.of(context).padding.bottom + 8.h,
           ),
           decoration: BoxDecoration(
             color: AppColors.surfaceDim.withOpacity(0.92),
@@ -125,24 +129,24 @@ class _AppBottomNav extends StatelessWidget {
                   children: [
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 5),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 14.w, vertical: 5.h),
                       decoration: BoxDecoration(
                         color: active
                             ? AppColors.primary.withOpacity(0.14)
                             : Colors.transparent,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(14.r),
                       ),
                       child: Icon(item.icon,
-                          size: 22,
+                          size: 22.r,
                           color:
                               active ? AppColors.primary : AppColors.textMuted),
                     ),
-                    const SizedBox(height: 3),
+                    SizedBox(height: 3.h),
                     Text(
                       item.label,
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 10.sp,
                         fontWeight: FontWeight.w700,
                         color: active ? AppColors.primary : AppColors.textMuted,
                       ),
@@ -162,25 +166,20 @@ class _AppBottomNav extends StatelessWidget {
 // Home tab
 // ═══════════════════════════════════════════════════════════════════════════
 class _HomeTab extends StatefulWidget {
-  const _HomeTab();
+  /// Switches the bottom-nav shell to the Rankings tab. The prize-pool card is
+  /// the natural tap-through to it; without this the only way to Rankings was
+  /// the nav bar itself, and the pool card looked interactive but was not.
+  final VoidCallback onOpenRankings;
+
+  const _HomeTab({required this.onOpenRankings});
 
   @override
   State<_HomeTab> createState() => _HomeTabState();
 }
 
 class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
-  final List<String> _animeTitles = const [
-    'attack on titan',
-    'demon slayer',
-    'jujutsu kaisen',
-    'naruto',
-    'one piece',
-    'one punch man',
-    'bleach',
-    'dragon ball z',
-    'my hero academia',
-    'death note',
-  ];
+  /// Live catalogue (app_config/anime_catalog), starting from the bundled list.
+  List<String> _animeTitles = kAnimeCatalog;
 
   final Set<String> _selected = {};
   final Map<String, DateTime> _locks = {};
@@ -189,36 +188,13 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   late Timer _lockTimer;
   late AnimationController _entranceCtrl;
   late Animation<double> _entranceFade;
-  late SharedPreferences _prefs;
   late StreamSubscription<User?> _authSub;
-  bool _prefsReady = false;
+  StreamSubscription<Map<String, DateTime>>? _cooldownSub;
+  StreamSubscription<List<String>>? _catalogSub;
 
-  // ── Weekly rank badge cache ─────────────────────────────────────────────
-  // The header rebuilds every second (lock countdown), so the rank future
-  // must be cached — recreating it on every build re-queries Firestore and
-  // flickers the badge between '#N' and '—'. Keyed on week · eligibility ·
-  // points; _lastKnownRank keeps the old value on screen while a refresh
-  // is in flight.
-  Future<int>? _rankFuture;
-  String _rankKey = '';
-  int _lastKnownRank = 0;
-
-  Future<int> _rankFutureFor(UserDataProvider userData) {
-    final key = '${userData.leaderboardEntryWeekId ?? ""}'
-        '_${userData.isLeaderboardEligible}'
-        '_${userData.weeklyPoints}';
-    if (key != _rankKey || _rankFuture == null) {
-      _rankKey = key;
-      _rankFuture = FirestoreService.instance.getCurrentUserWeeklyRank(
-        entryWeekId: userData.leaderboardEntryWeekId,
-        eligible: userData.isLeaderboardEligible,
-      ).then((r) {
-        _lastKnownRank = r;
-        return r;
-      });
-    }
-    return _rankFuture!;
-  }
+  /// Bumped once per second while any cooldown lock is active, so only the
+  /// countdown pills rebuild rather than the whole tab.
+  final ValueNotifier<int> _lockTick = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -230,30 +206,55 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
         CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOut);
 
     _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(
-            () => _locks.removeWhere((_, t) => t.isBefore(DateTime.now())));
+      if (!mounted || _locks.isEmpty) return; // idle: nothing counting down
+      final now = DateTime.now();
+      final expired =
+          _locks.entries.where((e) => !e.value.isAfter(now)).toList();
+      if (expired.isEmpty) {
+        // Locks still ticking — refresh only the countdown pills.
+        _lockTick.value++;
+      } else {
+        // A lock elapsed: status, filter counts and lock overlays all change,
+        // so this one rebuild is genuine.
+        setState(() {
+          for (final e in expired) {
+            _locks.remove(e.key);
+          }
+        });
       }
     });
 
-    SharedPreferences.getInstance().then((p) {
-      if (!mounted) return;
-      _prefs = p;
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      for (final title in _animeTitles) {
-        final raw = p.getString(uid.isEmpty ? title : '${uid}_$title');
-        if (raw != null) {
-          final t = DateTime.parse(raw);
-          if (t.isAfter(DateTime.now())) _locks[title] = t;
-        }
-      }
-      setState(() => _prefsReady = true);
-    });
+    _catalogSub = FirestoreService.instance.animeCatalogStream().listen(
+      (titles) {
+        if (mounted) setState(() => _animeTitles = titles);
+      },
+      onError: (Object e) =>
+          debugPrint('[HomeTab] anime catalog error (keeping bundled list): $e'),
+    );
 
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (!mounted) return;
       setState(() => _unlockedForever = {});
-      if (user != null) _loadUnlockedAnimes();
+      _cooldownSub?.cancel();
+      _cooldownSub = null;
+      if (user == null) {
+        setState(_locks.clear);
+        return;
+      }
+      _cooldownSub = FirestoreService.instance.cooldownsStream().listen(
+        (expiries) {
+          if (!mounted) return;
+          final now = DateTime.now();
+          setState(() {
+            _locks
+              ..clear()
+              ..addEntries(expiries.entries.where((e) => e.value.isAfter(now)));
+          });
+        },
+        onError: (Object e) =>
+            debugPrint('[HomeTab] cooldowns stream error (ignored): $e'),
+      );
+      _loadUnlockedAnimes();
     });
   }
 
@@ -262,12 +263,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     _lockTimer.cancel();
     _entranceCtrl.dispose();
     _authSub.cancel();
+    _cooldownSub?.cancel();
+    _catalogSub?.cancel();
+    _lockTick.dispose();
     super.dispose();
-  }
-
-  String _prefKey(String title) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    return uid.isEmpty ? title : '${uid}_$title';
   }
 
   Future<void> _loadUnlockedAnimes() async {
@@ -324,13 +323,12 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   }
 
   // ── Start Quiz ─────────────────────────────────────────────────────────
-  void _startQuiz({
-    bool isDailyChallenge = false,
+  Future<void> _startQuiz({
     bool isGauntlet = false,
     List<String>? titles,
     List<String>? questionIds,
     String? gauntletTicketId,
-  }) {
+  }) async {
     if (isGauntlet) {
       if (questionIds == null || questionIds.length < kGauntletQuestionCount) {
         // Never fail silently — the user just confirmed + may have paid.
@@ -363,7 +361,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     }
 
     final titlesToPlay = titles ?? _selected.toList();
-    if (titlesToPlay.length < 2 || !_prefsReady) return;
+    if (titlesToPlay.length < 2) return;
 
     // Capture the difficulty from the shared settings now — the tray clears
     // _selected but must not reset the difficulty choice.
@@ -371,31 +369,30 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       context.read<SoloDifficultyProvider>().difficulty,
     );
 
-    setState(() => _selected.clear());
-
-    // Cooldown by lineup size: picking more titles locks each for less time.
-    // Index = number of titles played (clamped 0..10 for the 10-title grid).
-    final counts = [
-      0, // 0 titles (unreachable — guarded above)
-      0, // 1 title (unreachable — min 2 required)
-      10 * 60, // 2 titles
-      7 * 60, // 3 titles
-      5 * 60, // 4 titles
-      4 * 60, // 5 titles
-      3 * 60, // 6 titles
-      2 * 60, // 7 titles
-      1 * 60, // 8 titles
-      0, // 9 titles
-      0, // 10 titles
-    ];
-    final lockSecs = counts[titlesToPlay.length.clamp(0, 10)];
-    for (final t in titlesToPlay) {
-      if (_unlockedForever.contains(t)) continue;
-      if (lockSecs > 0) {
-        _locks[t] = DateTime.now().add(Duration(seconds: lockSecs));
-        _prefs.setString(_prefKey(t), _locks[t]!.toIso8601String());
+    // The server records the cooldown (and refuses titles still locked), so
+    // the lock can't be skipped by clearing app data. Nothing navigates unless
+    // the lock was recorded.
+    final Map<String, int> expiries;
+    try {
+      expiries =
+          await FirestoreService.instance.startSoloCooldowns(titlesToPlay);
+    } catch (e) {
+      debugPrint('[HomeTab] startSoloCooldowns error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_cooldownStartErrorMessage(e))),
+        );
       }
+      return;
     }
+    if (!mounted) return;
+
+    setState(() {
+      _selected.clear();
+      expiries.forEach(
+        (t, ms) => _locks[t] = DateTime.fromMillisecondsSinceEpoch(ms),
+      );
+    });
 
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -404,21 +401,24 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           child: QuestionsPage(
             selectedTitles: titlesToPlay,
             soloDifficulty: difficultyToPlay,
-            isDailyChallenge: isDailyChallenge,
-            onRetryLockCleared: () {
-              if (mounted) {
-                setState(() {
-                  for (final t in titlesToPlay) {
-                    _locks.remove(t);
-                  }
-                });
-              }
-            },
           ),
         ),
         transitionDuration: const Duration(milliseconds: 400),
       ),
     );
+  }
+
+  String _cooldownStartErrorMessage(Object e) {
+    if (e is FirebaseFunctionsException) {
+      if (e.code == 'failed-precondition' && e.message == 'cooldown_active') {
+        return 'Some anime are still on cooldown — pick again.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (e.message ?? '').startsWith('App update required')) {
+        return e.message!;
+      }
+    }
+    return 'Something went wrong — please try again.';
   }
 
   // ── Daily Gauntlet entry point ──────────────────────────────────────────
@@ -427,13 +427,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   // deduction + ticket) → quiz page. Charging happens ONLY after the user
   // confirms AND content is available, so a content failure never burns coins.
   bool _gauntletBusy = false;
-
-  static const Map<int, String> _gauntletMilestones = {
-    3: '40🪙',
-    7: '100🪙 + 50 WP',
-    14: '200🪙 + 🖼️',
-    30: '500🪙 + Premium',
-  };
 
   Future<void> _startDailyGauntlet() async {
     if (_gauntletBusy) return;
@@ -448,7 +441,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       );
       return;
     }
-    // NOTE: no _prefsReady gate — the Gauntlet doesn't use cooldown locks.
 
     // ── 1. Preview (no charge, same source as the home card) ──────────
     // Capture premium BEFORE any async gap.
@@ -612,9 +604,13 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     );
   }
 
-  /// Redesigned confirm dialog: amber status banner (mirrors the home card),
-  /// three detail rows, then full-width Start + Not-now buttons.
-  /// Uses contentWidget (not actions) for a stable, app-consistent layout.
+  /// Confirm dialog for the Daily Gauntlet.
+  ///
+  /// Built on [AppDialog] for the app's dialog shell, then styled to mirror the
+  /// home tile: the same amber streak medallion and milestone rail, the WP
+  /// ladder as chips read from [kGauntletTiers] (never a hardcoded copy of the
+  /// server curve), and the entry cost as a plain fact row. Nothing is charged
+  /// until this resolves true.
   Future<bool?> _showGauntletConfirmDialog({
     required int streak,
     required bool isFreeAttempt,
@@ -623,8 +619,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     const amber = AppColors.amber;
     final isFreeEntry = isFreeAttempt || retryCost == 0;
 
+    // Milestone days ascend (3, 7, 14, 30); the first past the streak is what
+    // the rail walks toward.
     int? nextDay;
-    for (final day in _gauntletMilestones.keys) {
+    for (final day in kGauntletMilestones.keys) {
       if (streak < day) {
         nextDay = day;
         break;
@@ -632,11 +630,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     }
     final milestoneLabel = nextDay == null
         ? 'All milestones claimed'
-        : '${nextDay - streak}d to ${_gauntletMilestones[nextDay]}';
+        : '${nextDay - streak}d → ${kGauntletMilestones[nextDay]}';
+    final progress = _milestoneProgress(streak, nextDay);
+    final totalWP = kGauntletTiers.fold<int>(0, (acc, t) => acc + t);
 
-    final entryPillLabel = isFreeAttempt
-        ? 'FREE ENTRY'
-        : (retryCost == 0 ? 'RETRY · FREE' : 'RETRY · $retryCost AC');
     final confirmLabel = isFreeAttempt
         ? 'Start · Free'
         : (retryCost == 0 ? 'Retry · FREE' : 'Retry · $retryCost AC');
@@ -651,9 +648,9 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── Status banner (mirrors _TodayGauntletCard) ──────────
+            // ── Streak + milestone progress banner ──────────────────
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: EdgeInsets.all(14.r),
               decoration: BoxDecoration(
                 gradient: isFreeEntry
                     ? LinearGradient(
@@ -674,111 +671,210 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                   width: isFreeEntry ? 1.5 : 1,
                 ),
               ),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
+                  Row(
                     children: [
-                      Text(
-                        '$streak',
-                        style: TextStyle(
-                          color: isFreeEntry ? amber : AppColors.textMuted,
-                          fontSize: 26.sp,
-                          fontWeight: FontWeight.w900,
-                          height: 1.0,
+                      // Streak medallion — the same shape as the home tile.
+                      Container(
+                        width: 52.r,
+                        height: 52.r,
+                        decoration: BoxDecoration(
+                          color: amber
+                              .withValues(alpha: isFreeEntry ? 0.16 : 0.07),
+                          borderRadius: BorderRadius.circular(14.r),
+                          border: Border.all(
+                            color: amber.withValues(
+                                alpha: isFreeEntry ? 0.34 : 0.16),
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.local_fire_department_rounded,
+                              color: isFreeEntry ? amber : AppColors.textMuted,
+                              size: 15.r,
+                            ),
+                            Text(
+                              '$streak',
+                              style: TextStyle(
+                                color:
+                                    isFreeEntry ? amber : AppColors.textMuted,
+                                fontSize: 18.sp,
+                                fontWeight: FontWeight.w900,
+                                height: 1.0,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            Text(
+                              'DAY STREAK',
+                              style: TextStyle(
+                                color: amber.withValues(
+                                    alpha: isFreeEntry ? 0.75 : 0.45),
+                                fontSize: 6.sp,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.4,
+                                height: 1.2,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Text(
-                        streak == 1 ? 'day' : 'days',
-                        style: TextStyle(
-                          color: isFreeEntry
-                              ? amber.withValues(alpha: 0.7)
-                              : AppColors.textMuted.withValues(alpha: 0.6),
-                          fontSize: 10.sp,
-                          fontWeight: FontWeight.w700,
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              streak == 1
+                                  ? '1 day in a row'
+                                  : '$streak days in a row',
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 14.sp,
+                                fontWeight: FontWeight.w900,
+                                height: 1.1,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            SizedBox(height: 4.h),
+                            Text(
+                              isFreeEntry
+                                  ? 'Your free attempt is ready'
+                                  : 'Your extra attempt today',
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 11.sp,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'STREAK',
-                          style: TextStyle(
-                            color: isFreeEntry ? amber : AppColors.textMuted,
-                            fontSize: 9.sp,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.7,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          milestoneLabel,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 12.sp,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: isFreeEntry
-                                ? amber.withValues(alpha: 0.16)
-                                : AppColors.surface,
-                            borderRadius:
-                                BorderRadius.circular(AppRadii.full),
-                            border: Border.all(
-                              color: isFreeEntry
-                                  ? amber.withValues(alpha: 0.5)
-                                  : AppColors.divider,
-                            ),
-                          ),
-                          child: Text(
-                            entryPillLabel,
-                            style: TextStyle(
-                              color: isFreeEntry
-                                  ? amber
-                                  : AppColors.textSecondary,
-                              fontSize: 11.sp,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.3,
+                  SizedBox(height: 14.h),
+                  // Milestone rail — fills toward the next reward.
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadii.full),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween<double>(begin: 0, end: progress),
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeOutCubic,
+                      builder: (_, value, __) => Container(
+                        width: double.infinity,
+                        height: 5.r,
+                        color: AppColors.divider,
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: value.clamp(0.0, 1.0).toDouble(),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  amber.withValues(alpha: 0.55),
+                                  amber,
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ],
+                      ),
                     ),
+                  ),
+                  SizedBox(height: 7.h),
+                  Row(
+                    children: [
+                      Text(
+                        'NEXT MILESTONE',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 8.sp,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.7,
+                        ),
+                      ),
+                      const Spacer(),
+                      Flexible(
+                        child: Text(
+                          milestoneLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            color:
+                                isFreeEntry ? amber : AppColors.textSecondary,
+                            fontSize: 10.sp,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
-            // ── Detail rows ─────────────────────────────────────────
+
+            SizedBox(height: AppSpacing.lg),
+
+            // ── WP ladder (read from kGauntletTiers) ────────────────
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'WP PER QUESTION',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 9.sp,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                Text(
+                  'up to $totalWP WP',
+                  style: TextStyle(
+                    color: amber,
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8.h),
+            Row(
+              children: [
+                for (var i = 0; i < kGauntletTiers.length; i++)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        right: i == kGauntletTiers.length - 1 ? 0 : 5.w,
+                      ),
+                      child: _WpChip(tier: kGauntletTiers[i]),
+                    ),
+                  ),
+              ],
+            ),
+
+            SizedBox(height: AppSpacing.lg),
+
+            // ── Facts ───────────────────────────────────────────────
             _GauntletDialogRow(
               icon: Icons.quiz_rounded,
-              text: '7 mixed-anime questions',
+              text: '$kGauntletQuestionCount mixed-anime questions',
             ),
-            const SizedBox(height: AppSpacing.sm),
-            const _GauntletDialogRow(
-              icon: Icons.bolt_rounded,
-              text: 'Escalating WP · 15/15/15/20/20/25/25',
-            ),
-            const SizedBox(height: AppSpacing.sm),
+            SizedBox(height: 8.h),
             _GauntletDialogRow(
-              icon: Icons.monetization_on_rounded,
-              text: isFreeAttempt
-                  ? 'Free attempt — no coins needed'
-                  : (retryCost == 0
-                      ? 'Retry is FREE (Premium)'
-                      : 'Entry: $retryCost AC · non-refundable if you quit'),
+              icon: isFreeEntry
+                  ? Icons.card_giftcard_rounded
+                  : Icons.monetization_on_rounded,
+              text: isFreeEntry
+                  ? 'Free entry — no coins needed'
+                  : 'Entry: $retryCost AC · non-refundable if you quit',
             ),
             const SizedBox(height: AppSpacing.xl),
             // ── Actions (full-width, app-consistent) ────────────────
@@ -813,7 +909,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   Future<void> _skipCooldown(String title) async {
     if (_spendBusy) return;
     final userData = context.read<UserDataProvider>();
-    const cost = 100;
+    const cost = kCooldownSkipCost;
 
     if (userData.animeCoins < cost) {
       if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
@@ -831,7 +927,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
         ),
         content: Text(
           'Spend $cost🪙 to unlock "${title.toUpperCase()}" immediately?',
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 14.sp),
         ),
         actions: [
           TextButton(
@@ -854,12 +950,13 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
 
     setState(() => _spendBusy = true);
     try {
-      await userData.spendCoins(cost, 'spend_cooldown');
+      await userData.spendCoins(
+        cost,
+        'spend_cooldown',
+        extra: {'title': title},
+      );
       if (!mounted) return;
-      setState(() {
-        _locks.remove(title);
-        _prefs.remove(_prefKey(title));
-      });
+      setState(() => _locks.remove(title));
     } on InsufficientCoinsException {
       if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
     } catch (e) {
@@ -878,7 +975,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   // ── SPEND SURFACE 4: Early Anime Unlock (5000 AC) ───────────────────────
   Future<void> _unlockEarly(String title) async {
     if (_spendBusy) return;
-    const cost = 5000;
+    const cost = kEarlyUnlockCost;
     final userData = context.read<UserDataProvider>();
 
     if (userData.animeCoins < cost) {
@@ -896,10 +993,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
               color: AppColors.textPrimary, fontWeight: FontWeight.w800),
         ),
         content: Text(
-          'Spend 5000🪙 to permanently unlock "${title.toUpperCase()}"?\n\n'
+          'Spend $cost🪙 to permanently unlock "${title.toUpperCase()}"?\n\n'
           'This removes it from cooldown and adds it to your unlocked library.',
-          style: const TextStyle(
-              color: AppColors.textSecondary, fontSize: 14, height: 1.5),
+          style: TextStyle(
+              color: AppColors.textSecondary, fontSize: 14.sp, height: 1.5),
         ),
         actions: [
           TextButton(
@@ -908,9 +1005,9 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              '🔓 Unlock  −5000🪙',
-              style: TextStyle(
+            child: Text(
+              '🔓 Unlock  −$cost🪙',
+              style: const TextStyle(
                   color: AppColors.accent, fontWeight: FontWeight.w700),
             ),
           ),
@@ -928,7 +1025,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
 
       setState(() {
         _locks.remove(title);
-        _prefs.remove(_prefKey(title));
         _unlockedForever.add(title);
       });
       debugPrint('[HomeTab] _unlockEarly ok: ${result['newBalance']}');
@@ -963,7 +1059,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final userData = context.watch<UserDataProvider>();
     final username = AuthService.instance.currentUser?.displayName ?? 'Trainer';
     final hasSelection = _selected.isNotEmpty;
     // Client-side filter counts (no backend calls).
@@ -991,7 +1086,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 // ── Header ─────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+                    padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 6.r),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1000,62 +1095,30 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                             Expanded(
                               child: Text(
                                 'Hey, $username 👋',
-                                style: const TextStyle(
+                                style: TextStyle(
                                     color: AppColors.textSecondary,
-                                    fontSize: 14,
+                                    fontSize: 14.sp,
                                     fontWeight: FontWeight.w600),
                               ),
                             ),
                             const CoinBalanceWidget(),
-                            const SizedBox(width: 8),
-                            FutureBuilder<int>(
-                              future: _rankFutureFor(userData),
-                              builder: (context, snapshot) {
-                                final rank = snapshot.data ?? _lastKnownRank;
-                                return Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.surface,
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: AppColors.divider),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.leaderboard_rounded,
-                                          color: AppColors.textSecondary,
-                                          size: 16),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        rank > 0 ? '#$rank' : '—',
-                                        style: const TextStyle(
-                                          color: AppColors.textPrimary,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                            SizedBox(width: 8.w),
+                            const WeeklyPointsPill(),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        SizedBox(height: 10.h),
                         RichText(
                           text: TextSpan(
-                            style: const TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 27,
+                            style: TextStyle(
+                              fontFamily: AppTypography.fontFamily,
+                              fontSize: 27.sp,
                               fontWeight: FontWeight.w900,
                               height: 1.12,
                               color: AppColors.textPrimary,
                             ),
-                            children: [
-                              const TextSpan(text: "Let's build\n"),
-                              const TextSpan(text: "today's lineup"),
+                            children: const [
+                              TextSpan(text: "Let's build\n"),
+                              TextSpan(text: "today's lineup"),
                             ],
                           ),
                         ),
@@ -1067,15 +1130,15 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 // ── Today strip ────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: SizedBox(
-                    height: 98,
+                    height: 98.h,
                     child: ListView(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
+                      padding: EdgeInsets.fromLTRB(20.r, 10.h, 8.r, 0),
                       scrollDirection: Axis.horizontal,
                       children: [
                         _TodayGauntletCard(onTap: _startDailyGauntlet),
-                        const SizedBox(width: 12),
-                        const _TodayPrizeCard(),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 12.w),
+                        _TodayPrizeCard(onTap: widget.onOpenRankings),
+                        SizedBox(width: 8.w),
                       ],
                     ),
                   ),
@@ -1094,30 +1157,30 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 // ── Lineup section header ──────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 26, 20, 4),
+                    padding: EdgeInsets.fromLTRB(20.r, 26.r, 20.r, 4.r),
                     child: SectionHeader(
                       title: 'Build your lineup',
                       trailing: GestureDetector(
-                        onTap: _prefsReady ? _surpriseMe : null,
+                        onTap: _surpriseMe,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 7),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 12.w, vertical: 7.h),
                           decoration: BoxDecoration(
                             color: AppColors.secondary.withOpacity(0.14),
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(20.r),
                             border: Border.all(
                                 color: AppColors.secondary.withOpacity(0.4)),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text('🎲', style: TextStyle(fontSize: 13)),
-                              SizedBox(width: 5),
+                              Text('🎲', style: TextStyle(fontSize: 13.sp)),
+                              SizedBox(width: 5.w),
                               Text(
                                 'Surprise me',
                                 style: TextStyle(
                                     color: AppColors.secondary,
-                                    fontSize: 12,
+                                    fontSize: 12.sp,
                                     fontWeight: FontWeight.w800),
                               ),
                             ],
@@ -1129,11 +1192,11 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                    padding: EdgeInsets.fromLTRB(20.r, 4.r, 20.r, 0),
                     child: Text(
                       'Pick 2 or more anime to start a quiz',
-                      style:
-                          TextStyle(color: AppColors.textMuted, fontSize: 12),
+                      style: TextStyle(
+                          color: AppColors.textMuted, fontSize: 12.sp),
                     ),
                   ),
                 ),
@@ -1141,7 +1204,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 // ── Filter chips ───────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 0),
                     child: _FilterChips(
                       current: _filter,
                       totalCount: _animeTitles.length,
@@ -1154,8 +1217,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
 
                 // ── Anime grid (3-col poster cards) ──────────────────────
                 SliverPadding(
-                  padding:
-                      EdgeInsets.fromLTRB(20, 12, 20, hasSelection ? 120 : 32),
+                  padding: EdgeInsets.fromLTRB(
+                      20.r, 12.r, 20.r, hasSelection ? 120.h : 32.h),
                   sliver: SliverGrid(
                     delegate: SliverChildBuilderDelegate(
                       (ctx, i) {
@@ -1165,6 +1228,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                           isSelected: _selected.contains(title),
                           lockTime: _locks[title],
                           isNew: _unlockedForever.contains(title),
+                          lockTick: _lockTick,
                           onTap: () => _toggleSelection(title),
                           onSkipCooldown: () => _skipCooldown(title),
                           onUnlockEarly: () => _unlockEarly(title),
@@ -1174,20 +1238,20 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                     ),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: crossAxisCount,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10.w,
+                      mainAxisSpacing: 10.h,
                       childAspectRatio: 0.62,
                     ),
                   ),
                 ),
                 if (visibleTitles.isEmpty)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: Padding(
-                      padding: EdgeInsets.fromLTRB(20, 8, 20, 32),
+                      padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 32.r),
                       child: Text(
                         'Nothing here yet — try a different filter.',
                         style: TextStyle(
-                            color: AppColors.textMuted, fontSize: 12),
+                            color: AppColors.textMuted, fontSize: 12.sp),
                       ),
                     ),
                   ),
@@ -1234,15 +1298,15 @@ class _GauntletDialogRow extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 32,
-          height: 32,
+          width: 32.r,
+          height: 32.r,
           decoration: BoxDecoration(
             color: AppColors.amber.withValues(alpha: 0.12),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: AppColors.amber, size: 16),
+          child: Icon(icon, color: AppColors.amber, size: 16.r),
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: 10.w),
         Expanded(
           child: Text(
             text,
@@ -1259,19 +1323,48 @@ class _GauntletDialogRow extends StatelessWidget {
   }
 }
 
+// ─── Gauntlet WP tier chip ──────────────────────────────────────────────────
+/// One rung of the Daily Gauntlet's per-question WP ladder. The fill darkens as
+/// the tier climbs, so the escalation reads at a glance without a legend. Tiers
+/// are the same values the submitDailyGauntlet CF applies.
+class _WpChip extends StatelessWidget {
+  final int tier;
+  const _WpChip({required this.tier});
+
+  @override
+  Widget build(BuildContext context) {
+    final lowest = kGauntletTiers.reduce((a, b) => a < b ? a : b);
+    final highest = kGauntletTiers.reduce((a, b) => a > b ? a : b);
+    final t = highest == lowest
+        ? 1.0
+        : (tier - lowest) / (highest - lowest).toDouble();
+
+    return Container(
+      height: 28.r,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.amber.withValues(alpha: 0.10 + 0.16 * t),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(
+          color: AppColors.amber.withValues(alpha: 0.22 + 0.20 * t),
+        ),
+      ),
+      child: Text(
+        '$tier',
+        style: TextStyle(
+          color: AppColors.amber,
+          fontSize: 12.sp,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Today: Daily Gauntlet card ──────────────────────────────────────────────
 class _TodayGauntletCard extends StatelessWidget {
   final VoidCallback onTap;
   const _TodayGauntletCard({required this.onTap});
-
-  static const _amber = Color(0xFFF59E0B);
-
-  static const Map<int, String> _milestones = {
-    3: '40🪙',
-    7: '100🪙 + 50 WP',
-    14: '200🪙 + 🖼️',
-    30: '500🪙 + Premium',
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -1295,7 +1388,7 @@ class _TodayGauntletCard extends StatelessWidget {
         final atCap = retryCost == null;
 
         int? nextDay;
-        for (final day in _milestones.keys) {
+        for (final day in kGauntletMilestones.keys) {
           if (streak < day) {
             nextDay = day;
             break;
@@ -1303,7 +1396,7 @@ class _TodayGauntletCard extends StatelessWidget {
         }
         final milestoneLabel = nextDay == null
             ? 'All milestones claimed'
-            : '${nextDay - streak}d to ${_milestones[nextDay]}';
+            : '${nextDay - streak}d to ${kGauntletMilestones[nextDay]}';
 
         String retryLabel;
         if (isFreeAttempt) {
@@ -1319,24 +1412,26 @@ class _TodayGauntletCard extends StatelessWidget {
         return GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 196,
-            height: 88,
-            padding: const EdgeInsets.all(12),
+            width: 196.w,
+            height: 88.h,
+            padding: EdgeInsets.all(12.r),
             decoration: BoxDecoration(
               gradient: usedToday
                   ? null
                   : LinearGradient(
                       colors: [
-                        _amber.withOpacity(0.20),
-                        _amber.withOpacity(0.05)
+                        AppColors.amber.withOpacity(0.20),
+                        AppColors.amber.withOpacity(0.05)
                       ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
               color: usedToday ? AppColors.surface : null,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(18.r),
               border: Border.all(
-                color: usedToday ? AppColors.divider : _amber.withOpacity(0.45),
+                color: usedToday
+                    ? AppColors.divider
+                    : AppColors.amber.withOpacity(0.45),
                 width: usedToday ? 1 : 1.5,
               ),
             ),
@@ -1349,8 +1444,9 @@ class _TodayGauntletCard extends StatelessWidget {
                     Text(
                       '$streak',
                       style: TextStyle(
-                        color: usedToday ? AppColors.textMuted : _amber,
-                        fontSize: 22,
+                        color:
+                            usedToday ? AppColors.textMuted : AppColors.amber,
+                        fontSize: 22.sp,
                         fontWeight: FontWeight.w900,
                         height: 1.0,
                       ),
@@ -1360,14 +1456,14 @@ class _TodayGauntletCard extends StatelessWidget {
                       style: TextStyle(
                         color: usedToday
                             ? AppColors.textMuted.withOpacity(0.6)
-                            : _amber.withOpacity(0.7),
-                        fontSize: 9,
+                            : AppColors.amber.withOpacity(0.7),
+                        fontSize: 9.sp,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: 10.w),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1376,13 +1472,14 @@ class _TodayGauntletCard extends StatelessWidget {
                       Text(
                         'DAILY GAUNTLET',
                         style: TextStyle(
-                          color: usedToday ? AppColors.textMuted : _amber,
-                          fontSize: 8,
+                          color:
+                              usedToday ? AppColors.textMuted : AppColors.amber,
+                          fontSize: 8.sp,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.7,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      SizedBox(height: 2.h),
                       Text(
                         retryLabel,
                         maxLines: 1,
@@ -1391,17 +1488,17 @@ class _TodayGauntletCard extends StatelessWidget {
                           color: usedToday
                               ? AppColors.textSecondary
                               : AppColors.textPrimary,
-                          fontSize: 11,
+                          fontSize: 11.sp,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      SizedBox(height: 2.h),
                       Text(
                         milestoneLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: AppColors.textMuted, fontSize: 9),
+                        style: TextStyle(
+                            color: AppColors.textMuted, fontSize: 9.sp),
                       ),
                     ],
                   ),
@@ -1415,9 +1512,26 @@ class _TodayGauntletCard extends StatelessWidget {
   }
 }
 
+/// Fraction (0–1) of the way from the previous milestone to [nextDay].
+/// Returns 1 once every milestone has been claimed.
+double _milestoneProgress(int streak, int? nextDay) {
+  if (nextDay == null) return 1;
+  var previous = 0;
+  for (final day in kGauntletMilestones.keys) {
+    if (day < nextDay) previous = day;
+  }
+  final span = nextDay - previous;
+  if (span <= 0) return 0;
+  return ((streak - previous) / span).clamp(0.0, 1.0).toDouble();
+}
+
 // ─── Today: Prize Pool card ────────────────────────────────────────────────
 class _TodayPrizeCard extends StatefulWidget {
-  const _TodayPrizeCard();
+  /// Opens the Rankings tab. The card advertises this week's pool, so making it
+  /// the way to the board is the obvious affordance it never had.
+  final VoidCallback onTap;
+
+  const _TodayPrizeCard({required this.onTap});
 
   @override
   State<_TodayPrizeCard> createState() => _TodayPrizeCardState();
@@ -1432,8 +1546,11 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
   void initState() {
     super.initState();
     _stream = FirestoreService.instance.prizePoolStream();
-    // Same projection inputs the leaderboard uses, so the home card and the
-    // leaderboard can never advertise different pools.
+    // Same *rule* the leaderboard uses (PrizePoolService.projectPrizePool), so
+    // the two can never compute a different figure. They can still be read at
+    // different times: this card streams live while the leaderboard re-reads on
+    // open / pull-to-refresh / a stale resume, so for a few minutes after a
+    // sale the card can lead the board. The rule is shared; the cadence is not.
     _loadFloor();
   }
 
@@ -1458,54 +1575,62 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
           guaranteedFloor: _guaranteedFloor,
         );
 
-        return Container(
-          width: 120,
-          height: 88,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColors.divider),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.emoji_events_rounded,
-                    size: 11,
-                    color: AppColors.accent,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'PRIZE POOL',
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: Container(
+            width: 120.w,
+            height: 88.h,
+            padding: EdgeInsets.symmetric(
+              horizontal: 12.w,
+              vertical: 10.h,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(18.r),
+              border: Border.all(color: AppColors.divider),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.emoji_events_rounded,
+                      size: 11.r,
+                      color: AppColors.accent,
+                    ),
+                    SizedBox(width: 4.w),
+                    Text(
+                      'PRIZE POOL',
+                      style: TextStyle(
+                        color: AppColors.accent.withValues(alpha: 0.9),
+                        fontSize: 7.5.sp,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 5.h),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    PrizePoolService.formatNaira(projection.amount),
+                    maxLines: 1,
                     style: TextStyle(
-                      color: AppColors.accent.withValues(alpha: 0.9),
-                      fontSize: 7.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.6,
+                      color: AppColors.textPrimary,
+                      fontSize: 20.sp,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 5),
-              Text(
-                PrizePoolService.formatNaira(projection.amount),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w900,
                 ),
-              ),
-              const SizedBox(height: 4),
-            ],
+                SizedBox(height: 4.h),
+              ],
+            ),
           ),
         );
       },
@@ -1524,14 +1649,14 @@ class _PremiumBanner extends StatelessWidget {
     if (premium) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 0),
       child: GestureDetector(
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
         ),
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(16.r),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -1541,23 +1666,23 @@ class _PremiumBanner extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(18.r),
             border: Border.all(color: AppColors.accent.withOpacity(0.35)),
           ),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 48.r,
+                height: 48.r,
                 decoration: BoxDecoration(
                   color: AppColors.accent.withOpacity(0.20),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(14.r),
                   border: Border.all(color: AppColors.accent.withOpacity(0.40)),
                 ),
                 child: Center(
                     child: Text('👑', style: TextStyle(fontSize: 24.sp))),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12.w),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1572,7 +1697,7 @@ class _PremiumBanner extends StatelessWidget {
                         letterSpacing: 1.0,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    SizedBox(height: 4.h),
                     Text(
                       'Unlock more ways to compete',
                       style: TextStyle(
@@ -1583,7 +1708,7 @@ class _PremiumBanner extends StatelessWidget {
                         height: 1.15,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    SizedBox(height: 6.h),
                     Text(
                       '1.20× eligible WP · Extra Quick Match · Free Gauntlet retry',
                       maxLines: 2,
@@ -1599,10 +1724,10 @@ class _PremiumBanner extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: EdgeInsets.all(8.r),
                 decoration: BoxDecoration(
                   color: AppColors.accent.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12.r),
                   border: Border.all(color: AppColors.accent.withOpacity(0.3)),
                 ),
                 child: Icon(
@@ -1634,10 +1759,15 @@ class _AnimeCard extends StatefulWidget {
   final VoidCallback? onUnlockEarly;
   final bool isNew;
 
+  /// Ticks once per second while a cooldown is active. Only the countdown pill
+  /// listens, so the rest of the grid is not rebuilt every second.
+  final ValueListenable<int> lockTick;
+
   const _AnimeCard({
     required this.title,
     required this.isSelected,
     required this.onTap,
+    required this.lockTick,
     this.lockTime,
     this.onSkipCooldown,
     this.onUnlockEarly,
@@ -1754,7 +1884,7 @@ class _AnimeCardState extends State<_AnimeCard>
       child: Center(
         child: Text(
           _emoji,
-          style: const TextStyle(fontSize: 52),
+          style: TextStyle(fontSize: 52.sp),
         ),
       ),
     );
@@ -1790,7 +1920,7 @@ class _AnimeCardState extends State<_AnimeCard>
           duration: const Duration(milliseconds: 220),
           decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(16.r),
             border: Border.all(
               color: widget.isSelected
                   ? AppColors.primary
@@ -1809,7 +1939,7 @@ class _AnimeCardState extends State<_AnimeCard>
                 : null,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(15.r),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -1822,7 +1952,7 @@ class _AnimeCardState extends State<_AnimeCard>
                   bottom: 0,
                   top: null,
                   child: Container(
-                    height: 110,
+                    height: 110.h,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
@@ -1839,19 +1969,24 @@ class _AnimeCardState extends State<_AnimeCard>
                 // ── Status pill (top-left, cooldown/NEW only) ────────
                 if (_isLocked)
                   Positioned(
-                    top: 6,
-                    left: 6,
-                    child: _StatusPill(
-                      label: _timerLabel,
-                      background: Colors.black.withOpacity(0.65),
-                      foreground: Colors.white,
-                      icon: Icons.lock_rounded,
+                    top: 6.h,
+                    left: 6.w,
+                    // Only this pill reads the per-second ticker, so the
+                    // countdown refreshes without rebuilding the grid.
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: widget.lockTick,
+                      builder: (_, __, ___) => _StatusPill(
+                        label: _timerLabel,
+                        background: Colors.black.withOpacity(0.65),
+                        foreground: Colors.white,
+                        icon: Icons.lock_rounded,
+                      ),
                     ),
                   )
                 else if (widget.isNew)
                   Positioned(
-                    top: 6,
-                    left: 6,
+                    top: 6.h,
+                    left: 6.w,
                     child: _StatusPill(
                       label: 'NEW',
                       background: AppColors.accent,
@@ -1871,47 +2006,47 @@ class _AnimeCardState extends State<_AnimeCard>
                 if (_isLocked)
                   Center(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      padding: EdgeInsets.symmetric(horizontal: 6.w),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.lock_rounded,
-                              color: Colors.white70, size: 22),
-                          const SizedBox(height: 6),
+                          Icon(Icons.lock_rounded,
+                              color: Colors.white70, size: 22.r),
+                          SizedBox(height: 6.h),
                           GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: () => widget.onSkipCooldown?.call(),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 8.w, vertical: 4.h),
                               decoration: BoxDecoration(
                                 color: AppColors.secondary.withOpacity(0.9),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(8.r),
                               ),
-                              child: const Text(
-                                '⏩ 100',
+                              child: Text(
+                                '⏩ $kCooldownSkipCost',
                                 style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: 10,
+                                    fontSize: 10.sp,
                                     fontWeight: FontWeight.w800),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4.h),
                           GestureDetector(
                             behavior: HitTestBehavior.opaque,
                             onTap: () => widget.onUnlockEarly?.call(),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 8.w, vertical: 4.h),
                               decoration: BoxDecoration(
                                 color: AppColors.accent.withOpacity(0.9),
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(8.r),
                               ),
-                              child: const Text('🔓 5000',
+                              child: Text('🔓 $kEarlyUnlockCost',
                                   style: TextStyle(
                                       color: Colors.white,
-                                      fontSize: 10,
+                                      fontSize: 10.sp,
                                       fontWeight: FontWeight.w800)),
                             ),
                           ),
@@ -1925,7 +2060,7 @@ class _AnimeCardState extends State<_AnimeCard>
                   right: 0,
                   bottom: 0,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    padding: EdgeInsets.fromLTRB(8.w, 0, 8.w, 8.h),
                     child: Text(
                       statusLabel,
                       maxLines: 1,
@@ -1964,17 +2099,17 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 3.h),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20.r),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, color: foreground, size: 10),
-            const SizedBox(width: 3),
+            Icon(icon, color: foreground, size: 10.r),
+            SizedBox(width: 3.w),
           ],
           Text(
             label,
@@ -1999,11 +2134,11 @@ class _SelectedCheck extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 22,
-      height: 22,
+      width: 22.r,
+      height: 22.r,
       decoration: const BoxDecoration(
           color: AppColors.primary, shape: BoxShape.circle),
-      child: const Icon(Icons.check, color: Colors.white, size: 14),
+      child: Icon(Icons.check, color: Colors.white, size: 14.r),
     );
   }
 }
@@ -2036,7 +2171,7 @@ class _FilterChips extends StatelessWidget {
       child: Row(
         children: [
           for (var i = 0; i < chips.length; i++) ...[
-            if (i > 0) const SizedBox(width: 8),
+            if (i > 0) SizedBox(width: 8.w),
             _FilterChip(
               label: chips[i].label,
               selected: current == chips[i].value,
@@ -2065,10 +2200,10 @@ class _FilterChip extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 7.h),
         decoration: BoxDecoration(
           color: selected ? AppColors.surfaceAlt : AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(20.r),
           border: Border.all(
             color: selected ? AppColors.textMuted : AppColors.divider,
           ),
@@ -2077,7 +2212,7 @@ class _FilterChip extends StatelessWidget {
           label,
           style: TextStyle(
             color: selected ? AppColors.textPrimary : AppColors.textMuted,
-            fontSize: 12,
+            fontSize: 12.sp,
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -2107,10 +2242,10 @@ class _LineupTray extends StatelessWidget {
     final diffName = diffLabel[0].toUpperCase() + diffLabel.substring(1);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 16.r),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
         border: const Border(top: BorderSide(color: AppColors.divider)),
         boxShadow: [
           BoxShadow(
@@ -2127,28 +2262,27 @@ class _LineupTray extends StatelessWidget {
           // ── Header: count badge + clear-all ───────────────────────
           Row(
             children: [
-              const Text(
+              Text(
                 'Lineup',
                 style: TextStyle(
                   color: AppColors.textPrimary,
-                  fontSize: 13,
+                  fontSize: 13.sp,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8.w),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
                 decoration: BoxDecoration(
                   color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12.r),
                   border: Border.all(color: AppColors.textMuted),
                 ),
                 child: Text(
                   '${selected.length}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: 11,
+                    fontSize: 11.sp,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -2157,13 +2291,13 @@ class _LineupTray extends StatelessWidget {
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: onClearAll,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 4.h),
                   child: Text(
                     'Clear all',
                     style: TextStyle(
                       color: AppColors.textMuted,
-                      fontSize: 12,
+                      fontSize: 12.sp,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -2171,14 +2305,14 @@ class _LineupTray extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: 10.h),
           GradientButton(
             label: ready
                 ? 'Start $diffName Quiz  (${selected.length} picked)'
                 : 'Pick ${2 - selected.length} more to begin',
             onTap: ready ? onStart : null,
             icon: ready ? Icons.play_arrow_rounded : null,
-            height: 54,
+            height: 54.h,
           ),
         ],
       ),

@@ -1,5 +1,5 @@
-// functions/test/friends.test.js â€?friend graph, code lookup, spar friendship
-// gate, friends board, nudge/react preset.
+// functions/test/friends.test.js ï¿½?friend graph, code lookup, spar friendship
+// gate, friends board, nudge preset.
 'use strict';
 process.env.NODE_ENV = 'test';
 const { test, describe, it, beforeEach } = require('node:test');
@@ -40,7 +40,7 @@ describe('friends', () => {
   beforeEach(async () => {
     await H.clearDb(db);
     for (const u of ['A', 'B', 'C', 'D']) {
-      await H.mkUser(db, u, { username: u, friendCount: 0 });
+      await H.mkUser(db, u, { username: u, friendCount: 0, fcmToken: `tok_${u}` });
     }
     await H.seedQuestions(db);
   });
@@ -69,7 +69,7 @@ describe('friends', () => {
     assert.equal(peerLink.status, 'incoming');
   });
 
-  it('unknown code â†?not_found and counts against the 15/day attempt budget', async () => {
+  it('unknown code ï¿½?not_found and counts against the 15/day attempt budget', async () => {
     await H.rejectsWith(
       fns.sendFriendRequest.run(H.req('A', { code: 'ZZZZZZ', ...STAMP })),
       'not-found', 'not_found');
@@ -110,11 +110,11 @@ describe('friends', () => {
       'failed-precondition', 'cannot_accept_own_request');
   });
 
-  it('reject deletes the pair and both links', async () => {
+  it('reject keeps the pair as declined (cooldown) and drops both links', async () => {
     const code = await friendCode('B');
     await fns.sendFriendRequest.run(H.req('A', { code, ...STAMP }));
     await fns.respondFriendRequest.run(H.req('B', { otherUid: 'A', accept: false, ...STAMP }));
-    assert.equal(await pairDoc('A', 'B'), null);
+    assert.equal((await pairDoc('A', 'B')).status, 'declined');
     assert.equal(await linkDoc('A', 'B'), null);
     assert.equal(await linkDoc('B', 'A'), null);
   });
@@ -160,7 +160,7 @@ describe('friends', () => {
       'not-found', 'not_found');
   });
 
-  it('spar on non-friend pair â†?not_friends; spar on friend pair allowed', async () => {
+  it('spar on non-friend pair ï¿½?not_friends; spar on friend pair allowed', async () => {
     await H.seedQuestions(db);
     await H.rejectsWith(
       fns.createChallenge.run(H.req('A', {
@@ -196,9 +196,9 @@ describe('friends', () => {
     const byUid = Object.fromEntries(board.friends.map((f) => [f.uid, f]));
     assert.deepEqual(Object.keys(byUid).sort(), ['B', 'C']);
     for (const f of board.friends) {
-      // Exactly the allowed keys â€?no coins, no stats, no transaction history.
+      // Exactly the allowed keys ï¿½?no coins, no stats, no transaction history.
       const keys = Object.keys(f).sort();
-      assert.deepEqual(keys, ['entryWeekId', 'uid', 'university', 'username', 'weeklyPoints'],
+      assert.deepEqual(keys, ['entryWeekId', 'myTurn', 'nudgedToday', 'playedToday', 'theirTurn', 'uid', 'university', 'username', 'weeklyPoints'],
         `unexpected keys: ${keys.join(',')}`);
       assert.ok(!('animeCoins' in f), 'animeCoins must not leak');
       assert.ok(!('stats' in f), 'stats must not leak');
@@ -213,7 +213,7 @@ describe('friends', () => {
   it('friends board hides weeklyPoints for stale entry weeks', async () => {
     await beFriends('A', 'B');
     await beFriends('A', 'C');
-    const stale = H.watDaysAgo(3);
+    const stale = H.watDaysAgo(10);
     await db.collection('users').doc('B').update({
       leaderboardEntryWeekId: H.thisWeekId(), weeklyPoints: 700,
     });
@@ -239,7 +239,7 @@ describe('friends', () => {
     assert.equal((await H.getDoc(db, 'users/B')).friendCount, 0);
   });
 
-  it('nudge: non-friend â†?not_friends; friend + their turn â†?ok once/day', async () => {
+  it('nudge: non-friend ï¿½?not_friends; friend + their turn ï¿½?ok once/day', async () => {
     await H.seedQuestions(db);
     await H.rejectsWith(
       fns.nudgeFriend.run(H.req('A', { friendUid: 'B', ...STAMP })),
@@ -257,44 +257,210 @@ describe('friends', () => {
       'resource-exhausted', 'nudge_limit_reached');
   });
 
-  it('react: only participants, only settled duels, only 4 emoji', async () => {
+  it('nudge is rolled back when the push fails, so today\'s one is still available', async () => {
     await H.seedQuestions(db);
     await beFriends('A', 'B');
-    const r = await fns.createChallenge.run(H.req('A', {
+    await fns.createChallenge.run(H.req('A', {
       animeTitle: 'testanime', stakeAmount: 0, wpStake: 0,
       opponentUid: 'B', opponentUsername: 'B', challengeType: 'spar', ...STAMP,
     }));
-    // Not settled yet.
+    ctx.pushFlags.failPush = true;
     await H.rejectsWith(
-      fns.reactToChallenge.run(H.req('A', { challengeId: r.challengeId, emoji: 'GG', ...STAMP })),
-      'failed-precondition', 'not_settled');
-    const ref = db.collection('challenges').doc(r.challengeId);
-    await ref.update({ status: 'completed', resolved: true, creatorScore: 5, opponentScore: 3 });
-    await H.rejectsWith(
-      fns.reactToChallenge.run(H.req('C', { challengeId: r.challengeId, emoji: 'GG', ...STAMP })),
-      'permission-denied', 'not_your_duel');
-    await H.rejectsWith(
-      fns.reactToChallenge.run(H.req('A', { challengeId: r.challengeId, emoji: 'nope', ...STAMP })),
-      'invalid-argument', 'invalid_emoji');
-    const ok = await fns.reactToChallenge.run(
-      H.req('A', { challengeId: r.challengeId, emoji: 'GG', ...STAMP }));
+      fns.nudgeFriend.run(H.req('A', { friendUid: 'B', ...STAMP })),
+      'unavailable', 'nudge_not_delivered');
+    assert.equal((await pairDoc('A', 'B')).lastNudgeAt?.A_B, undefined, 'stamp rolled back');
+    ctx.pushFlags.failPush = false;
+    const ok = await fns.nudgeFriend.run(H.req('A', { friendUid: 'B', ...STAMP }));
     assert.equal(ok.success, true);
-    const ch = await H.getDoc(db, `challenges/${r.challengeId}`);
-    assert.equal(ch.reactions.A, 'GG');
+    assert.ok((await pairDoc('A', 'B')).lastNudgeAt.A_B, 'stamped after the push went out');
   });
 
-  it('react on a settled duel with a blocked peer â†?blocked', async () => {
+  it('nudge to a friend with no push token is not delivered and not stamped', async () => {
     await H.seedQuestions(db);
     await beFriends('A', 'B');
-    const r = await fns.createChallenge.run(H.req('A', {
+    await fns.createChallenge.run(H.req('A', {
       animeTitle: 'testanime', stakeAmount: 0, wpStake: 0,
       opponentUid: 'B', opponentUsername: 'B', challengeType: 'spar', ...STAMP,
     }));
-    const ref = db.collection('challenges').doc(r.challengeId);
-    await ref.update({ status: 'completed', resolved: true, creatorScore: 5, opponentScore: 3 });
-    await fns.blockUser.run(H.req('A', { otherUid: 'B', ...STAMP }));
+    await db.collection('users').doc('B').update({ fcmToken: null });
     await H.rejectsWith(
-      fns.reactToChallenge.run(H.req('A', { challengeId: r.challengeId, emoji: 'GG', ...STAMP })),
+      fns.nudgeFriend.run(H.req('A', { friendUid: 'B', ...STAMP })),
+      'unavailable', 'nudge_not_delivered');
+    assert.equal((await pairDoc('A', 'B')).lastNudgeAt?.A_B, undefined);
+  });
+
+  it('board: nudgedToday is true only for a nudge stamped today (WAT)', async () => {
+    await H.seedQuestions(db);
+    await beFriends('A', 'B');
+    await fns.createChallenge.run(H.req('A', {
+      animeTitle: 'testanime', stakeAmount: 0, wpStake: 0,
+      opponentUid: 'B', opponentUsername: 'B', challengeType: 'spar', ...STAMP,
+    }));
+    let board = await fns.getFriendsBoard.run(H.req('A', { ...STAMP }));
+    assert.equal(board.friends[0].nudgedToday, false);
+    await fns.nudgeFriend.run(H.req('A', { friendUid: 'B', ...STAMP }));
+    board = await fns.getFriendsBoard.run(H.req('A', { ...STAMP }));
+    assert.equal(board.friends[0].nudgedToday, true);
+    // The nudge is A's to B: B's view of A has no stamp.
+    const bBoard = await fns.getFriendsBoard.run(H.req('B', { ...STAMP }));
+    assert.equal(bBoard.friends[0].nudgedToday, false);
+    // A stamp from yesterday no longer counts.
+    await db.collection('friendships').doc('A_B').update({
+      'lastNudgeAt.A_B': new ctx.FakeTimestamp(Date.now() - 26 * 60 * 60 * 1000),
+    });
+    board = await fns.getFriendsBoard.run(H.req('A', { ...STAMP }));
+    assert.equal(board.friends[0].nudgedToday, false);
+  });
+
+  it('board: myTurn means I owe the friend a move, theirTurn means they owe me', async () => {
+    await H.seedQuestions(db);
+    await beFriends('A', 'B');
+    // B challenges A, so A owes the next move.
+    await fns.createChallenge.run(H.req('B', {
+      animeTitle: 'testanime', stakeAmount: 0, wpStake: 0,
+      opponentUid: 'A', opponentUsername: 'A', challengeType: 'spar', ...STAMP,
+    }));
+    const aBoard = await fns.getFriendsBoard.run(H.req('A', { ...STAMP }));
+    assert.equal(aBoard.friends[0].myTurn, true, 'A owes B');
+    assert.equal(aBoard.friends[0].theirTurn, false);
+    const bBoard = await fns.getFriendsBoard.run(H.req('B', { ...STAMP }));
+    assert.equal(bBoard.friends[0].myTurn, false);
+    assert.equal(bBoard.friends[0].theirTurn, true, 'A owes B, so B can nudge A');
+  });
+
+  it('board: playedToday is true only for a match played since WAT midnight', async () => {
+    await beFriends('A', 'B');
+    await beFriends('A', 'C');
+    await db.collection('users').doc('B').collection('matches').doc('m1')
+      .set({ timestamp: new ctx.FakeTimestamp(Date.now()) });
+    await db.collection('users').doc('C').collection('matches').doc('m2')
+      .set({ timestamp: new ctx.FakeTimestamp(Date.now() - 3 * 24 * 60 * 60 * 1000) });
+    const { friends } = await fns.getFriendsBoard.run(H.req('A', { ...STAMP }));
+    const byUid = Object.fromEntries(friends.map((f) => [f.uid, f]));
+    assert.equal(byUid.B.playedToday, true);
+    assert.equal(byUid.C.playedToday, false, 'a match from 3 days ago is not today');
+  });
+
+  it('mutual request: sending back to someone who asked you accepts instead', async () => {
+    await fns.sendFriendRequest.run(H.req('B', { code: await friendCode('A'), ...STAMP }));
+    const r = await fns.sendFriendRequest.run(
+      H.req('A', { code: await friendCode('B'), ...STAMP }));
+    assert.equal(r.status, 'active');
+    assert.equal((await pairDoc('A', 'B')).status, 'active');
+    assert.equal((await linkDoc('A', 'B')).status, 'friend');
+    assert.equal((await linkDoc('B', 'A')).status, 'friend');
+    assert.equal((await H.getDoc(db, 'users/A')).friendCount, 1);
+    assert.equal((await H.getDoc(db, 'users/B')).friendCount, 1);
+  });
+
+  it('friend cap: cannot send a request while you are at 50 friends', async () => {
+    const code = await friendCode('B');
+    await H.mkUser(db, 'A', { username: 'A', friendCount: 50 });
+    await H.rejectsWith(
+      fns.sendFriendRequest.run(H.req('A', { code, ...STAMP })),
+      'resource-exhausted', 'friend_limit_reached');
+    assert.equal(await pairDoc('A', 'B'), null, 'nothing written');
+  });
+
+  it('friend cap: cannot send to a player who is already at 50 friends', async () => {
+    await H.mkUser(db, 'B', { username: 'B', friendCount: 50 });
+    const code = await friendCode('B');
+    await H.rejectsWith(
+      fns.sendFriendRequest.run(H.req('A', { code, ...STAMP })),
+      'resource-exhausted', 'peer_friend_limit');
+    assert.equal(await pairDoc('A', 'B'), null, 'nothing written');
+  });
+
+  it('declined request: the same requester waits 7 days before asking again', async () => {
+    const code = await friendCode('B');
+    await fns.sendFriendRequest.run(H.req('A', { code, ...STAMP }));
+    await fns.respondFriendRequest.run(H.req('B', { otherUid: 'A', accept: false, ...STAMP }));
+    assert.equal((await pairDoc('A', 'B')).status, 'declined');
+    assert.equal(await linkDoc('A', 'B'), null);
+    assert.equal(await linkDoc('B', 'A'), null);
+    await H.rejectsWith(
+      fns.sendFriendRequest.run(H.req('A', { code, ...STAMP })),
+      'failed-precondition', 'request_cooldown');
+    await db.collection('friendships').doc('A_B').update({
+      declinedAt: new ctx.FakeTimestamp(Date.now() - 8 * 24 * 60 * 60 * 1000),
+    });
+    await fns.sendFriendRequest.run(H.req('A', { code, ...STAMP }));
+    assert.equal((await pairDoc('A', 'B')).status, 'pending');
+  });
+
+  it('raw-uid requests are limited to the same campus cohort', async () => {
+    const week = H.thisWeekId();
+    await db.collection('users').doc('A').update({ university: 'UNILAG', leaderboardEntryWeekId: week });
+    await db.collection('users').doc('B').update({ university: 'UNILAG', leaderboardEntryWeekId: week });
+    await db.collection('users').doc('C').update({ university: 'OAU', leaderboardEntryWeekId: week });
+    await H.rejectsWith(
+      fns.sendFriendRequest.run(H.req('A', { uid: 'C', ...STAMP })),
+      'not-found', 'not_found');
+    assert.equal(await pairDoc('A', 'C'), null);
+    await fns.sendFriendRequest.run(H.req('A', { uid: 'B', ...STAMP }));
+    assert.equal((await pairDoc('A', 'B')).status, 'pending');
+  });
+
+  it('block: blocking an active friend works (reads before writes)', async () => {
+    await beFriends('A', 'B');
+    await H.mkUser(db, 'A', { username: 'A', friendCount: 1 });
+    await H.mkUser(db, 'B', { username: 'B', friendCount: 1 });
+    const res = await fns.blockUser.run(H.req('A', { otherUid: 'B', ...STAMP }));
+    assert.equal(res.success, true);
+    assert.equal((await pairDoc('A', 'B')).status, 'blocked');
+  });
+
+  it('block: an unknown player is not_found and nothing is written', async () => {
+    await H.rejectsWith(
+      fns.blockUser.run(H.req('A', { otherUid: 'GHOST_X', ...STAMP })),
+      'not-found', 'not_found');
+    assert.equal(await pairDoc('A', 'GHOST_X'), null);
+  });
+
+  it('friends board: theirTurn is true only for the friend who owes a move', async () => {
+    await H.seedQuestions(db);
+    await beFriends('A', 'B');
+    await beFriends('A', 'C');
+    await fns.createChallenge.run(H.req('A', {
+      animeTitle: 'testanime', stakeAmount: 0, wpStake: 0,
+      opponentUid: 'B', opponentUsername: 'B', challengeType: 'spar', ...STAMP,
+    }));
+    const aBoard = await fns.getFriendsBoard.run(H.req('A', { ...STAMP }));
+    const byA = Object.fromEntries(aBoard.friends.map((f) => [f.uid, f]));
+    assert.equal(byA.B.theirTurn, true);
+    assert.equal(byA.C.theirTurn, false);
+    const bBoard = await fns.getFriendsBoard.run(H.req('B', { ...STAMP }));
+    assert.equal(bBoard.friends[0].theirTurn, false, 'the challenger is waiting, not B');
+  });
+
+  it('staked duel: a blocked pair cannot create a duel', async () => {
+    await H.seedQuestions(db);
+    await db.collection('users').doc('A').update({ animeCoins: 1000, weeklyPoints: 500 });
+    await db.collection('friendships').doc('A_B').set({
+      aUid: 'A', bUid: 'B', status: 'blocked', blockedBy: 'B',
+    });
+    await H.rejectsWith(
+      fns.createChallenge.run(H.req('A', {
+        animeTitle: 'testanime', stakeAmount: 100, wpStake: 50,
+        opponentUid: 'B', opponentUsername: 'B', challengeType: 'rival', ...STAMP,
+      })),
+      'failed-precondition', 'blocked');
+  });
+
+  it('staked duel: a block placed after the invite stops the join', async () => {
+    await H.seedQuestions(db);
+    await db.collection('users').doc('A').update({ animeCoins: 1000, weeklyPoints: 500 });
+    await db.collection('users').doc('B').update({ animeCoins: 1000, weeklyPoints: 500 });
+    const r = await fns.createChallenge.run(H.req('A', {
+      animeTitle: 'testanime', stakeAmount: 100, wpStake: 50,
+      opponentUid: 'B', opponentUsername: 'B', challengeType: 'rival', ...STAMP,
+    }));
+    // Written directly so the invite is not auto-declined; this isolates the join gate.
+    await db.collection('friendships').doc('A_B').set({
+      aUid: 'A', bUid: 'B', status: 'blocked', blockedBy: 'A',
+    });
+    await H.rejectsWith(
+      fns.joinChallenge.run(H.req('B', { challengeId: r.challengeId, ...STAMP })),
       'failed-precondition', 'blocked');
   });
 });

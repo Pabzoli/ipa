@@ -8,22 +8,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_page_route.dart';
 import '../../core/widgets/coin_earn_animation.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
-import '../../core/constants/app_constants.dart';
-import '../../core/constants/solo_economy.dart';
-import '../../core/providers/solo_difficulty_provider.dart';
 import '../auth/auth_service.dart';
 import '../auth/delete_account_flow.dart';
-import '../leaderboard/widgets/campus_picker_card.dart';
-import '../prizes/bank_selector_sheet.dart';
+import '../prizes/my_prizes_page.dart';
 import '../multiplayer/challenge_model.dart';
 import '../../features/coins/earn_coins_screen.dart';
 import '../../features/premium/premium_upsell_screen.dart';
+import '../../feature/referral/presentation/referral_screen/ui/referral_screen.dart';
 import 'player_statistics_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'settings_page.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PInform — Profile tab (root tab, no back button)
@@ -119,7 +119,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
     }
 
     final ctrl = TextEditingController(text: _username);
-    showDialog(
+    await showDialog<void>(
       context: context,
       builder: (_) => _EditUsernameDialog(
         controller: ctrl,
@@ -131,6 +131,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
               ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Username updated!')));
             }
+            return true;
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -138,9 +139,19 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
                 backgroundColor: AppColors.wrong,
               ));
             }
+            return false;
           }
         },
       ),
+    );
+    ctrl.dispose();
+  }
+
+  // ── Referrals ─────────────────────────────────────────────────────────────
+  void _openReferralPage() {
+    Navigator.push(
+      context,
+      AppPageRoute(builder: (_) => const ReferralScreen()),
     );
   }
 
@@ -197,7 +208,8 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
     if (!result.success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result.error!, style: const TextStyle(fontFamily: 'Nunito')),
+          content:
+              Text(result.error!, style: const TextStyle(fontFamily: 'Nunito')),
           backgroundColor: AppColors.wrong,
         ),
       );
@@ -226,13 +238,9 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
     // AuthGate reacts to the now-signed-out auth state and returns to login.
   }
 
-
   @override
   Widget build(BuildContext context) {
     final stats = context.watch<PlayerStatisticsProvider>().playerStatistics;
-    final udp = context.watch<UserDataProvider>();
-    final animeCoins = udp.animeCoins;
-    final uid = AuthService.instance.currentUser?.uid ?? '';
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
@@ -262,26 +270,24 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
             // ── Identity card ─────────────────────────────────────────────
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 20.r),
-              child: _IdentityCard(
-                username: _usernameLoading ? '...' : _username,
-                animeCoins: animeCoins,
-                premiumActive: udp.premiumActive,
-                rankFuture: _rankFutureFor(udp),
-                lastKnownRank: _lastKnownRank,
-                onOpenPremium: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const PremiumUpsellScreen(),
+              // Only the identity card listens to coin / rank / premium ticks,
+              // so those updates no longer rebuild the whole profile page.
+              child: Consumer<UserDataProvider>(
+                builder: (context, udp, _) => _IdentityCard(
+                  username: _usernameLoading ? '...' : _username,
+                  animeCoins: udp.animeCoins,
+                  premiumActive: udp.premiumActive,
+                  rankFuture: _rankFutureFor(udp),
+                  lastKnownRank: _lastKnownRank,
+                  onOpenPremium: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const PremiumUpsellScreen(),
+                    ),
                   ),
+                  onOpenInvite: _openReferralPage,
+                  onEditName: _showEditUsername,
                 ),
-                onCopyCode: () async {
-                  await Clipboard.setData(ClipboardData(text: uid));
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Referral code copied!')),
-                  );
-                },
-                onEditName: _showEditUsername,
               ),
             ),
 
@@ -310,7 +316,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
                     onOpenSettings: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => _SettingsScreen(
+                        builder: (_) => SettingsPage(
                           onDeleteAccount: _deleteAccount,
                         ),
                       ),
@@ -335,7 +341,7 @@ class _IdentityCard extends StatelessWidget {
   final bool premiumActive;
   final Future<int> rankFuture;
   final int lastKnownRank;
-  final VoidCallback onCopyCode;
+  final VoidCallback onOpenInvite;
   final VoidCallback onEditName;
   final VoidCallback onOpenPremium;
 
@@ -345,7 +351,7 @@ class _IdentityCard extends StatelessWidget {
     required this.premiumActive,
     required this.rankFuture,
     required this.lastKnownRank,
-    required this.onCopyCode,
+    required this.onOpenInvite,
     required this.onEditName,
     required this.onOpenPremium,
   });
@@ -470,7 +476,7 @@ class _IdentityCard extends StatelessWidget {
                       children: [
                         _RankPill(rank: rank, coins: animeCoins),
                         const Spacer(),
-                        _InviteCopyChip(onTap: onCopyCode),
+                        _InviteChip(onTap: onOpenInvite),
                       ],
                     );
                   },
@@ -544,11 +550,11 @@ class _RankPill extends StatelessWidget {
   }
 }
 
-// ─── Referral Copy Chip ───────────────────────────────────────────────────────
-class _InviteCopyChip extends StatelessWidget {
+// ─── Invite Chip (opens the Referrals page) ──────────────────────────────────
+class _InviteChip extends StatelessWidget {
   final VoidCallback onTap;
 
-  const _InviteCopyChip({required this.onTap});
+  const _InviteChip({required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -626,7 +632,8 @@ class _ProfileTabBar extends StatelessWidget {
 // ─── Edit Username Dialog ──────────────────────────────────────────────────
 class _EditUsernameDialog extends StatefulWidget {
   final TextEditingController controller;
-  final Future<void> Function(String) onSave;
+  /// Returns true when the save succeeded (dialog closes); false keeps it open.
+  final Future<bool> Function(String) onSave;
   const _EditUsernameDialog({required this.controller, required this.onSave});
 
   @override
@@ -674,9 +681,15 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
               : () async {
                   final name = widget.controller.text.trim();
                   if (name.length < 3) return;
+                  final navigator = Navigator.of(context);
                   setState(() => _saving = true);
-                  await widget.onSave(name);
-                  if (mounted) Navigator.pop(context);
+                  final saved = await widget.onSave(name);
+                  if (!mounted) return;
+                  if (saved) {
+                    navigator.pop();
+                  } else {
+                    setState(() => _saving = false);
+                  }
                 },
           child: _saving
               ? SizedBox(
@@ -1032,10 +1045,10 @@ class _RedeemCodeCardState extends State<_RedeemCodeCard> {
                       style: TextStyle(
                         fontFamily: 'Nunito',
                         fontSize: 13.sp,
-fontWeight: FontWeight.w800,
-                      letterSpacing: 0.3,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
                     ),
-                  ),
             ),
           ),
         ],
@@ -1057,6 +1070,75 @@ class _UpperTextFormatter extends TextInputFormatter {
             text: newValue.text.toUpperCase(),
             selection: newValue.selection,
           );
+  }
+}
+
+// ─── My Prizes button ───────────────────────────────────────────────────────
+/// Gold entry point to the winnings screen. Sits directly under the Redeem
+/// Code card: both are "account reward" surfaces, so they read together.
+class _MyPrizesButton extends StatelessWidget {
+  const _MyPrizesButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final gold = AppColors.gold;
+    return Semantics(
+      button: true,
+      label: 'My Prizes',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16.r),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16.r),
+          onTap: () => Navigator.of(context).push(
+            AppPageRoute(builder: (_) => const MyPrizesPage()),
+          ),
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 12.r),
+            decoration: BoxDecoration(
+              color: gold.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16.r),
+              border: Border.all(color: gold.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: gold.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10.r),
+                  ),
+                  child: Center(
+                    child: Icon(Icons.emoji_events_rounded,
+                        color: gold, size: 18.r),
+                  ),
+                ),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'My Prizes',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 15.sp,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios_rounded,
+                    color: gold, size: 14.r),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1083,12 +1165,6 @@ class _StatisticsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Campus (picker lives here; Rankings chip opens the same card
-          // as a sheet) ───────────────────────────────────────────────
-          const CampusPickerCard(),
-
-          SizedBox(height: 18.h),
-
           // ── Hero: match record ─────────────────────────────────────────
           _MatchRecordCard(
             wins: stats.gamesWon,
@@ -1099,8 +1175,6 @@ class _StatisticsTab extends StatelessWidget {
 
           SizedBox(height: 18.h),
 
-          _SectionLabel(title: 'Best Records'),
-          SizedBox(height: 8.h),
           _BestRecordsGrid(stats: stats),
 
           SizedBox(height: 18.h),
@@ -1120,6 +1194,8 @@ class _StatisticsTab extends StatelessWidget {
           _SectionLabel(title: 'Account'),
           SizedBox(height: 8.h),
           const _RedeemCodeCard(),
+          SizedBox(height: 10.h),
+          const _MyPrizesButton(),
           SizedBox(height: 8.h),
           _SimpleActionRow(
             icon: Icons.play_circle_outline_rounded,
@@ -1649,6 +1725,15 @@ class _MatchBreakdownCard extends StatelessWidget {
           ),
           SizedBox(height: 12.h),
           _BreakdownRow(
+            icon: Icons.people_alt_rounded,
+            label: 'Code Duels',
+            wins: stats.codeWins,
+            draws: stats.codeDraws,
+            losses: stats.codeLosses,
+            color: AppColors.secondary,
+          ),
+          SizedBox(height: 12.h),
+          _BreakdownRow(
             icon: Icons.sports_kabaddi_rounded,
             label: 'Rival Challenges',
             wins: stats.rivalWins,
@@ -1828,101 +1913,6 @@ class _SimpleActionRow extends StatelessWidget {
                   Icons.chevron_right_rounded,
                   color: AppColors.textMuted,
                   size: 18.r,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Legal link row ─────────────────────────────────────────────────────────
-// Opens a policy page (Privacy / Terms / Refund) in the browser. These are
-// legal documents — NOT a purchase path — so a browser launch is safe on all
-// platforms (including Play-distributed Android builds).
-class _LegalLinkRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String url;
-
-  const _LegalLinkRow({
-    required this.icon,
-    required this.label,
-    required this.url,
-  });
-
-  Future<void> _open(BuildContext context) async {
-    final uri = Uri.parse(url);
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Could not open the link. Check your connection.',
-                style: TextStyle(fontFamily: 'Nunito')),
-          ),
-        );
-      }
-    } catch (_) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Could not open the link. Check your connection.',
-              style: TextStyle(fontFamily: 'Nunito')),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: 8.r),
-      child: Material(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12.r),
-        child: InkWell(
-          onTap: () => _open(context),
-          borderRadius: BorderRadius.circular(12.r),
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 28.r,
-                  height: 28.r,
-                  decoration: BoxDecoration(
-                    color: AppColors.textMuted.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(9.r),
-                  ),
-                  child: Icon(icon, color: AppColors.textMuted, size: 15.r),
-                ),
-                SizedBox(width: 10.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        label,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.open_in_new_rounded,
-                  color: AppColors.textMuted,
-                  size: 16.r,
                 ),
               ],
             ),
@@ -2578,47 +2568,10 @@ class _HistoryTab extends StatelessWidget {
         final allMatches = snap.data ?? [];
 
         if (allMatches.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 32.r),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 72.r,
-                    height: 72.r,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.divider),
-                    ),
-                    child: Icon(
-                      Icons.history_rounded,
-                      size: 34.r,
-                      color: AppColors.textMuted,
-                    ),
-                  ),
-                  SizedBox(height: 14.h),
-                  Text(
-                    'No match history yet',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 16.sp,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  SizedBox(height: 6.h),
-                  Text(
-                    'Your multiplayer results will appear here.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12.sp,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
+          return const AppEmptyState(
+            icon: Icons.history_rounded,
+            title: 'No match history yet',
+            message: 'Your multiplayer results will appear here.',
           );
         }
 
@@ -2626,9 +2579,14 @@ class _HistoryTab extends StatelessWidget {
         final matches = allMatches.take(maxItems).toList(growable: false);
 
         return ListView.separated(
-          padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 32.r),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.page,
+            AppSpacing.md,
+            AppSpacing.page,
+            AppSpacing.xxl,
+          ),
           itemCount: matches.length,
-          separatorBuilder: (_, __) => SizedBox(height: 8.h),
+          separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
           itemBuilder: (_, i) => _HistoryCard(match: matches[i]),
         );
       },
@@ -2637,9 +2595,8 @@ class _HistoryTab extends StatelessWidget {
 }
 
 // ─── History Card (non-interactive) ────────────────────────────────────────
-/// Tall, non-tappable history row. Mirrors the folded achievement card's
-/// footprint: 14.r padding · 14.r radius · 44×44 leading · 15.sp title ·
-/// 17.sp right-aligned value · footer meta row.
+/// Non-tappable history row built on AppCard. The mode badge reads the
+/// stored `challengeType`, so Spar, Code, Rival and Quick Match stay distinct.
 ///
 /// Both money columns are *net balance deltas*, not settlement credits — see
 /// `ChallengeModel.acLedgerDelta` / `wpLedgerDelta`. That is what makes a
@@ -2650,7 +2607,7 @@ class _HistoryTab extends StatelessWidget {
 ///
 ///   ┌──┐  Opponent · RIVAL              +50 AC
 ///   │L │  8 – 5 · Naruto                 −40 WP
-///   └──┘                                2h ago
+///   └──┘
 class _HistoryCard extends StatelessWidget {
   final Map<String, dynamic> match;
   const _HistoryCard({required this.match});
@@ -2665,12 +2622,19 @@ class _HistoryCard extends StatelessWidget {
     final opponentScore = _int(match['opponentScore']);
     final isQuickMatch = match['isQuickMatch'] as bool? ?? false;
     final animeTitle = match['animeTitle'] as String? ?? '';
-    final timestamp = match['timestamp'];
 
     final stakeAmount = _int(match['stakeAmount']);
     final wpStake = _int(match['wpStake']);
-    final isRivalChallenge = wpStake > 0;
-    final isCodeMatch = !isQuickMatch && !isRivalChallenge;
+    final challengeType = match['challengeType'] as String?;
+    final kind = isQuickMatch
+        ? ChallengeKind.quick
+        : switch (challengeType) {
+            'spar' => ChallengeKind.spar,
+            'quick' => ChallengeKind.quick,
+            'rival' => ChallengeKind.rival,
+            'code' => ChallengeKind.code,
+            _ => wpStake > 0 ? ChallengeKind.rival : ChallengeKind.code,
+          };
 
     final isWin = outcome == 'win';
     final isDraw = outcome == 'draw';
@@ -2703,25 +2667,6 @@ class _HistoryCard extends StatelessWidget {
             ? 'D'
             : 'L';
 
-    String timeStr = '';
-    if (timestamp != null) {
-      try {
-        final dt = (timestamp as dynamic).toDate() as DateTime;
-        final diff = DateTime.now().difference(dt);
-        // A serverTimestamp can resolve marginally ahead of the device clock,
-        // which would otherwise render as "-4m ago".
-        if (diff.isNegative) {
-          timeStr = 'just now';
-        } else if (diff.inMinutes < 60) {
-          timeStr = '${diff.inMinutes}m ago';
-        } else if (diff.inHours < 24) {
-          timeStr = '${diff.inHours}h ago';
-        } else {
-          timeStr = '${diff.inDays}d ago';
-        }
-      } catch (_) {}
-    }
-
     final acColor = acDelta > 0
         ? AppColors.accent
         : (acDelta < 0 ? AppColors.wrong : AppColors.textMuted);
@@ -2729,13 +2674,8 @@ class _HistoryCard extends StatelessWidget {
         ? AppColors.secondary
         : (wpDelta < 0 ? AppColors.wrong : AppColors.textMuted);
 
-    return Container(
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: AppColors.divider),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -2745,22 +2685,20 @@ class _HistoryCard extends StatelessWidget {
             height: 44.r,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: outcomeColor.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(12.r),
+              color: outcomeColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(AppRadii.md),
             ),
             child: Text(
               outcomeLetter,
-              style: TextStyle(
+              style: AppTypography.heading3.copyWith(
                 color: outcomeColor,
-                fontSize: 20.sp,
-                fontWeight: FontWeight.w900,
                 height: 1,
               ),
             ),
           ),
-          SizedBox(width: 12.w),
+          const SizedBox(width: AppSpacing.md),
 
-          // ── Opponent + type badges, then score · title line ───────
+          // ── Opponent + mode badge, then score · title line ────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2771,78 +2709,44 @@ class _HistoryCard extends StatelessWidget {
                     Flexible(
                       child: Text(
                         opponent,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 15.sp,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.2,
-                          height: 1.15,
-                        ),
+                        style: AppTypography.titleMedium,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    SizedBox(width: 6.w),
-                    if (isRivalChallenge) _HistoryTypeBadge(label: 'RIVAL'),
-                    if (isQuickMatch) _HistoryTypeBadge(label: 'QUICK'),
-                    if (isCodeMatch) _HistoryTypeBadge(label: 'CODE'),
+                    const SizedBox(width: AppSpacing.sm),
+                    _HistoryTypeBadge(kind: kind),
                   ],
                 ),
-                SizedBox(height: 6.h),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   animeTitle.isEmpty
                       ? '$playerScore – $opponentScore'
                       : '$playerScore – $opponentScore · $animeTitle',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                  ),
+                  style: AppTypography.bodySmall,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          SizedBox(width: 12.w),
+          const SizedBox(width: AppSpacing.md),
 
-          // ── Right column: AC / WP / time, all right-aligned ───────
+          // ── Right column: AC / WP, both right-aligned ─────────────
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                '${acDelta > 0 ? '+' : acDelta < 0 ? '−' : ''}${acDelta.abs()} AC',
-                style: TextStyle(
-                  color: acColor,
-                  fontSize: 17.sp,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
+              if (acDelta != 0 || kind != ChallengeKind.spar)
+                Text(
+                  '${acDelta > 0 ? '+' : acDelta < 0 ? '−' : ''}${acDelta.abs()} AC',
+                  style: AppTypography.titleLarge.copyWith(color: acColor),
                 ),
-              ),
               if (wpDelta != 0) ...[
-                SizedBox(height: 4.h),
+                const SizedBox(height: AppSpacing.xs),
                 Text(
                   '${wpDelta > 0 ? '+' : '−'}${wpDelta.abs()} WP',
-                  style: TextStyle(
-                    color: wpColor,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
-                  ),
-                ),
-              ],
-              if (timeStr.isNotEmpty) ...[
-                SizedBox(height: 4.h),
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 10.sp,
-                    fontWeight: FontWeight.w600,
-                    height: 1,
-                  ),
+                  style: AppTypography.labelMedium.copyWith(color: wpColor),
                 ),
               ],
             ],
@@ -2854,662 +2758,36 @@ class _HistoryCard extends StatelessWidget {
 }
 
 class _HistoryTypeBadge extends StatelessWidget {
-  final String label;
-  const _HistoryTypeBadge({required this.label});
+  final ChallengeKind kind;
+  const _HistoryTypeBadge({required this.kind});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 5.r, vertical: 2.r),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
       decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(5.r),
+        color: kind.accentColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(color: kind.accentColor.withValues(alpha: 0.3)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: AppColors.primary,
-          fontSize: 7.sp,
-          fontWeight: FontWeight.w900,
-          letterSpacing: .5,
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Payout Details Card (Phase 3 — reusable masked destination) ─────────────
-// Shows ONLY masked account information from the owner's `payoutDetails`
-// subcollection. After a completed payout the server purges sensitive fields,
-// leaving just `accountMask` — this card renders whatever is present without
-// ever expecting full details. Editing is disabled while any claim is locked
-// (submitted/approved and unpaid); the server independently rejects changes
-// made after approval.
-class _PayoutDetailsCard extends StatelessWidget {
-  const _PayoutDetailsCard();
-
-  static String _mask(Map<String, dynamic> d) {
-    final stored = d['accountMask'] as String?;
-    if (stored != null && stored.isNotEmpty) return stored;
-    final full = (d['accountNumber'] as String?) ?? '';
-    final digits = full.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 4) return '****';
-    return '****${digits.substring(digits.length - 4)}';
-  }
-
-  Future<void> _onEdit(
-    BuildContext context,
-    Map<String, dynamic> doc,
-  ) async {
-    final cycles = await FirestoreService.instance.getMyWinnerCycles();
-    if (!context.mounted) return;
-    final locked = cycles.any((c) => c.isLocked);
-    if (locked) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'A submitted payout is locked and cannot be changed right now.',
-            style: TextStyle(fontFamily: 'Nunito'),
-          ),
-        ),
-      );
-      return;
-    }
-    if (!context.mounted) return;
-    showDialog(
-      context: context,
-      builder: (_) => _EditPayoutDialog(doc: doc),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: FirestoreService.instance.payoutDetailsStream(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const SizedBox.shrink();
-        }
-        final docs = snap.data ?? const <Map<String, dynamic>>[];
-        final tint = AppColors.accent;
-
-        if (docs.isEmpty) {
-          return Container(
-            padding: EdgeInsets.all(14.r),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: tint.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(10.r),
-                  ),
-                  child: Center(
-                    child: Text('🏦', style: TextStyle(fontSize: 16.sp)),
-                  ),
-                ),
-                SizedBox(width: 10.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Payout Destination',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 15.sp,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      SizedBox(height: 2.h),
-                      Text(
-                        'No bank saved yet. One is stored automatically when you claim a prize.',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 10.sp,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        final doc = docs.first;
-        final bankLabel = ((doc['bankName'] as String?)?.isNotEmpty == true)
-            ? doc['bankName'] as String
-            : ((doc['bankCode'] as String?) ?? '');
-        final beneficiary = (doc['beneficiaryName'] as String?) ?? '';
-
-        return Container(
-          padding: EdgeInsets.all(14.r),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(16.r),
-            border: Border.all(color: AppColors.divider),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: tint.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(10.r),
-                    ),
-                    child: Center(
-                      child: Text('🏦', style: TextStyle(fontSize: 16.sp)),
-                    ),
-                  ),
-                  SizedBox(width: 10.w),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Payout Destination',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 15.sp,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        SizedBox(height: 2.h),
-                        Text(
-                          'Only a masked reference is kept on this device.',
-                          style: TextStyle(
-                            color: AppColors.textMuted,
-                            fontSize: 10.sp,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => _onEdit(context, doc),
-                    child: Text(
-                      'Edit',
-                      style: TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 13.sp,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 12.h),
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(12.r),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(11.r),
-                  border: Border.all(color: AppColors.divider),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (bankLabel.isNotEmpty)
-                      Text(
-                        bankLabel,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 13.sp,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    if (bankLabel.isNotEmpty) SizedBox(height: 3.h),
-                    Text(
-                      _mask(doc),
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 15.sp,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    if (beneficiary.isNotEmpty) ...[
-                      SizedBox(height: 3.h),
-                      Text(
-                        beneficiary,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 11.sp,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ─── Edit Payout Dialog ───────────────────────────────────────────────────────
-class _EditPayoutDialog extends StatefulWidget {
-  final Map<String, dynamic> doc;
-
-  const _EditPayoutDialog({required this.doc});
-
-  @override
-  State<_EditPayoutDialog> createState() => _EditPayoutDialogState();
-}
-
-class _EditPayoutDialogState extends State<_EditPayoutDialog> {
-  NigerianBank? _bank;
-  late final TextEditingController _accountCtrl;
-  late final TextEditingController _nameCtrl;
-  bool _saving = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    final code = (widget.doc['bankCode'] as String?) ?? '';
-    final bankName = (widget.doc['bankName'] as String?) ?? '';
-    if (code.isNotEmpty) {
-      _bank = NigerianBank(
-        name: bankName.isNotEmpty ? bankName : code,
-        code: code,
-      );
-    }
-    _accountCtrl = TextEditingController(
-      text: (widget.doc['accountNumber'] as String?) ?? '',
-    );
-    _nameCtrl = TextEditingController(
-      text: (widget.doc['beneficiaryName'] as String?) ?? '',
-    );
-  }
-
-  @override
-  void dispose() {
-    _accountCtrl.dispose();
-    _nameCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickBank() async {
-    if (_saving) return;
-    final bank = await showBankSelectorSheet(context, selected: _bank);
-    if (bank != null && mounted) setState(() => _bank = bank);
-  }
-
-  Future<void> _save() async {
-    if (_saving) return;
-    final account = _accountCtrl.text.trim();
-    final name = _nameCtrl.text.trim();
-    if (_bank == null) {
-      setState(() => _error = 'Select your bank from the verified list.');
-      return;
-    }
-    if (!RegExp(r'^\d{10}$').hasMatch(account)) {
-      setState(() => _error = 'Enter the 10-digit account number.');
-      return;
-    }
-    if (name.length < 3) {
-      setState(() => _error = 'Enter the beneficiary name.');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      await FirestoreService.instance.updatePayoutDetail(
-        widget.doc['id'] as String,
-        accountNumber: account,
-        bankCode: _bank!.code,
-        beneficiaryName: name,
-      );
-      if (mounted) Navigator.pop(context);
-      // The stream rebuilds the card; no extra refresh needed.
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = 'Could not save. Please try again.';
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: AppColors.surface,
-      title: const Text(
-        'Edit payout destination',
-        style: TextStyle(
-            color: AppColors.textPrimary, fontWeight: FontWeight.w800),
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            GestureDetector(
-              onTap: _saving ? null : _pickBank,
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 12.r),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(11.r),
-                  border: Border.all(color: AppColors.divider),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.account_balance_rounded,
-                        color: AppColors.textMuted),
-                    SizedBox(width: 10.w),
-                    Expanded(
-                      child: Text(
-                        _bank?.name ?? 'Select your bank…',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: _bank == null
-                              ? AppColors.textMuted
-                              : AppColors.textPrimary,
-                          fontSize: 14.sp,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 10.h),
-            TextField(
-              controller: _accountCtrl,
-              enabled: !_saving,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(10),
-              ],
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: const InputDecoration(
-                hintText: '10-digit account number',
-              ),
-            ),
-            SizedBox(height: 10.h),
-            TextField(
-              controller: _nameCtrl,
-              enabled: !_saving,
-              textCapitalization: TextCapitalization.words,
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: const InputDecoration(
-                hintText: 'Beneficiary name',
-              ),
-            ),
-            if (_error != null) ...[
-              SizedBox(height: 8.h),
-              Text(
-                _error!,
-                style: TextStyle(color: AppColors.wrong, fontSize: 11.sp),
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-              : const Text('Save'),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Settings Screen ─────────────────────────────────────────────────────────
-// Central settings hub reached from Profile → Account → Settings (directly
-// under "Earn Coins"). Consolidates the homepage difficulty picker (removed
-// from the home page), the payout destination card, the legal section and
-// account deletion — so Profile's Stats tab only lists actions.
-class _SettingsScreen extends StatelessWidget {
-  final VoidCallback onDeleteAccount;
-
-  const _SettingsScreen({required this.onDeleteAccount});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surfaceDim,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded,
-              color: AppColors.textPrimary),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: const Text(
-          'Settings',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        centerTitle: false,
-      ),
-      body: ListView(
-        padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 32.r),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _SectionLabel(title: 'Homepage Difficulty'),
-          SizedBox(height: 8.h),
-          const _DifficultySettingsCard(),
-          SizedBox(height: 18.h),
-          _SectionLabel(title: 'Payout Destination'),
-          SizedBox(height: 8.h),
-          const _PayoutDetailsCard(),
-          SizedBox(height: 18.h),
-          _SectionLabel(title: 'Legal'),
-          SizedBox(height: 8.h),
-          _LegalLinkRow(
-            icon: Icons.privacy_tip_outlined,
-            label: 'Privacy Policy',
-            url: '$kShopUrl/privacy.html',
-          ),
-          _LegalLinkRow(
-            icon: Icons.description_outlined,
-            label: 'Terms of Service',
-            url: '$kShopUrl/terms.html',
-          ),
-          _LegalLinkRow(
-            icon: Icons.lock_outline_rounded,
-            label: 'No Refunds Policy',
-            url: kNoRefundsPolicyUrl,
-          ),
-          SizedBox(height: 18.h),
-          _SectionLabel(title: 'Danger zone'),
-          SizedBox(height: 8.h),
-          _SimpleActionRow(
-            icon: Icons.delete_forever_rounded,
-            label: 'Delete account',
-            onTap: onDeleteAccount,
-            destructive: true,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Homepage difficulty picker (Settings) ───────────────────────────────────
-// The homepage reads the same provider, so the choice made here takes effect
-// on the next solo quiz. Rewards preview shows the max raw haul (perfect
-// all-slow run, before solo decay + daily soft cap).
-class _DifficultySettingsCard extends StatelessWidget {
-  const _DifficultySettingsCard();
-
-  static const _meta = {
-    'easy': ('🌱', 'Easy', Color(0xFF34D399), '7E·2M·1H'),
-    'medium': ('⚔️', 'Medium', Color(0xFFF59E0B), '3E·4M·3H'),
-    'hard': ('🔥', 'Hard', Color(0xFFEF4444), '1E·2M·7H'),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<SoloDifficultyProvider>();
-
-    return Container(
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+          Icon(kind.icon, size: 10.r, color: kind.accentColor),
+          const SizedBox(width: AppSpacing.xs),
           Text(
-            'Homepage difficulty',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w900,
+            kind.shortLabel.toUpperCase(),
+            style: AppTypography.labelSmall.copyWith(
+              color: kind.accentColor,
+              letterSpacing: 0.5,
             ),
-          ),
-          SizedBox(height: 10.h),
-          Row(
-            children: [
-              for (final id in kSoloDifficulties) ...[
-                if (id != kSoloDifficulties.first) const SizedBox(width: 8),
-                Expanded(
-                  child: _buildCard(context, id, provider),
-                ),
-              ],
-            ],
           ),
         ],
       ),
     );
   }
-
-  Widget _buildCard(
-    BuildContext context,
-    String id,
-    SoloDifficultyProvider provider,
-  ) {
-    final selected = provider.difficulty == id;
-    final meta = _meta[id]!;
-    final emoji = meta.$1;
-    final name = meta.$2;
-    final color = meta.$3;
-    final mix = meta.$4;
-    final reward = kSoloDifficultyRewards[id]!;
-    final maxWP = soloDifficultyMaxWP(id);
-
-    return GestureDetector(
-      onTap: () => provider.setDifficulty(id),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 10.r),
-        decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.14) : AppColors.surfaceAlt,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(
-            color: selected ? color : AppColors.divider,
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: color.withOpacity(0.25),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: TextStyle(fontSize: 22.sp)),
-            SizedBox(height: 4.h),
-            Text(
-              name,
-              style: TextStyle(
-                color: selected ? color : AppColors.textPrimary,
-                fontSize: 13.sp,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            SizedBox(height: 2.h),
-            Text(
-              mix,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 10.sp,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            SizedBox(height: 6.h),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 7.r, vertical: 3.r),
-              decoration: BoxDecoration(
-                color: selected
-                    ? color.withOpacity(0.16)
-                    : AppColors.surfaceAlt,
-                borderRadius: BorderRadius.circular(20.r),
-                border: Border.all(
-                  color: selected
-                      ? color.withOpacity(0.5)
-                      : AppColors.divider,
-                ),
-              ),
-              child: Text(
-                '↑$maxWP WP · +${reward.acEarned} AC',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: selected ? color : AppColors.textSecondary,
-                  fontSize: 10.sp,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
+

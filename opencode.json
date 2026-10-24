@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": [".agents/skills"]
+  },
+  "permission": {
+    "skill": {
+      "flutter-release": "ask"
+    }
+  }
+}

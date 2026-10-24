@@ -14,8 +14,10 @@ class AppFormField extends StatelessWidget {
   final bool obscureText;
   final bool enabled;
   final int maxLines;
+  final int? maxLength;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
+  final TextCapitalization textCapitalization;
   final String? Function(String?)? validator;
   final void Function(String?)? onChanged;
   final void Function(String?)? onFieldSubmitted;
@@ -35,8 +37,10 @@ class AppFormField extends StatelessWidget {
     this.obscureText = false,
     this.enabled = true,
     this.maxLines = 1,
+    this.maxLength,
     this.keyboardType,
     this.textInputAction,
+    this.textCapitalization = TextCapitalization.none,
     this.validator,
     this.onChanged,
     this.onFieldSubmitted,
@@ -52,8 +56,10 @@ class AppFormField extends StatelessWidget {
       obscureText: obscureText,
       enabled: enabled,
       maxLines: maxLines,
+      maxLength: maxLength,
       keyboardType: keyboardType,
       textInputAction: textInputAction,
+      textCapitalization: textCapitalization,
       validator: validator,
       onChanged: onChanged,
       onFieldSubmitted: onFieldSubmitted,

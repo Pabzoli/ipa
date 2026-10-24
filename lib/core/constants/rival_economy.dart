@@ -60,11 +60,28 @@ const int kWpStakeStep = 5;
 const int kWpMaxStakeFree = 200;
 const int kWpMaxStakePremium = 400;
 
+/// Per-day WP staking cap (total WP a player may stake in one WAT day).
+/// Server: WP_DAILY_CAP_FREE / WP_DAILY_CAP_PREMIUM.
+const int kWpDailyCapFree = 300;
+const int kWpDailyCapPremium = 500;
+
 /// AC stake shape. Server: AC_MIN_STAKE / AC_STAKE_STEP / AC_MAX_STAKE_*.
 const int kAcMinStake = 20;
 const int kAcStakeStep = 10;
 const int kAcMaxStakeFree = 2000;
 const int kAcMaxStakePremium = 5000;
+
+/// Concurrent active-challenge cap. Server: ACTIVE_CHALLENGES_FREE / PREMIUM.
+const int kActiveChallengesFree = 3;
+const int kActiveChallengesPremium = 5;
+
+/// Daily staked-duel create / join budget. Server: DAILY_CHALLENGE_CREATE_* /
+/// DAILY_CHALLENGE_JOIN_*. Keep the client copy in step with the server so a
+/// player is never blocked (or promised a slot) at the wrong number.
+const int kDailyCreateFree = 5;
+const int kDailyCreatePremium = 8;
+const int kDailyJoinFree = 5;
+const int kDailyJoinPremium = 8;
 
 /// Quick Match daily tokens. Server: QM_DAILY_TOKENS_FREE / PREMIUM.
 const int kQmDailyFree = 5;

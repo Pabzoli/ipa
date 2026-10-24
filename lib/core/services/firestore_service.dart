@@ -59,6 +59,7 @@ const List<String> kNigerianUniversities = [
   'ABU Zaria',
   'UNIPORT',
   'NOUN',
+  'Babcock',
   'Other',
 ];
 
@@ -1738,10 +1739,8 @@ class FirestoreService {
 
   // REMOVED: fetchCampusLeaderboard().
   //
-  // The campus board was replaced by the single-query campus chip
-  // ([campusRankCount]): a 50-row campus fetch per refresh for a tab nobody
-  // paid for. The chip shows the one number the campus board was really used
-  // for, at a fraction of the reads.
+  // The campus board was replaced by a single-query campus chip, which has since
+  // been reduced to naming the campus only (no rank number, no COUNT read).
 
   // ─── University Helpers ──────────────────────────────────────────────────────
 
@@ -2815,66 +2814,6 @@ class FirestoreService {
     if (_uid == null) return [];
     final snap = await _userDoc.collection('friendLinks').get();
     return [for (final d in snap.docs) FriendLink.fromMap(d.id, d.data())];
-  }
-
-  /// Campus chip rank: the player's SEQUENTIAL position among same-campus,
-  /// same-week players, using the exact ordering and tie rule as the Global
-  /// board (`weeklyPoints DESC`, walk-and-count). A COUNT of "strictly greater
-  /// than me" would be a *competition* rank (1,2,2,4) and disagree with the
-  /// board on ties, so we walk instead — one tie rule across both surfaces.
-  ///
-  /// Returns null on any failure (the chip then shows the campus without a
-  /// number — never an error state). Uses the existing
-  /// (university, entryWeek, weeklyPoints DESC) composite index.
-  Future<int?> campusRankCount({
-    required String university,
-    required String entryWeekId,
-    required int myPoints,
-  }) async {
-    if (_uid == null || university.isEmpty || entryWeekId.isEmpty) return null;
-    final uid = _uid!;
-    try {
-      var rank = 0;
-      var found = false;
-      DocumentSnapshot<Map<String, dynamic>>? cursor;
-      for (var page = 0; page < 40; page++) {
-        var query = _db
-            .collection('users')
-            .where('university', isEqualTo: university)
-            .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
-            .orderBy('weeklyPoints', descending: true);
-        if (cursor != null) query = query.startAfterDocument(cursor);
-        final snap = await query.limit(50).get();
-        if (snap.docs.isEmpty) break;
-        cursor = snap.docs.last;
-
-        for (final doc in snap.docs) {
-          if (kBoardHiddenUids.contains(doc.id)) continue;
-          if (doc.id == uid) {
-            found = true;
-            break;
-          }
-          rank++;
-        }
-        if (found) break;
-      }
-      // Not present in the campus cohort (e.g. no campus entry this week):
-      // fall back to the count-based position rather than inventing one lower.
-      if (!found) {
-        final snap = await _db
-            .collection('users')
-            .where('university', isEqualTo: university)
-            .where('leaderboardEntryWeekId', isEqualTo: entryWeekId)
-            .where('weeklyPoints', isGreaterThan: myPoints)
-            .count()
-            .get();
-        return (snap.count ?? 0) + 1;
-      }
-      return rank + 1;
-    } catch (e) {
-      debugPrint('[FirestoreService] campusRankCount error: $e');
-      return null;
-    }
   }
 
   /// Preset nudge ("Your turn!" ping, server-templated text, no free text).

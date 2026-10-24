@@ -579,8 +579,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           ),
         ),
         content: Text(
-          'This REPLACES the revenue-based pool for week ${pool?.weekId ?? ''} '
-          '— it does not add to it.\n\n'
+          'This REPLACES the revenue-based pool for week ${pool?.weekId ?? ''}.\n\n'
           'When the week closes, this is the amount the winning shares are '
           'calculated from, and it becomes a real payout obligation you pay by '
           'hand.',
@@ -1736,8 +1735,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                     child: Text(
                       claim.needsPayment
                           ? 'Send this from your own bank app first. Then mark '
-                              'it as paid so the winner sees it as settled. '
-                              'Nothing is sent from inside this app.'
+                              'it as paid so the winner sees it as settled.'
                           : 'This claim is not awaiting payment. Details below '
                               'are read-only.',
                       style: TextStyle(
@@ -2052,7 +2050,7 @@ class _EmptyQueue extends StatelessWidget {
           SizedBox(height: 10.h),
           Text(
             filter == 'Awaiting payment'
-                ? 'Nothing awaiting payment. Every winner has been sent their prize.'
+                ? 'Nothing awaiting payment.'
                 : 'No payouts in this view.',
             style: TextStyle(
               color: AppColors.textSecondary,

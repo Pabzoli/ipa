@@ -9,6 +9,15 @@ import '../multiplayer/challenge_model.dart';
 
 // ─── Model: PlayerStatistics ──────────────────────────────────────────────────
 
+/// Number of most-recent `users/{uid}/matches` docs the Stats tab aggregates.
+///
+/// The match subcollection grows without bound, so streaming all of it on every
+/// sign-in was an unbounded read. The server-maintained `users/{uid}.stats` map
+/// cannot replace it (it uses different semantics and omits quick/rival WP
+/// splits), so we cap the window instead. Stats therefore reflect the last
+/// [kPlayerStatsMatchWindow] matches rather than strict all-time totals.
+const int kPlayerStatsMatchWindow = 500;
+
 class PlayerStatistics {
   // ── AC match stats ──────────────────────────────────────────────────────────
   final int gamesPlayed;
@@ -27,25 +36,16 @@ class PlayerStatistics {
   final int hseWpLost; // highest single match WP loss (stake lost)
   final int hseWpStaked; // highest single match WP stake
 
-  // ── Match breakdown ────────────────────────────────────────────────────────
+  // ── Match breakdown (every counted match lands in exactly one bucket) ─────
   final int quickWins;
   final int quickDraws;
   final int quickLosses;
+  final int codeWins;
+  final int codeDraws;
+  final int codeLosses;
   final int rivalWins;
   final int rivalDraws;
   final int rivalLosses;
-
-  // ── Achievement helpers ────────────────────────────────────────────────────
-  bool get won50Games => gamesWon >= 50;
-  bool get lost50Games => gamesLost >= 50;
-  bool get played100Games => gamesPlayed >= 100;
-  bool get staked500AC => hseStaked >= 500;
-  bool get won1000AC => hseWon >= 1000;
-
-  bool get wpWarrior => wpWon >= 50;
-  bool get wpStaker => wpStakedTotal >= 500;
-  bool get quickDraw => quickWins >= 10;
-  bool get rivalSlayer => rivalWins >= 10;
 
   const PlayerStatistics({
     required this.gamesPlayed,
@@ -64,6 +64,9 @@ class PlayerStatistics {
     required this.quickWins,
     required this.quickDraws,
     required this.quickLosses,
+    required this.codeWins,
+    required this.codeDraws,
+    required this.codeLosses,
     required this.rivalWins,
     required this.rivalDraws,
     required this.rivalLosses,
@@ -86,10 +89,22 @@ class PlayerStatistics {
     quickWins: 0,
     quickDraws: 0,
     quickLosses: 0,
+    codeWins: 0,
+    codeDraws: 0,
+    codeLosses: 0,
     rivalWins: 0,
     rivalDraws: 0,
     rivalLosses: 0,
   );
+
+  /// Match type as the server records it. Docs written before `challengeType`
+  /// existed fall back to the same inference resolveChallengeCore uses.
+  static String _matchType(Map<String, dynamic> data) {
+    final explicit = data['challengeType'] as String?;
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    if (data['isQuickMatch'] == true) return 'quick';
+    return ((data['wpStake'] as num?) ?? 0) > 0 ? 'rival' : 'code';
+  }
 
   factory PlayerStatistics.fromMatches(List<QueryDocumentSnapshot> matches) {
     int gamesPlayed = 0, gamesWon = 0, gamesDraw = 0, gamesLost = 0;
@@ -97,31 +112,49 @@ class PlayerStatistics {
     int wpWon = 0, wpLost = 0, wpStakedTotal = 0;
     int hseWpWon = 0, hseWpLost = 0, hseWpStaked = 0;
     int quickWins = 0, quickDraws = 0, quickLosses = 0;
+    int codeWins = 0, codeDraws = 0, codeLosses = 0;
     int rivalWins = 0, rivalDraws = 0, rivalLosses = 0;
 
     for (final doc in matches) {
       final data = doc.data() as Map<String, dynamic>;
+      final type = _matchType(data);
+      // Spars never count toward W/D/L or AC/WP stats — the server gates the
+      // same way (functions/index.js `!isSpar` on stats.*) — so skip them here
+      // so the totals and breakdown agree with the server.
+      if (type == 'spar') continue;
+
       final outcome = data['outcome'] as String? ?? 'lose';
-      final isQuick = data['isQuickMatch'] as bool? ?? false;
-      final isRival = data['wpStake'] != null && (data['wpStake'] as num) > 0;
+      final isQuick = type == 'quick';
 
       gamesPlayed++;
 
       if (outcome == 'win') {
         gamesWon++;
-        if (isQuick)
+        if (isQuick) {
           quickWins++;
-        else if (isRival) rivalWins++;
+        } else if (type == 'rival') {
+          rivalWins++;
+        } else {
+          codeWins++;
+        }
       } else if (outcome == 'draw') {
         gamesDraw++;
-        if (isQuick)
+        if (isQuick) {
           quickDraws++;
-        else if (isRival) rivalDraws++;
+        } else if (type == 'rival') {
+          rivalDraws++;
+        } else {
+          codeDraws++;
+        }
       } else {
         gamesLost++;
-        if (isQuick)
+        if (isQuick) {
           quickLosses++;
-        else if (isRival) rivalLosses++;
+        } else if (type == 'rival') {
+          rivalLosses++;
+        } else {
+          codeLosses++;
+        }
       }
 
       // ── AC stats ────────────────────────────────────────────────────────────
@@ -195,6 +228,9 @@ class PlayerStatistics {
       quickWins: quickWins,
       quickDraws: quickDraws,
       quickLosses: quickLosses,
+      codeWins: codeWins,
+      codeDraws: codeDraws,
+      codeLosses: codeLosses,
       rivalWins: rivalWins,
       rivalDraws: rivalDraws,
       rivalLosses: rivalLosses,
@@ -307,7 +343,8 @@ class PlayerStatisticsProvider extends ChangeNotifier {
         .collection('users')
         .doc(uid)
         .collection('matches')
-        .orderBy('timestamp', descending: true);
+        .orderBy('timestamp', descending: true)
+        .limit(kPlayerStatsMatchWindow);
 
     _matchSubscription = matchesRef.snapshots().listen(
       (snapshot) {

@@ -1,18 +1,19 @@
 // lib/features/multiplayer/multiplayer_hub_page.dart
 //
-// Battle tab — rebuilt around the rivalry series (first to 3, staked ranked
-// duels only; draws replay; spars never count).
+// Battle tab — the "start something" launcher. One job: surface what needs your
+// action right now, then hand you off to the ways to start a game (a named
+// rival, a code duel, or a practice Quick Match). It owns no rivalry list and
+// no discovery UI: those live on the Rivalries page, which this screen links
+// to.
 //
-// Section order (locked):
-//   Header -> Your move -> Rivalries (live) -> Find a rival -> Quick Match
-//   (practice) -> Payout Rules table.
+// Section order:
+//   Header -> Your move -> Recent rivalry -> Start a duel -> Quick Match.
 //
-// READ-COST NOTE (avoiding N+1 blowups): the Rivalries section issues ONE
-// users/{uid}/matches query via recentRivals(limit 8) to discover rivals,
-// then opens at most 5 live rivalry-doc streams + 5 one-shot rival-WP reads
-// for bounty chips. History/H2H reuse the RivalSummary already in memory;
-// no per-row matches query is issued here. RivalryPage owns the deeper
-// per-rival history stream.
+// READ COST: "Your move" is TWO one-shot challenge queries (creator side +
+// opponent side). "Recent rivalry" is ONE recentRivals(limit 1) match query
+// plus at most ONE rivalry-doc read for the series line. Nothing here attaches
+// a Firestore listener; pull-to-refresh and returning from a pushed route
+// re-run the reads. Quick Match state comes from UserDataProvider.
 
 import 'dart:async';
 
@@ -23,38 +24,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_theme.dart';
+import '../../core/constants/rival_economy.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
-import '../../core/constants/rival_economy.dart';
-import '../quiz/questions_page.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_page_route.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/rival_avatar.dart';
+import '../../core/widgets/series_progress_bar.dart';
+import '../../core/widgets/shared_widgets.dart';
+import '../premium/premium_upsell_screen.dart';
+import '../quiz/questions_page.dart';
 import 'anime_select_page.dart';
+import 'challenge_lobby_page.dart';
 import 'join_challenge_page.dart';
 import 'my_challenges_page.dart';
-import 'challenge_lobby_page.dart';
-import 'rivalry_page.dart';
 import 'rivalries_page.dart';
-import '../leaderboard/weekly_leaderboard_page.dart';
-import '../premium/premium_upsell_screen.dart';
-
-abstract final class _C {
-  static const surface = AppColors.surface;
-  static const elevated = AppColors.surfaceAlt;
-  static const crimson = AppColors.primary;
-  static const crimsonBright = AppColors.crimsonBright;
-  static const crimsonGlow = Color(0x1CE63946);
-  static const crimsonBorder = Color(0x55E63946);
-  static const sky = AppColors.secondary;
-  static const text = AppColors.textPrimary;
-  static const textSub = AppColors.textSecondary;
-  static const textMuted = AppColors.textMuted;
-  static const divider = AppColors.divider;
-  static const border = Color(0xFF252538);
-  static const rival = AppColors.rival;
-}
+import 'rivalry_page.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MultiplayerHubPage — Battle tab
@@ -66,11 +57,40 @@ class MultiplayerHubPage extends StatefulWidget {
   State<MultiplayerHubPage> createState() => _MultiplayerHubPageState();
 }
 
-class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
-  void _goCreate() =>
-      Navigator.push(context, _slideRoute(const AnimeSelectPage()));
-  void _goJoin() =>
-      Navigator.push(context, _slideRoute(const JoinChallengePage()));
+class _MultiplayerHubPageState extends State<MultiplayerHubPage>
+    with SingleTickerProviderStateMixin {
+  /// Bumped after returning from a pushed route (or pull-to-refresh) so the
+  /// one-shot sections re-run their reads.
+  int _tick = 0;
+
+  late final AnimationController _entrance;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    )..forward();
+    _fade = CurvedAnimation(parent: _entrance, curve: Curves.easeOut);
+  }
+
+  @override
+  void dispose() {
+    _entrance.dispose();
+    super.dispose();
+  }
+
+  void _bump() {
+    if (mounted) setState(() => _tick++);
+  }
+
+  Future<void> _push(Widget page) async {
+    await Navigator.push(context, _slideRoute(page));
+    _bump();
+  }
+
   void _goQuickMatch() => _startMatchmaking();
 
   Future<void> _startMatchmaking() async {
@@ -119,7 +139,9 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
           opponentName: result.opponentName,
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) _bump();
+    });
   }
 
   void _snack(String message) {
@@ -134,158 +156,135 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage> {
   @override
   Widget build(BuildContext context) {
     final udp = context.watch<UserDataProvider>();
-    final animeCoins = udp.animeCoins;
-    final weeklyPoints = udp.weeklyPoints;
-    final premiumActive = udp.premiumActive;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            // ── Header: balances ──────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 0.r),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Battle',
-                                style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: 27.sp,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.1,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(width: 12.w),
-                        _BattlePremiumChip(premiumActive: premiumActive),
-                        SizedBox(width: 8.w),
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 12.r, vertical: 6.r),
-                          decoration: BoxDecoration(
-                            color: AppColors.accent.withValues(alpha: 0.13),
-                            borderRadius: BorderRadius.circular(20.r),
-                            border: Border.all(
-                                color:
-                                    AppColors.accent.withValues(alpha: 0.38)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('🪙', style: TextStyle(fontSize: 14.sp)),
-                              SizedBox(width: 5.w),
-                              Text(
-                                '$animeCoins',
-                                style: TextStyle(
-                                  color: AppColors.accent,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14.sp,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(width: 8.w),
-                        GestureDetector(
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    const WeeklyLeaderboardPage()),
-                          ),
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 12.r, vertical: 6.r),
-                            decoration: BoxDecoration(
-                              color: _C.sky.withValues(alpha: 0.13),
-                              borderRadius: BorderRadius.circular(20.r),
-                              border: Border.all(
-                                  color: _C.sky.withValues(alpha: 0.38)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text('⭐', style: TextStyle(fontSize: 14.sp)),
-                                SizedBox(width: 5.w),
-                                Text(
-                                  '$weeklyPoints',
-                                  style: TextStyle(
-                                    color: _C.sky,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14.sp,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+        child: FadeTransition(
+          opacity: _fade,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.02),
+              end: Offset.zero,
+            ).animate(_fade),
+            child: RefreshIndicator(
+              color: AppColors.primary,
+              backgroundColor: AppColors.surface,
+              onRefresh: () async => _bump(),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 40.r),
+                children: [
+                  _HubHeader(premiumActive: udp.premiumActive),
+                  SizedBox(height: 16.h),
+                  _MyChallengesEntry(
+                    onTap: () => _push(const MyChallengesPage()),
+                  ),
+                  SizedBox(height: 22.h),
+                  _YourMoveSection(
+                    refreshTick: _tick,
+                    onSeeAll: () => _push(const MyChallengesPage()),
+                  ),
+                  _RecentRivalrySection(
+                    refreshTick: _tick,
+                    onOpenRival: (uid, name) =>
+                        _push(RivalryPage(rivalUid: uid, rivalUsername: name)),
+                    onOpenRivalries: () => _push(const RivalriesPage()),
+                  ),
+                  SizedBox(height: 8.h),
+                  Padding(
+                    padding: EdgeInsets.only(left: 2.r, bottom: 12.r),
+                    child: const SectionHeader(title: 'Start a duel'),
+                  ),
+                  _CreateJoinRow(
+                    onCreate: () => _push(const AnimeSelectPage()),
+                    onJoin: () => _push(const JoinChallengePage()),
+                  ),
+                  SizedBox(height: 22.h),
+                  _QuickMatchSection(onQuickMatch: _goQuickMatch),
+                ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-            // ── Your move: actionable challenges only ─────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 20.r, 20.r, 0.r),
-                child: const _YourMoveSection(),
-              ),
-            ),
+// ─── Header: title + premium chip + balances (display only) ───────────────────
+class _HubHeader extends StatelessWidget {
+  final bool premiumActive;
 
-            // ── Rivalries (live series cards) ─────────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 16.r, 20.r, 0.r),
-                child: _RivalriesSection(
-                  onCreate: _goCreate,
-                  onJoin: _goJoin,
-                ),
-              ),
-            ),
+  const _HubHeader({required this.premiumActive});
 
-            // ── Find a rival: single row ──────────────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
-                child: _FindRivalRow(
-                  onCreate: _goCreate,
-                  onJoin: _goJoin,
-                ),
-              ),
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Text('Battle', style: AppTypography.heading1),
             ),
-
-            // ── Quick Match (practice vs ghost) ───────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
-                child: QuickMatchCard(onStartMatchmaking: _goQuickMatch),
-              ),
-            ),
-
-            // ── Payout Rules table ────────────────────────────────────
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 40.r),
-                child: const _RewardsTable(),
-              ),
-            ),
+            SizedBox(width: 10.w),
+            _BattlePremiumChip(premiumActive: premiumActive),
           ],
         ),
+      ],
+    );
+  }
+}
+
+// ─── My challenges entry ───────────────────────────────────────────────────────
+// Persistent hub affordance: the "Your move" card only appears when something
+// needs THIS player's action, so a creator waiting on an opponent otherwise
+// had no route to their own active/pending/completed list from the hub.
+class _MyChallengesEntry extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _MyChallengesEntry({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 12.r),
+      child: Row(
+        children: [
+          Container(
+            width: 38.r,
+            height: 38.r,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: Icon(Icons.assignment_outlined,
+                color: AppColors.primary, size: 20.r),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'My challenges',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14.5.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded,
+              color: AppColors.textMuted, size: 20.r),
+        ],
       ),
     );
   }
@@ -307,7 +306,6 @@ class _MatchResult {
   final bool isCreator;
   final String opponentName;
   final String animeTitle;
-  final int ghostScore;
 
   const _MatchResult.noMatch()
       : noMatch = true,
@@ -318,8 +316,7 @@ class _MatchResult {
         isGhost = false,
         isCreator = true,
         opponentName = '',
-        animeTitle = '',
-        ghostScore = 0;
+        animeTitle = '';
 
   const _MatchResult.noTokens()
       : noMatch = false,
@@ -330,8 +327,7 @@ class _MatchResult {
         isGhost = false,
         isCreator = true,
         opponentName = '',
-        animeTitle = '',
-        ghostScore = 0;
+        animeTitle = '';
 
   const _MatchResult.tooManyActive()
       : noMatch = false,
@@ -342,8 +338,7 @@ class _MatchResult {
         isGhost = false,
         isCreator = true,
         opponentName = '',
-        animeTitle = '',
-        ghostScore = 0;
+        animeTitle = '';
 
   const _MatchResult({
     required this.questionIds,
@@ -352,7 +347,6 @@ class _MatchResult {
     required this.isCreator,
     required this.opponentName,
     required this.animeTitle,
-    this.ghostScore = 0,
   })  : noMatch = false,
         noTokens = false,
         tooManyActive = false;
@@ -395,7 +389,10 @@ class _SearchingDialogState extends State<_SearchingDialog>
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('joinMatchmakingQueue');
-      final result = await callable.call<Map<Object?, Object?>>({});
+      final result = await callable
+          .call<Map<Object?, Object?>>({
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
       if (!mounted || _leaving || _done) return;
       _done = true;
       final data = Map<String, dynamic>.from(result.data);
@@ -422,7 +419,6 @@ class _SearchingDialogState extends State<_SearchingDialog>
           isCreator: true,
           opponentName: data['ghostUsername']?.toString() ?? 'Recorded Opponent',
           animeTitle: animeTitle,
-          ghostScore: (data['ghostScore'] as num?)?.toInt() ?? 0,
         ));
         return;
       }
@@ -452,7 +448,7 @@ class _SearchingDialogState extends State<_SearchingDialog>
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('leaveMatchmakingQueue')
-          .call();
+          .call(AppUpdateService.instance.clientBuildStamp);
     } catch (_) {}
     if (!mounted) return;
     Navigator.of(context).pop(null);
@@ -466,11 +462,11 @@ class _SearchingDialogState extends State<_SearchingDialog>
         if (!didPop) _handleCancel();
       },
       child: Dialog(
-        backgroundColor: _C.surface,
+        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24.r),
-          side:
-              BorderSide(color: _C.crimson.withValues(alpha: 0.30), width: 1.5),
+          borderRadius: BorderRadius.circular(AppRadii.xl),
+          side: BorderSide(
+              color: AppColors.primary.withValues(alpha: 0.30), width: 1.5),
         ),
         child: Padding(
           padding: EdgeInsets.fromLTRB(28.r, 34.r, 28.r, 26.r),
@@ -484,8 +480,10 @@ class _SearchingDialogState extends State<_SearchingDialog>
                   height: 88.h,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _C.crimsonGlow,
-                    border: Border.all(color: _C.crimsonBorder, width: 1.5),
+                    color: AppColors.primary.withValues(alpha: 0.11),
+                    border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.33),
+                        width: 1.5),
                   ),
                   child: Center(
                       child: Text('⚡', style: TextStyle(fontSize: 32.sp))),
@@ -495,7 +493,7 @@ class _SearchingDialogState extends State<_SearchingDialog>
               Text(
                 'Finding a practice ghost…',
                 style: TextStyle(
-                  color: _C.text,
+                  color: AppColors.textPrimary,
                   fontSize: 16.sp,
                   fontWeight: FontWeight.w800,
                 ),
@@ -504,7 +502,7 @@ class _SearchingDialogState extends State<_SearchingDialog>
               SizedBox(height: 6.h),
               Text(
                 'No token is used until a ghost is found.',
-                style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12.sp),
                 textAlign: TextAlign.center,
               ),
               SizedBox(height: 24.h),
@@ -517,15 +515,15 @@ class _SearchingDialogState extends State<_SearchingDialog>
                     padding:
                         EdgeInsets.symmetric(horizontal: 32.r, vertical: 13.r),
                     decoration: BoxDecoration(
-                      color: _C.elevated,
-                      borderRadius: BorderRadius.circular(12.r),
-                      border:
-                          Border.all(color: _C.border.withValues(alpha: 0.7)),
+                      color: AppColors.surfaceAlt,
+                      borderRadius: BorderRadius.circular(AppRadii.md),
+                      border: Border.all(
+                          color: AppColors.divider.withValues(alpha: 0.7)),
                     ),
                     child: Text(
                       'Cancel',
                       style: TextStyle(
-                          color: _C.textSub,
+                          color: AppColors.textSecondary,
                           fontSize: 13.sp,
                           fontWeight: FontWeight.w600),
                     ),
@@ -542,7 +540,14 @@ class _SearchingDialogState extends State<_SearchingDialog>
 
 // ─── Your move: actionable challenges only ────────────────────────────────────
 class _YourMoveSection extends StatefulWidget {
-  const _YourMoveSection();
+  /// Bumped by the Hub after a route returns / pull-to-refresh.
+  final int refreshTick;
+  final VoidCallback onSeeAll;
+
+  const _YourMoveSection({
+    required this.refreshTick,
+    required this.onSeeAll,
+  });
 
   @override
   State<_YourMoveSection> createState() => _YourMoveSectionState();
@@ -556,71 +561,63 @@ class _YourMoveSectionState extends State<_YourMoveSection> {
     'opponent_submitted',
   ];
 
-  StreamSubscription<QuerySnapshot>? _creatorSub;
-  StreamSubscription<QuerySnapshot>? _opponentSub;
-  List<QueryDocumentSnapshot> _creatorDocs = [];
-  List<QueryDocumentSnapshot> _opponentDocs = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _actionable = const [];
   bool _loading = true;
-  Object? _streamError;
-
-  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void initState() {
     super.initState();
-    _setupStreams();
-  }
-
-  void _setupStreams() {
-    final uid = _uid;
-    if (uid == null) {
-      setState(() => _loading = false);
-      return;
-    }
-    final db = FirebaseFirestore.instance;
-    _creatorSub = db
-        .collection('challenges')
-        .where('creatorUid', isEqualTo: uid)
-        .where('status', whereIn: _activeStatuses)
-        .snapshots()
-        .listen((snap) {
-      if (!mounted) return;
-      setState(() {
-        _creatorDocs = snap.docs;
-        _loading = false;
-      });
-    }, onError: (Object e) {
-      if (!mounted) return;
-      setState(() {
-        _streamError = e;
-        _loading = false;
-      });
-    });
-    _opponentSub = db
-        .collection('challenges')
-        .where('opponentUid', isEqualTo: uid)
-        .where('status', whereIn: _activeStatuses)
-        .snapshots()
-        .listen((snap) {
-      if (!mounted) return;
-      setState(() {
-        _opponentDocs = snap.docs;
-        _loading = false;
-      });
-    }, onError: (Object e) {
-      if (!mounted) return;
-      setState(() {
-        _streamError = e;
-        _loading = false;
-      });
-    });
+    _load();
   }
 
   @override
-  void dispose() {
-    _creatorSub?.cancel();
-    _opponentSub?.cancel();
-    super.dispose();
+  void didUpdateWidget(_YourMoveSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTick != widget.refreshTick) _load();
+  }
+
+  /// Two one-shot queries (creator side + opponent side), merged client-side.
+  /// No listeners: the section re-reads when the Hub bumps its tick.
+  Future<void> _load() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final db = FirebaseFirestore.instance;
+      final snaps = await Future.wait([
+        db
+            .collection('challenges')
+            .where('creatorUid', isEqualTo: uid)
+            .where('status', whereIn: _activeStatuses)
+            .get(),
+        db
+            .collection('challenges')
+            .where('opponentUid', isEqualTo: uid)
+            .where('status', whereIn: _activeStatuses)
+            .get(),
+      ]);
+      final seen = <String>{};
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      for (final snap in snaps) {
+        for (final doc in snap.docs) {
+          if (!seen.add(doc.id)) continue;
+          if (_actionLabel(doc.data(), uid) != null) docs.add(doc);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _actionable = docs;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _actionable = const [];
+        _loading = false;
+      });
+    }
   }
 
   /// Only challenges needing THIS player's action. Returns null when the row
@@ -655,830 +652,489 @@ class _YourMoveSectionState extends State<_YourMoveSection> {
     }
   }
 
-  String _detailLine(Map<String, dynamic> data, String uid) {
-    final creatorUid = data['creatorUid'] as String? ?? '';
-    final isCreator = creatorUid == uid;
-    final creatorScore = (data['creatorScore'] as num?)?.toInt();
-    final opponentScore = (data['opponentScore'] as num?)?.toInt();
-    final otherScore = isCreator ? opponentScore : creatorScore;
-    final otherName = isCreator
-        ? (data['opponentUsername'] as String? ?? 'Opponent')
-        : (data['creatorUsername'] as String? ?? 'Opponent');
-    if (otherScore != null) return '$otherName scored $otherScore/10 — beat it';
-    return 'Waiting for $otherName';
+  Future<void> _play() async {
+    if (_actionable.isEmpty) return;
+    await Navigator.push(
+      context,
+      AppPageRoute(
+        builder: (_) => ChallengeLobbyPage(challengeId: _actionable.first.id),
+      ),
+    );
+    if (mounted) _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const SizedBox.shrink();
-    if (_streamError != null) {
-      return Container(
-        padding: EdgeInsets.all(14.r),
-        decoration: BoxDecoration(
-          color: _C.surface,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-        ),
-        child: Text(
-          'Could not load your move: $_streamError',
-          style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
-        ),
+    // Nothing waiting (or still loading / failed): render nothing at all.
+    if (_loading || _actionable.isEmpty) return const SizedBox.shrink();
+
+    final data = _actionable.first.data();
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final isCreator = (data['creatorUid'] as String? ?? '') == uid;
+    final opponent = isCreator
+        ? (data['opponentUsername'] as String? ?? 'Opponent')
+        : (data['creatorUsername'] as String? ?? 'Opponent');
+    final animeTitle = data['animeTitle'] as String? ?? 'Challenge';
+    final count = _actionable.length;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: 20.h),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppCard(
+            padding: EdgeInsets.all(14.r),
+            borderColor: AppColors.primary.withValues(alpha: 0.45),
+            child: Row(
+              children: [
+                Container(
+                  width: 40.r,
+                  height: 40.r,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppRadii.md),
+                  ),
+                  child: Icon(Icons.play_arrow_rounded,
+                      color: AppColors.primary, size: 22.r),
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'Your move',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 15.sp,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ),
+                          if (count > 1) ...[
+                            SizedBox(width: 8.w),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 8.r, vertical: 2.r),
+                              decoration: BoxDecoration(
+                                color:
+                                    AppColors.primary.withValues(alpha: 0.11),
+                                borderRadius:
+                                    BorderRadius.circular(AppRadii.sm),
+                                border: Border.all(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.33)),
+                              ),
+                              child: Text(
+                                '$count',
+                                style: TextStyle(
+                                  color: AppColors.crimsonBright,
+                                  fontSize: 11.sp,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      SizedBox(height: 4.h),
+                      Text(
+                        '$animeTitle · vs $opponent',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 11.sp,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 10.w),
+                AppButton(
+                  label: 'Play',
+                  onPressed: _play,
+                  variant: AppButtonVariant.primary,
+                  size: AppButtonSize.small,
+                  width: 88.w,
+                  height: 40.h,
+                ),
+              ],
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: widget.onSeeAll,
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                'See all',
+                style: TextStyle(
+                  color: AppColors.primary,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Recent rivalry: the single most recent series ───────────────────────────
+class _RecentRivalry {
+  final RivalSummary rival;
+  final bool hasSeries;
+  final int seriesNo;
+  final int myWins;
+  final int opWins;
+  final String status;
+
+  const _RecentRivalry({
+    required this.rival,
+    required this.hasSeries,
+    required this.seriesNo,
+    required this.myWins,
+    required this.opWins,
+    required this.status,
+  });
+
+  String get seriesLine {
+    if (!hasSeries) return 'No series yet — duel to start one';
+    final lead = myWins == opWins
+        ? 'tied'
+        : (myWins > opWins ? 'you lead' : 'they lead');
+    final suffix = status == 'decided'
+        ? ' · decided'
+        : status == 'expired'
+            ? ' · expired'
+            : '';
+    return 'Series $seriesNo · $lead$suffix';
+  }
+}
+
+class _RecentRivalrySection extends StatefulWidget {
+  /// Bumped by the Hub after a route returns / pull-to-refresh.
+  final int refreshTick;
+  final void Function(String uid, String username) onOpenRival;
+  final VoidCallback onOpenRivalries;
+
+  const _RecentRivalrySection({
+    required this.refreshTick,
+    required this.onOpenRival,
+    required this.onOpenRivalries,
+  });
+
+  @override
+  State<_RecentRivalrySection> createState() => _RecentRivalrySectionState();
+}
+
+class _RecentRivalrySectionState extends State<_RecentRivalrySection> {
+  late Future<_RecentRivalry?> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(_RecentRivalrySection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTick != widget.refreshTick) {
+      // Block body on purpose: an arrow body would return the assigned Future,
+      // which setState() rejects.
+      setState(() {
+        _future = _load();
+      });
+    }
+  }
+
+  /// ONE recentRivals(limit 1) match query, then at most ONE rivalry-doc read
+  /// for the series state. Returns null when the player has no named rival yet.
+  Future<_RecentRivalry?> _load() async {
+    final rivals = await FirestoreService.instance.recentRivals(limit: 1);
+    if (rivals.isEmpty) return null;
+    final rival = rivals.first;
+
+    Map<String, dynamic>? state;
+    try {
+      final states = await FirestoreService.instance.rivalryStates([rival.uid]);
+      state = states[rival.uid];
+    } catch (_) {
+      // Unreadable series falls back to the "no series yet" copy.
+    }
+
+    if (state == null) {
+      return _RecentRivalry(
+        rival: rival,
+        hasSeries: false,
+        seriesNo: 1,
+        myWins: 0,
+        opWins: 0,
+        status: 'active',
       );
     }
-    final uid = _uid ?? '';
-    final seen = <String>{};
-    final actionable = <QueryDocumentSnapshot>[];
-    for (final doc in [..._creatorDocs, ..._opponentDocs]) {
-      if (!seen.add(doc.id)) continue;
-      final data = doc.data() as Map<String, dynamic>;
-      if (_actionLabel(data, uid) != null) actionable.add(doc);
-    }
-    if (actionable.isEmpty) return const SizedBox.shrink();
-    final visible =
-        actionable.length > 3 ? actionable.sublist(0, 3) : actionable;
 
+    final myUid = FirestoreService.instance.currentUid ?? '';
+    final isA = myUid == (state['aUid'] as String?);
+    return _RecentRivalry(
+      rival: rival,
+      hasSeries: true,
+      seriesNo: ((state['seriesNo'] as num?)?.toInt()) ?? 1,
+      myWins: ((isA ? state['winsA'] : state['winsB']) as num?)?.toInt() ?? 0,
+      opWins: ((isA ? state['winsB'] : state['winsA']) as num?)?.toInt() ?? 0,
+      status: (state['status'] as String?) ?? 'active',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: EdgeInsets.only(left: 2.r, bottom: 12.r),
+          child: const SectionHeader(title: 'Recent rivalry'),
+        ),
+        FutureBuilder<_RecentRivalry?>(
+          future: _future,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const _RecentRivalrySkeleton();
+            }
+            final data = snap.data;
+            if (data == null) {
+              return AppCard(
+                padding: EdgeInsets.zero,
+                child: AppEmptyState(
+                  icon: Icons.sports_kabaddi_rounded,
+                  title: 'No rivalries yet',
+                  color: AppColors.rival,
+                  action: AppButton(
+                    label: 'Find a rival',
+                    icon: const Icon(Icons.person_search_rounded),
+                    onPressed: widget.onOpenRivalries,
+                    variant: AppButtonVariant.primary,
+                    size: AppButtonSize.small,
+                  ),
+                ),
+              );
+            }
+            return _recentCard(data);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _recentCard(_RecentRivalry data) {
+    final rival = data.rival;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppCard(
+          onTap: () => widget.onOpenRival(rival.uid, rival.username),
+          padding: EdgeInsets.all(14.r),
           child: Row(
             children: [
-              Text(
-                'Your move',
-                style: TextStyle(
-                  color: _C.text,
-                  fontSize: 15.sp,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.3,
+              RivalAvatar(
+                name: rival.username,
+                size: 48.r,
+                color: AppColors.rival,
+                highlight: true,
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      rival.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    SizedBox(height: 4.h),
+                    Text(
+                      data.seriesLine,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (data.hasSeries) ...[
+                      SizedBox(height: 8.h),
+                      SeriesProgressBar(
+                        myWins: data.myWins,
+                        opWins: data.opWins,
+                        compact: true,
+                      ),
+                    ],
+                  ],
                 ),
               ),
               SizedBox(width: 8.w),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
-                decoration: BoxDecoration(
-                  color: _C.crimsonGlow,
-                  borderRadius: BorderRadius.circular(10.r),
-                  border: Border.all(color: _C.crimsonBorder),
-                ),
-                child: Text(
-                  '${actionable.length}',
-                  style: TextStyle(
-                    color: _C.crimsonBright,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textMuted,
+                size: 22.r,
               ),
             ],
           ),
         ),
-        for (final doc in visible)
-          Padding(
-            padding: EdgeInsets.only(bottom: 10.r),
-            child: _YourMoveCard(
-              doc: doc,
-              actionLabel: _actionLabel(
-                  doc.data() as Map<String, dynamic>, uid)!,
-              detail: _detailLine(doc.data() as Map<String, dynamic>, uid),
+        SizedBox(height: 2.h),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: widget.onOpenRivalries,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'View more',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(width: 4.w),
+                Icon(Icons.arrow_forward_rounded,
+                    color: AppColors.primary, size: 14.r),
+              ],
             ),
           ),
-        if (actionable.length > 3)
-          TextButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const MyChallengesPage()),
-            ),
-            child: const Text('See all'),
-          ),
-        SizedBox(height: 8.h),
+        ),
       ],
     );
   }
 }
 
-class _YourMoveCard extends StatelessWidget {
-  final QueryDocumentSnapshot doc;
-  final String actionLabel;
-  final String detail;
-  const _YourMoveCard(
-      {required this.doc, required this.actionLabel, required this.detail});
+class _RecentRivalrySkeleton extends StatelessWidget {
+  const _RecentRivalrySkeleton();
 
   @override
   Widget build(BuildContext context) {
-    final data = doc.data() as Map<String, dynamic>;
-    final animeTitle = data['animeTitle'] as String? ?? 'Unknown Anime';
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final isCreator = (data['creatorUid'] as String? ?? '') == uid;
-    final opponentName = isCreator
-        ? (data['opponentUsername'] as String? ?? 'Opponent')
-        : (data['creatorUsername'] as String? ?? 'Opponent');
-    final stakeAmount = (data['stakeAmount'] as num?)?.toInt() ?? 0;
-    final wpStake = (data['wpStake'] as num?)?.toInt() ?? 0;
-    final questionIds = _stringListOf(data['questionIds']);
-
-    return Container(
+    return AppCard(
       padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(
-            color: _C.crimson.withValues(alpha: 0.45), width: 1.5),
-      ),
       child: Row(
         children: [
+          AppSkeleton(width: 48.r, height: 48.r, radius: 24.r),
+          SizedBox(width: 12.w),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(animeTitle,
-                    style: TextStyle(
-                        color: _C.text,
-                        fontSize: 13.sp,
-                        fontWeight: FontWeight.w700)),
-                SizedBox(height: 3.h),
-                Text('vs $opponentName',
-                    style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
-                SizedBox(height: 4.h),
-                Text(actionLabel,
-                    style: TextStyle(
-                        color: _C.crimsonBright,
-                        fontSize: 11.sp,
-                        fontWeight: FontWeight.w800)),
-                SizedBox(height: 2.h),
-                Text(detail,
-                    style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
-                if (stakeAmount > 0 || wpStake > 0) ...[
-                  SizedBox(height: 4.h),
-                  Text('🪙 $stakeAmount AC · ⭐ $wpStake WP',
-                      style: TextStyle(color: _C.textMuted, fontSize: 10.sp)),
-                ],
+                AppSkeleton(width: 130.w, height: 14.h),
+                SizedBox(height: 8.h),
+                AppSkeleton(width: 170.w, height: 11.h),
               ],
             ),
           ),
-          SizedBox(width: 10.w),
-          if (questionIds.isNotEmpty)
-            AppButton(
-              label: 'Play',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ChallengeLobbyPage(challengeId: doc.id),
-                ),
-              ),
-              variant: AppButtonVariant.primary,
-              size: AppButtonSize.small,
-              width: 90.w,
-              height: 38.h,
-            ),
         ],
       ),
     );
   }
 }
 
-// ─── Rivalries: live series cards ─────────────────────────────────────────────
-class _RivalriesSection extends StatelessWidget {
+// ─── Create and Join: the two ways in, side by side ───────────────────────────
+class _CreateJoinRow extends StatelessWidget {
   final VoidCallback onCreate;
   final VoidCallback onJoin;
-  const _RivalriesSection({required this.onCreate, required this.onJoin});
+
+  const _CreateJoinRow({required this.onCreate, required this.onJoin});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 10.r),
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Rivalries',
-            style: TextStyle(
-              color: _C.text,
-              fontSize: 16.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.4,
-            ),
-          ),
-          SizedBox(height: 4.h),
-          FutureBuilder<List<RivalSummary>>(
-            future: FirestoreService.instance.recentRivals(limit: 8),
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return Padding(
-                  padding: EdgeInsets.symmetric(vertical: 14.h),
-                  child: const Center(
-                    child: CircularProgressIndicator(color: _C.rival),
-                  ),
-                );
-              }
-              if (snap.hasError) {
-                return Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10.h),
-                  child: Text(
-                    'Could not load rivalries: ${snap.error}. Pull to retry by reopening Battle.',
-                    style: TextStyle(color: _C.textMuted, fontSize: 12.sp),
-                  ),
-                );
-              }
-              final rivals = (snap.data ?? []).take(5).toList();
-              if (rivals.isEmpty) {
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(4.r, 10.r, 4.r, 8.r),
-                  child: Text(
-                    'No rivalries yet.\n\nHow it works: you play first, share the code, best score wins. '
-                    'Staked duels count toward a first-to-$kSeriesWinsRequired series; draws replay and never count. '
-                    'Tap Find a rival below to start one.',
-                    style: TextStyle(
-                      color: _C.textMuted,
-                      fontSize: 12.sp,
-                      fontWeight: FontWeight.w600,
-                      height: 1.5,
-                    ),
-                  ),
-                );
-              }
-              return Column(
-                children: [
-                  SizedBox(height: 8.h),
-                  for (final r in rivals)
-                    _RivalryLiveCard(summary: r),
-                  SizedBox(height: 2.h),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const RivalriesPage()),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 8.r, vertical: 4.r),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: Text(
-                        'View rivalries →',
-                        style: TextStyle(
-                          color: _C.sky,
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RivalryLiveCard extends StatelessWidget {
-  final RivalSummary summary;
-  const _RivalryLiveCard({required this.summary});
-
-  String _tag({
-    required int myWins,
-    required int opWins,
-    required bool lastWasLoss,
-    required bool hasSeries,
-  }) {
-    if (!hasSeries) return 'New series';
-    if (myWins == kSeriesWinsRequired - 1) return 'Match point';
-    if (myWins == 0 && opWins == kSeriesWinsRequired - 1) return 'Down 0–2';
-    if (lastWasLoss) return 'Revenge';
-    return 'Series live';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final myUid = FirestoreService.instance.currentUid ?? '';
-    return StreamBuilder<Map<String, dynamic>?>(
-      stream: FirestoreService.instance.rivalryStream(summary.uid),
-      builder: (context, seriesSnap) {
-        if (seriesSnap.hasError) {
-          return _rivalryCardShell(
-            context: context,
-            seriesLine: 'You 0–0 ${summary.username}',
-            seriesNoLine: 'Series —',
-            tag: 'New series',
-            seriesData: null,
-            seriesError: true,
-          );
-        }
-        final data = seriesSnap.data;
-        int myWins = 0;
-        int opWins = 0;
-        int seriesNo = 1;
-        String status = 'active';
-        DateTime? lastPrizeAt;
-        bool hasSeries = false;
-        if (data != null) {
-          final isA = myUid == (data['aUid'] as String?);
-          myWins = ((isA ? data['winsA'] : data['winsB']) as num?)?.toInt() ?? 0;
-          opWins = ((isA ? data['winsB'] : data['winsA']) as num?)?.toInt() ?? 0;
-          seriesNo = ((data['seriesNo'] as num?)?.toInt()) ?? 1;
-          status = (data['status'] as String?) ?? 'active';
-          final rawPrize = data['lastSeriesPrizeAt'];
-          if (rawPrize is Timestamp) lastPrizeAt = rawPrize.toDate();
-          hasSeries = (myWins + opWins) > 0 || status != 'active';
-          if (status == 'decided' || status == 'expired') hasSeries = true;
-        }
-        final tag = status == 'expired'
-            ? 'New series'
-            : status == 'decided'
-                ? 'New series'
-                : _tag(
-                    myWins: myWins,
-                    opWins: opWins,
-                    lastWasLoss: summary.lastWasLoss,
-                    hasSeries: hasSeries,
-                  );
-        return _rivalryCardShell(
-          context: context,
-          seriesLine: 'You $myWins–$opWins ${summary.username}',
-          seriesNoLine: 'Series $seriesNo'
-              '${status == 'expired' ? ' · last one expired' : status == 'decided' ? ' · decided' : ''}',
-          tag: tag,
-          seriesData: data,
-          seriesError: false,
-          lastPrizeAt: lastPrizeAt,
-          status: status,
-        );
-      },
-    );
-  }
-
-  Widget _rivalryCardShell({
-    required BuildContext context,
-    required String seriesLine,
-    required String seriesNoLine,
-    required String tag,
-    required Map<String, dynamic>? seriesData,
-    required bool seriesError,
-    DateTime? lastPrizeAt,
-    String status = 'active',
-  }) {
-    final myUid = FirestoreService.instance.currentUid ?? '';
-    String? prizeLine;
-    if (lastPrizeAt != null) {
-      final elapsed = DateTime.now().difference(lastPrizeAt);
-      final remaining = kSeriesPrizeCooldown - elapsed;
-      if (remaining > Duration.zero) {
-        final days = (remaining.inHours / 24).ceil().clamp(1, 7);
-        prizeLine = 'Prize available again in $days day${days == 1 ? '' : 's'}';
-      }
-    }
-    prizeLine ??= 'Win series: +$kSeriesAcPrize AC';
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 10.h),
-      padding: EdgeInsets.all(12.r),
-      decoration: BoxDecoration(
-        color: _C.elevated,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(seriesLine,
-                    style: TextStyle(
-                        color: _C.text,
-                        fontSize: 15.sp,
-                        fontWeight: FontWeight.w900)),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-                decoration: BoxDecoration(
-                  color: _C.rival.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(8.r),
-                ),
-                child: Text(tag,
-                    style: TextStyle(
-                        color: _C.rival,
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w800)),
-              ),
-            ],
-          ),
-          SizedBox(height: 2.h),
-          Text(seriesNoLine,
-              style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
-          SizedBox(height: 4.h),
-          Text(
-            '${summary.wins}W · ${summary.draws}D · ${summary.losses}L all-time incl. sparring',
-            style: TextStyle(color: _C.textMuted, fontSize: 11.sp),
-          ),
-          SizedBox(height: 6.h),
-          Wrap(
-            spacing: 6.w,
-            runSpacing: 6.h,
-            children: [
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-                decoration: BoxDecoration(
-                  color: AppColors.coinGold.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8.r),
-                  border: Border.all(
-                      color: AppColors.coinGold.withValues(alpha: 0.4)),
-                ),
-                child: Text('🏆 $prizeLine',
-                    style: TextStyle(
-                        color: AppColors.coinGold,
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w700)),
-              ),
-              _BountyChip(
-                rivalUid: summary.uid,
-                myUid: myUid,
-                status: status,
-              ),
-            ],
-          ),
-          if (seriesError) ...[
-            SizedBox(height: 4.h),
-            Text('Series score unavailable — showing record only.',
-                style: TextStyle(color: _C.textMuted, fontSize: 10.sp)),
-          ],
-          SizedBox(height: 8.h),
-          Row(
-            children: [
-              Expanded(
-                child: AppButton(
-                  label: 'Play next game',
-                  onPressed: () => Navigator.of(context).push(
-                    AppPageRoute(
-                      builder: (_) => RivalryPage(
-                        rivalUid: summary.uid,
-                        rivalUsername: summary.username,
-                      ),
-                    ),
-                  ),
-                  variant: AppButtonVariant.primary,
-                  size: AppButtonSize.small,
-                  width: double.infinity,
-                  height: 38.h,
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Expanded(
-                child: AppButton(
-                  label: 'Spar',
-                  onPressed: () => Navigator.of(context).push(
-                    AppPageRoute(
-                      builder: (_) => AnimeSelectPage(
-                        opponentUid: summary.uid,
-                        opponentUsername: summary.username,
-                        onSelect: (title) =>
-                            _startSpar(context, title, summary),
-                      ),
-                    ),
-                  ),
-                  variant: AppButtonVariant.secondary,
-                  size: AppButtonSize.small,
-                  width: double.infinity,
-                  height: 38.h,
-                ),
-              ),
-            ],
-          ),
-          FutureBuilder<String?>(
-            future: _cooldownEstimate(summary.uid),
-            builder: (context, snap) {
-              final t = snap.data;
-              if (t == null || t.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: EdgeInsets.only(top: 6.h),
-                child: Text('Cooldown estimate: $t',
-                    style: TextStyle(
-                        color: _C.textMuted,
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w600)),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _startSpar(
-      BuildContext context, String title, RivalSummary r) async {
-    try {
-      final res = await FirestoreService.instance.createSparChallenge(
-        animeTitle: title,
-        opponentUid: r.uid,
-        opponentUsername: r.username,
-      );
-      final challengeId = res['challengeId']?.toString() ?? '';
-      final rawIds = res['questionIds'];
-      if (!context.mounted) return;
-      if (challengeId.isEmpty || rawIds is! List) throw Exception('failed');
-      final questionIds =
-          List<String>.unmodifiable(rawIds.map((e) => '$e'));
-      Navigator.of(context).pushReplacement(
-        AppPageRoute(
-          builder: (_) => QuestionsPage(
-            mode: QuizMode.asyncChallenge,
-            selectedTitles: [title],
-            questionIds: questionIds,
-            challengeId: challengeId,
-            isCreator: true,
-            opponentName: r.username,
+    return Row(
+      children: [
+        Expanded(
+          child: AppButton(
+            label: 'Create',
+            icon: const Icon(Icons.add_rounded),
+            onPressed: onCreate,
+            variant: AppButtonVariant.primary,
+            size: AppButtonSize.medium,
+            height: 52.h,
           ),
         ),
-      );
-    } on FirebaseFunctionsException catch (e) {
-      if (!context.mounted) return;
-      final msg = e.message ?? '';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          msg.contains('not_friends')
-              ? 'Add them as a friend to spar.'
-              : msg.contains('daily_spar_limit_reached')
-                  ? 'Daily spar limit reached — come back tomorrow.'
-                  : 'Could not start the spar — please try again.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ));
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not start the spar — please try again.'),
-        behavior: SnackBarBehavior.floating,
-      ));
-    }
-  }
-
-  /// Estimate only — the server enforces 12h/6h inside its transaction and
-  /// skips it inside an active series. Never shown as authoritative.
-  Future<String?> _cooldownEstimate(String rivalUid) async {
-    try {
-      final me = FirebaseFirestore.instance
-          .collection('users')
-          .doc(FirestoreService.instance.currentUid);
-      final snap = await me.get();
-      final data = snap.data() ?? {};
-      final map =
-          (data['rivalCooldowns'] as Map<String, dynamic>?) ?? const {};
-      final raw = map[rivalUid];
-      DateTime? at;
-      if (raw is Timestamp) at = raw.toDate();
-      if (at == null) {
-        // Legacy single-pair fallback.
-        final udpUid = data['lastRivalUid'] as String?;
-        final udpAt = data['lastRivalChallenge'];
-        if (udpUid == rivalUid && udpAt is Timestamp) at = udpAt.toDate();
-      }
-      if (at == null) return null;
-      // Series-aware skip: if an active series has games, server skips.
-      try {
-        final meUid = FirestoreService.instance.currentUid ?? '';
-        final pair = [meUid, rivalUid]..sort();
-        final rSnap = await FirebaseFirestore.instance
-            .collection('rivalries')
-            .doc('${pair[0]}_${pair[1]}')
-            .get();
-        final r = rSnap.data() ?? {};
-        final w =
-            (((r['winsA'] as num?)?.toInt()) ?? 0) +
-                (((r['winsB'] as num?)?.toInt()) ?? 0);
-        if ((r['status'] as String?) == 'active' && w > 0) {
-          return 'none inside this active series (estimate)';
-        }
-      } catch (_) {}
-      final elapsed = DateTime.now().difference(at).inHours;
-      final isPremium = await _isPremium();
-      final cd = isPremium
-          ? kRivalCooldownPremiumHours
-          : kRivalCooldownFreeHours;
-      final left = cd - elapsed;
-      if (left <= 0) return null;
-      return '~$left h left (estimate)';
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<bool> _isPremium() async {
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(FirestoreService.instance.currentUid)
-          .get();
-      return (snap.data()?['premiumActive'] as bool?) ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-}
-
-class _BountyChip extends StatelessWidget {
-  final String rivalUid;
-  final String myUid;
-  final String status;
-  const _BountyChip(
-      {required this.rivalUid, required this.myUid, required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    if (status == 'expired' || status == 'decided') {
-      return const SizedBox.shrink();
-    }
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(rivalUid)
-          .get(),
-      builder: (context, rivalSnap) {
-        if (rivalSnap.connectionState == ConnectionState.waiting) {
-          return const SizedBox.shrink();
-        }
-        if (rivalSnap.hasError) {
-          return _chip('🎯 Bounty unavailable', AppColors.textMuted);
-        }
-        final rivalData = rivalSnap.data?.data();
-        if (rivalData == null) {
-          // Permission-denied and missing both land here via error path on
-          // most SDKs; surface as unavailable, never silently hide.
-          return _chip('🎯 Bounty unavailable', AppColors.textMuted);
-        }
-        final rivalWp = ((rivalData['weeklyPoints'] as num?)?.toInt()) ?? 0;
-        final myWp =
-            Provider.of<UserDataProvider>(context, listen: false).weeklyPoints;
-        final gap = rivalWp - myWp;
-        if (gap >= kBountyWpGap) {
-          return _chip('🎯 Bounty +$kBountyWpBonus WP if you win',
-              const Color(0xFFF59E0B));
-        }
-        return const SizedBox.shrink();
-      },
-    );
-  }
-
-  Widget _chip(String text, Color color) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8.r),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(text,
-          style: TextStyle(
-              color: color, fontSize: 10.sp, fontWeight: FontWeight.w700)),
-    );
-  }
-}
-
-// ─── Find a rival: single row ─────────────────────────────────────────────────
-class _FindRivalRow extends StatelessWidget {
-  final VoidCallback onCreate;
-  final VoidCallback onJoin;
-  const _FindRivalRow({required this.onCreate, required this.onJoin});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Find a rival',
-              style: TextStyle(
-                  color: _C.text,
-                  fontSize: 15.sp,
-                  fontWeight: FontWeight.w800)),
-          SizedBox(height: 4.h),
-          Text('Recent foes · campus · code — one tap to start.',
-              style: TextStyle(color: _C.textMuted, fontSize: 12.sp)),
-          SizedBox(height: 10.h),
-          Row(
-            children: [
-              Expanded(
-                  child: _FindTile(
-                      emoji: '🕘',
-                      label: 'Rivalries',
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const RivalriesPage())))),
-              SizedBox(width: 8.w),
-              Expanded(
-                  child: _FindTile(
-                      emoji: '🎓',
-                      label: 'Campus',
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const RivalriesPage())))),
-              SizedBox(width: 8.w),
-              Expanded(
-                  child: _FindTile(
-                      emoji: '🎯',
-                      label: 'Code',
-                      onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const JoinChallengePage())))),
-            ],
+        SizedBox(width: 12.w),
+        Expanded(
+          child: AppButton(
+            label: 'Join',
+            icon: const Icon(Icons.vpn_key_rounded),
+            onPressed: onJoin,
+            variant: AppButtonVariant.outline,
+            size: AppButtonSize.medium,
+            height: 52.h,
           ),
-          SizedBox(height: 8.h),
-          GestureDetector(
-            onTap: onCreate,
-            child: Text('or create a code challenge →',
-                style: TextStyle(
-                    color: _C.sky,
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-class _FindTile extends StatelessWidget {
-  final String emoji;
-  final String label;
-  final VoidCallback onTap;
-  const _FindTile(
-      {required this.emoji, required this.label, required this.onTap});
+// ─── Quick Match: the last block on the page ──────────────────────────────────
+class _QuickMatchSection extends StatefulWidget {
+  final VoidCallback onQuickMatch;
+
+  const _QuickMatchSection({required this.onQuickMatch});
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(vertical: 12.r),
-        decoration: BoxDecoration(
-          color: _C.rival.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(12.r),
-          border: Border.all(color: _C.rival.withValues(alpha: 0.4)),
-        ),
-        child: Column(
-          children: [
-            Text(emoji, style: TextStyle(fontSize: 20.sp)),
-            SizedBox(height: 4.h),
-            Text(label,
-                style: TextStyle(
-                    color: _C.text,
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w800)),
-          ],
-        ),
-      ),
-    );
-  }
+  State<_QuickMatchSection> createState() => _QuickMatchSectionState();
 }
 
-// ─── Quick Match card (practice vs ghost) ─────────────────────────────────────
-class QuickMatchCard extends StatefulWidget {
-  final VoidCallback onStartMatchmaking;
-  const QuickMatchCard({super.key, required this.onStartMatchmaking});
-
-  @override
-  State<QuickMatchCard> createState() => _QuickMatchCardState();
-}
-
-class _QuickMatchCardState extends State<QuickMatchCard> {
+class _QuickMatchSectionState extends State<_QuickMatchSection> {
   bool _watchingAd = false;
 
-  Future<void> _handleWatchAd(BuildContext context) async {
+  Future<void> _handleWatchAd() async {
     if (_watchingAd) return;
+    // Captured before the await: the messenger survives the ad flow, so no
+    // BuildContext is touched across an async gap.
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _watchingAd = true);
     final shown = await AdService.instance.showQMTokenAd(
       context: context,
       onTokenGranted: () {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('🎟 +1 token granted!'),
-            behavior: SnackBarBehavior.floating,
-          ));
-        }
+        messenger.showSnackBar(const SnackBar(
+          content: Text('🎟 +1 token granted!'),
+          behavior: SnackBarBehavior.floating,
+        ));
       },
     );
-    if (!shown && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+    if (!shown) {
+      messenger.showSnackBar(const SnackBar(
         content: Text('Ad not ready yet — try again in a moment.'),
         behavior: SnackBarBehavior.floating,
       ));
@@ -1493,199 +1149,103 @@ class _QuickMatchCardState extends State<QuickMatchCard> {
     final qmAdTokenUsed = udp.qmAdTokenUsed;
     final premiumActive = udp.premiumActive;
     final dailyMax = premiumActive ? kQmDailyPremium : kQmDailyFree;
+    final outOfTokens = qmTokens == 0;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(
-          color: _C.crimson.withValues(alpha: 0.40),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(16.r, 18.r, 16.r, 14.r),
-            child: Row(
-              children: [
-                Container(
-                  width: 44.w,
-                  height: 44.h,
-                  decoration: BoxDecoration(
-                    color: _C.crimsonGlow,
-                    borderRadius: BorderRadius.circular(13.r),
-                    border: Border.all(color: _C.crimsonBorder),
-                  ),
-                  child: Center(
-                      child: Text('⚡', style: TextStyle(fontSize: 20.sp))),
-                ),
-                SizedBox(width: 14.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Quick Match',
-                          style: TextStyle(
-                              color: _C.text,
-                              fontSize: 16.sp,
-                              fontWeight: FontWeight.w800)),
-                      SizedBox(height: 3.h),
-                      Text(
-                        'Practice vs ghost · $qmTokens of $dailyMax left · No series, flat rewards',
-                        style:
-                            TextStyle(color: _C.textMuted, fontSize: 12.sp),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Divider(height: 1.h, thickness: 1, color: _C.divider),
-          Padding(
-            padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 8.r),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _TokenBar(tokens: qmTokens, max: dailyMax),
-                SizedBox(height: 14.h),
-                AppButton(
-                  label: 'Play Ghost Match',
-                  icon: Icon(Icons.bolt_rounded, size: 20.r),
-                  onPressed:
-                      qmTokens > 0 ? widget.onStartMatchmaking : null,
-                  variant: AppButtonVariant.gradient,
-                  gradientColors: const [
-                    AppColors.primary,
-                    Color(0xFFFF4D5E),
-                  ],
-                  size: AppButtonSize.large,
-                  height: 52.h,
-                  width: double.infinity,
-                ),
-                if (qmTokens == 0 && !qmAdTokenUsed) ...[
-                  SizedBox(height: 10.h),
-                  _AdButton(
-                    loading: _watchingAd,
-                    onTap: _watchingAd ? null : () => _handleWatchAd(context),
-                  ),
-                ],
-                SizedBox(height: 8.h),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TokenBar extends StatelessWidget {
-  final int tokens;
-  final int max;
-  const _TokenBar({required this.tokens, required this.max});
-
-  @override
-  Widget build(BuildContext context) {
-    final segs = max.clamp(1, 8);
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 13.r),
-      decoration: BoxDecoration(
-        color: _C.crimsonGlow,
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: _C.crimsonBorder),
-      ),
-      child: Row(
-        children: [
-          Text('🎟', style: TextStyle(fontSize: 15.sp)),
-          SizedBox(width: 10.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$tokens of $max left today',
-                  style: TextStyle(
-                      color: _C.crimsonBright,
-                      fontSize: 13.sp,
-                      fontWeight: FontWeight.w700),
-                ),
-                SizedBox(height: 6.h),
-                Row(
-                  children: List.generate(segs, (i) {
-                    final filled = i < tokens;
-                    return Expanded(
-                      child: Padding(
-                        padding:
-                            EdgeInsets.only(right: i < segs - 1 ? 4.r : 0.r),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          height: 4.h,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(2.r),
-                            color: filled
-                                ? _C.crimson
-                                : _C.crimson.withValues(alpha: 0.18),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AdButton extends StatelessWidget {
-  final bool loading;
-  final VoidCallback? onTap;
-  const _AdButton({required this.loading, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        color: _C.elevated,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: _C.border.withValues(alpha: 0.6)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: Container(
-          height: 42.h,
-          padding: EdgeInsets.symmetric(horizontal: 12.r),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppCard(
+          onTap: widget.onQuickMatch,
+          padding: EdgeInsets.all(14.r),
+          borderColor: AppColors.primary.withValues(alpha: 0.35),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (loading)
-                SizedBox(
-                  width: 14.w,
-                  height: 14.h,
-                  child: const CircularProgressIndicator(
-                      strokeWidth: 2, color: _C.textMuted),
-                )
-              else
-                Text('📺', style: TextStyle(fontSize: 14.sp)),
-              SizedBox(width: 8.w),
-              Text(
-                loading ? 'Loading ad…' : 'Watch ad for extra token',
-                style: TextStyle(
-                    color: _C.textMuted,
+              Container(
+                width: 44.r,
+                height: 44.r,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                ),
+                child: Icon(Icons.bolt_rounded,
+                    color: AppColors.primary, size: 24.r),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Quick Match',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 15.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    SizedBox(height: 2.h),
+                    Text(
+                      'Practice vs a ghost recording · no series',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 11.sp,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 10.w),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadii.full),
+                  border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.30)),
+                ),
+                child: Text(
+                  '$qmTokens/$dailyMax',
+                  style: TextStyle(
+                    color: AppColors.primary,
                     fontSize: 12.sp,
-                    fontWeight: FontWeight.w600),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
             ],
           ),
         ),
-      ),
+        if (outOfTokens && !qmAdTokenUsed) ...[
+          SizedBox(height: 10.h),
+          AppButton(
+            label: _watchingAd
+                ? 'Loading ad…'
+                : '📺  Watch ad for a Quick Match token',
+            onPressed: _watchingAd ? null : _handleWatchAd,
+            variant: AppButtonVariant.outline,
+            size: AppButtonSize.small,
+            color: AppColors.accent,
+            width: double.infinity,
+          ),
+        ] else if (outOfTokens && qmAdTokenUsed) ...[
+          SizedBox(height: 8.h),
+          Text(
+            'Tokens reset tomorrow.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11.sp,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1731,10 +1291,11 @@ class _MatchedDialogState extends State<_MatchedDialog> {
   Widget build(BuildContext context) {
     final result = widget.result;
     return Dialog(
-      backgroundColor: _C.surface,
+      backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24.r),
-        side: BorderSide(color: _C.crimson.withValues(alpha: 0.40), width: 1.5),
+        borderRadius: BorderRadius.circular(AppRadii.xl),
+        side: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.40), width: 1.5),
       ),
       child: Padding(
         padding: EdgeInsets.fromLTRB(24.r, 30.r, 24.r, 24.r),
@@ -1743,7 +1304,7 @@ class _MatchedDialogState extends State<_MatchedDialog> {
           children: [
             Text('GHOST FOUND!',
                 style: TextStyle(
-                    color: _C.crimsonBright,
+                    color: AppColors.crimsonBright,
                     fontSize: 12.sp,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 2.5)),
@@ -1751,19 +1312,19 @@ class _MatchedDialogState extends State<_MatchedDialog> {
             Text(result.opponentName,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: _C.text,
+                    color: AppColors.textPrimary,
                     fontSize: 24.sp,
                     fontWeight: FontWeight.w900)),
             SizedBox(height: 8.h),
             Text(result.animeTitle,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: _C.textMuted, fontSize: 15.sp)),
-            if (result.isGhost && result.ghostScore > 0) ...[
+                style: TextStyle(color: AppColors.textMuted, fontSize: 15.sp)),
+            if (result.isGhost) ...[
               SizedBox(height: 14.h),
-              Text('They scored ${result.ghostScore}/10 — beat it to win',
+              Text('Beat their score to win',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      color: _C.crimsonBright,
+                      color: AppColors.crimsonBright,
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w700)),
             ],
@@ -1778,7 +1339,7 @@ class _MatchedDialogState extends State<_MatchedDialog> {
             ),
             SizedBox(height: 8.h),
             Text('Continuing automatically…',
-                style: TextStyle(color: _C.textMuted, fontSize: 11.sp)),
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp)),
           ],
         ),
       ),
@@ -1791,10 +1352,9 @@ class _BattlePremiumChip extends StatelessWidget {
   final bool premiumActive;
   const _BattlePremiumChip({required this.premiumActive});
 
-  static const _gold = Color(0xFFFFB300);
-
   @override
   Widget build(BuildContext context) {
+    const gold = AppColors.gold;
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
@@ -1803,9 +1363,9 @@ class _BattlePremiumChip extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
         decoration: BoxDecoration(
-          color: _gold.withValues(alpha: premiumActive ? 0.13 : 0.10),
-          borderRadius: BorderRadius.circular(20.r),
-          border: Border.all(color: _gold.withValues(alpha: 0.38)),
+          color: gold.withValues(alpha: premiumActive ? 0.13 : 0.10),
+          borderRadius: BorderRadius.circular(AppRadii.full),
+          border: Border.all(color: gold.withValues(alpha: 0.38)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1815,7 +1375,7 @@ class _BattlePremiumChip extends StatelessWidget {
             Text(
               premiumActive ? 'PREMIUM' : 'GET',
               style: TextStyle(
-                color: _gold,
+                color: gold,
                 fontWeight: FontWeight.w800,
                 fontSize: 11.sp,
                 letterSpacing: 0.4,
@@ -1828,128 +1388,3 @@ class _BattlePremiumChip extends StatelessWidget {
   }
 }
 
-// ─── Payout Rules table (from rival_economy.dart = server constants) ──────────
-class _RewardsTable extends StatefulWidget {
-  const _RewardsTable();
-
-  @override
-  State<_RewardsTable> createState() => _RewardsTableState();
-}
-
-class _RewardsTableState extends State<_RewardsTable> {
-  bool _isExpanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _C.surface,
-        borderRadius: BorderRadius.circular(18.r),
-        border: Border.all(color: _C.border.withValues(alpha: 0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _isExpanded = !_isExpanded),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16.r, 16.r, 16.r, 12.r),
-              child: Row(
-                children: [
-                  Text('⚖️', style: TextStyle(fontSize: 15.sp)),
-                  SizedBox(width: 10.w),
-                  Text('Payout Rules',
-                      style: TextStyle(
-                          color: _C.text,
-                          fontSize: 15.sp,
-                          fontWeight: FontWeight.w800)),
-                  const Spacer(),
-                  Icon(
-                    _isExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: _C.textMuted,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-            alignment: Alignment.topCenter,
-            child: _isExpanded
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Divider(
-                          height: 1.h, thickness: 1, color: _C.divider),
-                      _modeBlock(
-                        title: '⚔️ DUEL — staked, counts for series',
-                        rows: [
-                          'AC: win 1.9× (stake + 90%), draw 0.95× (5% fee), loss 0×',
-                          'WP stake: win 1.9×, draw 0.9× (10% fee), loss 0×',
-                          'Flat WP: +$kDuelFlatWinWp win / +$kDuelFlatDrawWp draw / +0 loss',
-                          'Bounty: +$kBountyWpBonus WP when you trail by $kBountyWpGap+ WP',
-                          'Series: first to $kSeriesWinsRequired wins +$kSeriesAcPrize AC (paid at most once per 7 days)',
-                          'Draws replay and never count toward the series',
-                        ],
-                      ),
-                      _modeBlock(
-                        title: '🤝 SPAR — free practice, never counts',
-                        rows: [
-                          'Stake: none. Flat WP: +$kSparWinWp on a win inside the daily budget ($kSparDailyFree/day, $kSparDailyPremium premium), else +0',
-                          'Never touches series score, win stats, or achievements',
-                        ],
-                      ),
-                      _modeBlock(
-                        title: '⚡ GHOST — practice vs recording',
-                        rows: [
-                          'No series. AC +$kGhostAcWin/+$kGhostAcDraw/+$kGhostAcLose · WP +$kGhostWpWin/+$kGhostWpDraw/+$kGhostWpLose',
-                          'Skill-matched to your recent ghost average; your own recordings excluded',
-                        ],
-                      ),
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(16.r, 8.r, 16.r, 14.r),
-                        child: Text(
-                          'Caps & cooldown: premium ×$kPremiumWpMultiplier WP · daily soft cap $kWpDailySoftCap WP then 20% · weekly cap $kWpWeeklyCap WP · '
-                          'same-rival cooldown $kRivalCooldownFreeHours h (free) / $kRivalCooldownPremiumHours h (premium), skipped inside an active series · '
-                          'WP stake min $kWpMinStake step $kWpStakeStep · AC stake min $kAcMinStake step $kAcStakeStep · '
-                          'unplayed duels expire (12 h invite / 24 h match) and one-sided silence forfeits 0 after 15 min.',
-                          style: TextStyle(
-                              color: _C.textMuted, fontSize: 11.sp, height: 1.5),
-                        ),
-                      ),
-                    ],
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _modeBlock({required String title, required List<String> rows}) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16.r, 10.r, 16.r, 4.r),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style: TextStyle(
-                  color: _C.text,
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w800)),
-          SizedBox(height: 6.h),
-          for (final r in rows)
-            Padding(
-              padding: EdgeInsets.only(bottom: 3.h),
-              child: Text('· $r',
-                  style: TextStyle(
-                      color: _C.textSub, fontSize: 12.sp, height: 1.4)),
-            ),
-        ],
-      ),
-    );
-  }
-}

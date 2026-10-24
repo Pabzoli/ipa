@@ -16,7 +16,8 @@
  *     publish: latestBuild=2, minBuild=1   -> nobody is forced yet (safe)
  *     arm:     minBuild=2,  latestBuild=2  -> build 1 is walled (the point)
  *
- *   Currently shipping build 3 (animequiz-3.apk, pubspec 1.1.0+3), not armed.
+ *   Currently shipping build 4 (animequiz-4.apk, pubspec 1.2.0+4), armed:
+ *   minBuild=3, so builds 1-2 are walled and build 3 is only nudged.
  *
  *   Every real write requires --commit. Without it the script is a read-only
  *   dry run, so it is safe to invoke at any time.
@@ -59,7 +60,7 @@ const DOC_ID = 'android';
 // new build is published -- a stale filename here is a dead download for
 // exactly the users who most need it. --check-url catches that before you
 // arm the gate.
-const DEFAULT_APK_URL = 'https://anime-quiz-1ab1b.web.app/downloads/animequiz-3.apk';
+const DEFAULT_APK_URL = 'https://anime-quiz-1ab1b.web.app/downloads/animequiz-4.apk';
 
 /**
  * Resolve firebase-admin by PACKAGE NAME from the functions/ tree.
@@ -90,11 +91,11 @@ function loadAdmin() {
 
 function parseArgs(argv) {
   const opts = {
-    // Build 3 is published and not yet enforced: latestBuild tracks what users
-    // can download, minBuild stays at 1 until we deliberately strand the older
-    // install. Same publish-then-arm order as the ROLLOUT DISCIPLINE note above.
-    minBuild: 1,
-    latestBuild: 3,
+    // Build 4 is published and armed: latestBuild tracks what users can
+    // download, minBuild sits one build behind so 1-2 are walled and 3 is only
+    // nudged. Same publish-then-arm order as the ROLLOUT DISCIPLINE note above.
+    minBuild: 3,
+    latestBuild: 4,
     apkUrl: DEFAULT_APK_URL,
     key: null,
     commit: false,
@@ -230,6 +231,12 @@ function headUrl(url) {
   if (arming) {
     console.log('*** ARMING: builds below ' + next.minBuild +
                 ' will be blocked, with no bypass. ***');
+  } else if (next.minBuild > 1) {
+    const nudged = next.latestBuild - next.minBuild === 1
+      ? 'build ' + next.minBuild
+      : 'builds ' + next.minBuild + '-' + (next.latestBuild - 1);
+    console.log('arming: builds below ' + next.minBuild +
+                ' are blocked; update nudge for ' + nudged + '.');
   } else {
     console.log('not armed: builds below ' + next.minBuild +
                 ' are still served normally; only a stale ' + next.minBuild +
@@ -261,7 +268,11 @@ function headUrl(url) {
   await ref.set(next, { merge: true });
   const after = await ref.get();
   console.log('\nWROTE       :', JSON.stringify(after.data()));
-  console.log('Gate is now', arming ? 'ARMED.' : 'staged (not yet forcing updates).');
+  console.log('Gate is now',
+    arming || next.minBuild > 1
+      ? 'ARMED (blocks builds below ' + next.minBuild + ').'
+      : 'staged (not yet forcing updates).');
+
 })().catch(e => {
   console.error('\n' + (e && e.message ? e.message : e));
   process.exitCode = 1;

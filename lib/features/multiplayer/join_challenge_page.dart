@@ -6,6 +6,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/rival_economy.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
@@ -38,10 +39,18 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   StreamSubscription<int>? _joinCountSub;
   int _joinsToday = 0;
 
+  /// Matches the server: DAILY_CHALLENGE_JOIN_FREE / PREMIUM (5 / 8). Was
+  /// 5/3, which blocked free players two joins early and premium three early.
   int get _maxJoinsPerDay {
     final premium =
         context.read<UserDataProvider>().premiumActive;
-    return premium ? 5 : 3;
+    return premium ? kDailyJoinPremium : kDailyJoinFree;
+  }
+
+  int get _maxActiveChallenges {
+    final premium =
+        context.read<UserDataProvider>().premiumActive;
+    return premium ? kActiveChallengesPremium : kActiveChallengesFree;
   }
 
   bool get _atDailyLimit => _joinsToday >= _maxJoinsPerDay;
@@ -196,12 +205,24 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
         return;
       }
 
-      if (challenge.status != ChallengeStatus.waiting) {
+      if (challenge.status != ChallengeStatus.waiting &&
+          challenge.status != ChallengeStatus.creatorSubmitted) {
         setState(() {
           _looking = false;
           _error = challenge.isCompleted
               ? 'This challenge is already completed.'
               : 'Someone already joined this challenge.';
+        });
+        return;
+      }
+
+      // The creator may have played before anyone accepted (their score is
+      // promoted to creator_submitted; the invite is still open). A seat is only
+      // free while the joiner's own score is unset.
+      if (challenge.opponentScore != null) {
+        setState(() {
+          _looking = false;
+          _error = 'Someone already joined this challenge.';
         });
         return;
       }
@@ -225,10 +246,11 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
 
     return switch (s) {
       'insufficient_coins' => 'Not enough AC for this stake',
+      'insufficient_wp' => 'Not enough WP for this stake',
       'daily_challenge_limit_reached' =>
         'Daily limit reached — max $_maxJoinsPerDay challenges joined per day',
       'too_many_active_challenges' =>
-        'You already have $_maxJoinsPerDay active challenges',
+        'You already have $_maxActiveChallenges active challenges',
       'challenge_not_waiting' => 'This challenge is no longer available',
       'cannot_join_own_challenge' => "That's your own challenge!",
       'not_friends' => 'Add them as a friend to spar.',
@@ -247,11 +269,23 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
       return;
     }
 
-    final balance = context.read<UserDataProvider>().animeCoins;
+    final ud = context.read<UserDataProvider>();
+    final balance = ud.animeCoins;
+    final wpRequired = _found!.wpStake ?? 0;
 
     if (balance < _found!.stakeAmount) {
       setState(() {
         _error = 'Need ${_found!.stakeAmount} AC — you have $balance AC';
+      });
+      return;
+    }
+
+    // Rival challenges also stake Weekly Points. The lobby checks both
+    // currencies before accepting; this path must not be laxer, or the server
+    // rejects with insufficient_wp after the player has already entered.
+    if (wpRequired > 0 && ud.weeklyPoints < wpRequired) {
+      setState(() {
+        _error = 'Need $wpRequired WP — you have ${ud.weeklyPoints} WP';
       });
       return;
     }
@@ -347,7 +381,10 @@ try {
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('declineChallenge')
-          .call({'challengeId': _found!.challengeId});
+          .call({
+        'challengeId': _found!.challengeId,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
       if (!mounted) return;
       setState(() {
         _declining = false;
@@ -377,16 +414,20 @@ try {
 
   @override
   Widget build(BuildContext context) {
-    final balance = context.watch<UserDataProvider>().animeCoins;
+    final ud = context.watch<UserDataProvider>();
+    final balance = ud.animeCoins;
     final busy = _looking || _joining || _declining;
-    final canAfford =
-        _found != null && balance >= _found!.stakeAmount;
+    final wpRequired = _found?.wpStake ?? 0;
+    final canAfford = _found != null &&
+        balance >= _found!.stakeAmount &&
+        ud.weeklyPoints >= wpRequired;
     final uid = FirestoreService.instance.currentUid;
     final canDecline = _found != null &&
         !_joining &&
         !_looking &&
         !_declining &&
-        _found!.status == ChallengeStatus.waiting &&
+        (_found!.status == ChallengeStatus.waiting ||
+            _found!.status == ChallengeStatus.creatorSubmitted) &&
         _found!.opponentUid != null &&
         _found!.opponentUid == uid;
     final canAccept =
@@ -472,6 +513,7 @@ try {
                                   _FoundChallengeCard(
                                     challenge: _found!,
                                     balance: balance,
+                                    wpBalance: ud.weeklyPoints,
                                   ),
                                   SizedBox(height: 12.h),
                                   AppButton(
@@ -613,9 +655,6 @@ class _JoinHeader extends StatelessWidget {
 
 class _JoinBlueColors {
   static const blue = Color(0xFF3B82F6);
-  static const bright = Color(0xFF60A5FA);
-  static const soft = Color(0x142563EB);
-  static const border = Color(0x403B82F6);
 }
 
 class _JoinHeroCard extends StatelessWidget {
@@ -671,7 +710,7 @@ class _JoinHeroCard extends StatelessWidget {
                 ),
                 SizedBox(height: 3.h),
                 Text(
-                  'Paste the code or type it below. We’ll find the challenge automatically.',
+                  'Paste or type the 6-character code.',
                   style: TextStyle(
                     color: AppColors.textMuted,
                     fontSize: 11.5.sp,
@@ -1044,10 +1083,12 @@ class _StatusBanner extends StatelessWidget {
 class _FoundChallengeCard extends StatelessWidget {
   final ChallengeModel challenge;
   final int balance;
+  final int wpBalance;
 
   const _FoundChallengeCard({
     required this.challenge,
     required this.balance,
+    required this.wpBalance,
   });
 
   String _remaining(Duration duration) {
@@ -1060,7 +1101,8 @@ class _FoundChallengeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stake = challenge.stakeAmount;
-    final canAfford = balance >= stake;
+    final wp = challenge.wpStake ?? 0;
+    final canAfford = balance >= stake && wpBalance >= wp;
     final winAmount = ChallengeModel.payoutWin(stake);
     final drawAmount = ChallengeModel.payoutDraw(stake);
 
@@ -1115,14 +1157,6 @@ class _FoundChallengeCard extends StatelessWidget {
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                      SizedBox(height: 2.h),
-                      Text(
-                        'Challenge found',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 11.sp,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1148,7 +1182,7 @@ class _FoundChallengeCard extends StatelessWidget {
                 Expanded(
                   child: _InfoTile(
                     label: 'STAKE',
-                    value: '$stake AC',
+                    value: wp > 0 ? '$stake AC + $wp WP' : '$stake AC',
                     valueColor: canAfford
                         ? AppColors.correct
                         : AppColors.wrong,
@@ -1182,8 +1216,10 @@ class _FoundChallengeCard extends StatelessWidget {
               SizedBox(height: 10.h),
               _StatusBanner(
                 icon: Icons.warning_amber_rounded,
-                message:
-                    'You need $stake AC to accept this challenge, but you currently have $balance AC.',
+                message: wp > 0
+                    ? 'You need $stake AC + $wp WP to accept this challenge. '
+                        'You have $balance AC and $wpBalance WP.'
+                    : 'You need $stake AC to accept this challenge, but you currently have $balance AC.',
                 color: AppColors.wrong,
               ),
             ],

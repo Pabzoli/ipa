@@ -1,18 +1,27 @@
 // lib/features/multiplayer/rivalry_page.dart
 //
 // One page per rival pairing: head-to-head record, best-of series state,
-// upset-bounty context, recent history, and the two ways to play:
+// upset-bounty context, and the two ways to play:
 //
+//   • Duel (staked) — counts for the series (first to 3, draws replay).
 //   • Spar (free) — zero stakes, never counts for the series, 5 WP on a win
 //     inside the daily spar budget. Bypasses to anime select → quiz.
-//   • Duel (staked) — counts for the series (first to 3, draws replay).
 //
-// Spar/duel availability, budgets and cooldowns are enforced server-side;
-// this page only previews them (estimates) so the UI never over-promises.
-// The word "rank" is never used here: series standing is not a rank.
+// Spar/duel availability, budgets and cooldowns are enforced server-side; this
+// page only previews them so the UI never over-promises. The cooldown is shown
+// INSIDE the Duel button ("Ready in ~Nh") and Spar is always enabled, so the
+// state is never a silent dead end. The word "rank" is never used here: series
+// standing is not a rank.
+//
+// FRIENDSHIP: the relationship is visible on the face-off card ("FRIEND"
+// badge), the actions are hidden behind the AppBar ⋯ (see friend_actions.dart).
+// The body stays solely about the match, so the page ends on Spar.
+//
+// READ COST: the series block is a single rivalry-doc listener (rivalryStream).
+// The H2H record, the rival user doc and the cooldown are one-shot reads on
+// open (and re-run after a duel returns).
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
@@ -21,18 +30,33 @@ import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/constants/rival_economy.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/weekly_points_pill.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_page_route.dart';
-import '../quiz/questions_page.dart';
+import '../../core/widgets/app_skeleton.dart';
+import '../../core/widgets/rival_avatar.dart';
+import '../../core/widgets/series_progress_bar.dart';
+import '../../core/widgets/shared_widgets.dart';
+import '../friends/friend_actions.dart';
 import 'anime_select_page.dart';
+import 'spar_launcher.dart';
 
 class RivalryPage extends StatefulWidget {
   final String rivalUid;
   final String rivalUsername;
 
+  /// Set when the pairing came from the Friends board. The friend row itself
+  /// carries no menu, so this page — where the player is already looking at
+  /// that friend — owns the friendship actions. They sit behind the AppBar ⋯,
+  /// with the relationship itself badged on the face-off card.
+  final bool isFriend;
+
   const RivalryPage({
     super.key,
     required this.rivalUid,
     required this.rivalUsername,
+    this.isFriend = false,
   });
 
   @override
@@ -46,6 +70,10 @@ class _RivalryPageState extends State<RivalryPage> {
   int? _rivalWP;
   bool _rivalWPFailed = false;
 
+  /// Whole hours before a staked rematch is allowed, from the shared client
+  /// mirror of the server rule (0 = allowed). Drives the Duel button label.
+  int _cooldownHours = 0;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +81,9 @@ class _RivalryPageState extends State<RivalryPage> {
   }
 
   Future<void> _load() async {
+    // read (not watch) — premium only chooses the cooldown length, and this
+    // runs while the widget is still initialising.
+    final premium = context.read<UserDataProvider>().premiumActive;
     try {
       final results = await Future.wait([
         FirestoreService.instance.getHeadToHeadRecord(
@@ -63,6 +94,10 @@ class _RivalryPageState extends State<RivalryPage> {
             .collection('users')
             .doc(widget.rivalUid)
             .get(),
+        FirestoreService.instance.rivalDuelCooldownHours(
+          widget.rivalUid,
+          premium: premium,
+        ),
       ]);
       if (!mounted) return;
       setState(() {
@@ -70,8 +105,9 @@ class _RivalryPageState extends State<RivalryPage> {
         _h2hError = null;
         _rivalWPFailed = false;
         _rivalWP = ((results[1] as DocumentSnapshot<Map<String, dynamic>>)
-                    .data()?['weeklyPoints'] as num?)
-                ?.toInt();
+                .data()?['weeklyPoints'] as num?)
+            ?.toInt();
+        _cooldownHours = results[2] as int;
       });
     } catch (e) {
       // Rival doc may be unreadable (different cohort week) — show the
@@ -89,50 +125,12 @@ class _RivalryPageState extends State<RivalryPage> {
     if (_sparBusy) return;
     setState(() => _sparBusy = true);
     try {
-      final res = await FirestoreService.instance.createSparChallenge(
-        animeTitle: animeTitle,
+      await startFreeSpar(
+        context,
         opponentUid: widget.rivalUid,
         opponentUsername: widget.rivalUsername,
+        animeTitle: animeTitle,
       );
-      final challengeId = res['challengeId']?.toString() ?? '';
-      final rawIds = res['questionIds'];
-      if (!mounted) return;
-      if (challengeId.isEmpty || rawIds is! List) {
-        throw Exception('challenge_creation_failed');
-      }
-      final questionIds =
-          List<String>.unmodifiable(rawIds.map((e) => '$e'));
-      Navigator.of(context).pushReplacement(
-        AppPageRoute(
-          builder: (_) => QuestionsPage(
-            mode: QuizMode.asyncChallenge,
-            selectedTitles: [animeTitle],
-            questionIds: questionIds,
-            challengeId: challengeId,
-            isCreator: true,
-            opponentName: widget.rivalUsername,
-          ),
-        ),
-      );
-    } on FirebaseFunctionsException catch (e) {
-      if (!mounted) return;
-      final msg = e.message ?? '';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          msg.contains('daily_spar_limit_reached')
-              ? 'Daily spar limit reached — come back tomorrow for friendlies.'
-              : msg.contains('not_friends')
-                  ? 'Add them as a friend to spar.'
-                  : 'Could not start the spar — please try again.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not start the spar — please try again.'),
-        behavior: SnackBarBehavior.floating,
-      ));
     } finally {
       if (mounted) setState(() => _sparBusy = false);
     }
@@ -151,24 +149,51 @@ class _RivalryPageState extends State<RivalryPage> {
   }
 
   void _goDuel() {
-    Navigator.of(context).push(
+    // Refresh on return: a duel may have moved the series, the H2H record and
+    // the rematch cooldown while this page sat underneath the quiz.
+    Navigator.of(context)
+        .push(
       AppPageRoute(
         builder: (_) => AnimeSelectPage(
           opponentUid: widget.rivalUid,
           opponentUsername: widget.rivalUsername,
         ),
       ),
+    )
+        .then((_) {
+      if (mounted) _load();
+    });
+  }
+
+  /// The friend menu: Remove / Block, confirmed in the sheet. Both end the
+  /// friendship, so a confirmed action leaves the page and the board (behind
+  /// us) reloads from the pop result.
+  Future<void> _manageFriend() async {
+    final result = await showFriendManageSheet(
+      context,
+      uid: widget.rivalUid,
+      name: widget.rivalUsername,
     );
+    if (!mounted || result == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == FriendManageResult.removed
+              ? 'You are no longer friends.'
+              : 'Blocked. They can\'t contact you or send requests.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final udp = context.watch<UserDataProvider>();
-    final myWP = udp.weeklyPoints;
+    final myWP = context.watch<UserDataProvider>().weeklyPoints;
     final myUid = FirestoreService.instance.currentUid ?? '';
 
-    final onCooldown = !udp.canChallengeRival(widget.rivalUid);
-    final cooldownHrs = udp.getRivalCooldownHours(widget.rivalUid);
+    final onCooldown = _cooldownHours > 0;
 
     final gap = (_rivalWP ?? 0) - myWP;
     final showBounty = _rivalWP != null && gap >= kBountyWpGap;
@@ -192,27 +217,48 @@ class _RivalryPageState extends State<RivalryPage> {
             letterSpacing: -0.5,
           ),
         ),
+        actions: [
+          const WeeklyPointsPill(),
+          // Actions hidden, state visible: the relationship is badged on the
+          // face-off card, while Remove / Block live behind this ⋯ so they are
+          // never a stray tap between Duel and Spar.
+          if (widget.isFriend)
+            Padding(
+              padding: EdgeInsets.only(right: 8.r),
+              child: IconButton(
+                tooltip: 'Manage friend',
+                onPressed: _manageFriend,
+                icon: Icon(
+                  Icons.more_horiz_rounded,
+                  color: AppColors.textPrimary,
+                  size: 24.r,
+                ),
+              ),
+            )
+          else
+            SizedBox(width: 12.r),
+        ],
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 32.r),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── VS header ───────────────────────────────────────────
-            _VsHeader(
+            // ── Face-off: who, and the all-time head-to-head ────────
+            _FaceOffCard(
               rivalUsername: widget.rivalUsername,
+              isFriend: widget.isFriend,
               h2h: _h2h,
               h2hError: _h2hError,
             ),
-            SizedBox(height: 12.h),
+            SizedBox(height: 16.h),
 
             // ── Series banner (always shown, even at 0-0) ───────────
             StreamBuilder<Map<String, dynamic>?>(
-              stream: FirestoreService.instance
-                  .rivalryStream(widget.rivalUid),
+              stream: FirestoreService.instance.rivalryStream(widget.rivalUid),
               builder: (context, snap) {
                 if (snap.hasError) {
-                  return const _SeriesBanner(
+                  return const _SeriesPanel(
                     seriesNo: 1,
                     myWins: 0,
                     opWins: 0,
@@ -224,7 +270,7 @@ class _RivalryPageState extends State<RivalryPage> {
                 }
                 final data = snap.data;
                 if (data == null) {
-                  return const _SeriesBanner(
+                  return const _SeriesPanel(
                     seriesNo: 1,
                     myWins: 0,
                     opWins: 0,
@@ -248,7 +294,7 @@ class _RivalryPageState extends State<RivalryPage> {
                 DateTime? lastPrizeAt;
                 final rawPrize = data['lastSeriesPrizeAt'];
                 if (rawPrize is Timestamp) lastPrizeAt = rawPrize.toDate();
-                return _SeriesBanner(
+                return _SeriesPanel(
                   seriesNo: ((data['seriesNo'] as num?)?.toInt()) ?? 1,
                   myWins: myWins,
                   opWins: opWins,
@@ -259,16 +305,6 @@ class _RivalryPageState extends State<RivalryPage> {
                 );
               },
             ),
-            SizedBox(height: 8.h),
-            Text(
-              "Draws replay and don't count toward the series.",
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 11.sp,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
 
             // ── Bounty line (never silently hidden) ─────────────────
             if (_rivalWPFailed) ...[
@@ -278,39 +314,40 @@ class _RivalryPageState extends State<RivalryPage> {
               SizedBox(height: 12.h),
               _BountyLine(gap: gap),
             ],
-            SizedBox(height: 16.h),
+            SizedBox(height: 24.h),
 
-            // ── Spar / Duel — the only two actions ──────────────────
-            Row(
-              children: [
-                Expanded(
-                  child: _ModeButton(
-                    emoji: '🤝',
-                    title: 'Spar',
-                    subtitle: 'Free · never counts',
-                    accent: AppColors.correct,
-                    busy: _sparBusy,
-                    onTap: _sparBusy ? null : _goSpar,
-                  ),
-                ),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: _ModeButton(
-                    emoji: '⚔️',
-                    title: 'Duel',
-                    subtitle: onCooldown
-                        ? 'Series game in ~${cooldownHrs}h (estimate)'
-                        : 'Counts for series',
-                    accent: const Color(0xFFFF6B00),
-                    onTap: _goDuel,
-                  ),
-                ),
-              ],
+            // ── The two actions, one clear job each ─────────────────
+            Padding(
+              padding: EdgeInsets.only(left: 2.r, bottom: 12.r),
+              child: const SectionHeader(title: 'Next match'),
             ),
-            if (onCooldown) ...[
-              SizedBox(height: 8.h),
+            AppButton(
+              label: onCooldown
+                  ? '⚔️  Duel · ready in ~${_cooldownHours}h'
+                  : '⚔️  Duel · counts for the series',
+              onPressed: _goDuel,
+              variant: AppButtonVariant.primary,
+              size: AppButtonSize.medium,
+              color: AppColors.primary,
+              height: 52.h,
+            ),
+            SizedBox(height: 10.h),
+            AppButton(
+              label: _sparBusy
+                  ? 'Starting spar…'
+                  : '🤝  Spar · free, never counts',
+              onPressed: _sparBusy ? null : _goSpar,
+              variant: AppButtonVariant.outline,
+              size: AppButtonSize.medium,
+              color: AppColors.secondary,
+              loading: _sparBusy,
+              height: 52.h,
+            ),
+            SizedBox(height: 8.h),
+            if (onCooldown)
               Text(
-                'Series rematch cooldown (estimate) — sparring stays open. The server skips it inside an active series.',
+                'Staked rematch cooldown — sparring stays open. The server '
+                'skips it inside an active series.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppColors.textMuted,
@@ -318,21 +355,6 @@ class _RivalryPageState extends State<RivalryPage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-            SizedBox(height: 20.h),
-
-            // ── History ─────────────────────────────────────────────
-            Text(
-              'HISTORY',
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 10.sp,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.2,
-              ),
-            ),
-            SizedBox(height: 8.h),
-            _RivalryHistory(rivalUid: widget.rivalUid),
           ],
         ),
       ),
@@ -340,121 +362,160 @@ class _RivalryPageState extends State<RivalryPage> {
   }
 }
 
-// ─── VS header ───────────────────────────────────────────────────────────────
-class _VsHeader extends StatelessWidget {
+// ─── Face-off card: identity + all-time head-to-head ─────────────────────────
+class _FaceOffCard extends StatelessWidget {
   final String rivalUsername;
+  final bool isFriend;
   final Map<String, int>? h2h;
   final Object? h2hError;
 
-  const _VsHeader(
-      {required this.rivalUsername, required this.h2h, this.h2hError});
+  const _FaceOffCard({
+    required this.rivalUsername,
+    required this.isFriend,
+    required this.h2h,
+    this.h2hError,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(18.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20.r),
-        border: Border.all(color: AppColors.divider),
-      ),
+    return AppCard(
+      tier: AppCardTier.elevated,
+      padding: EdgeInsets.fromLTRB(16.r, 18.r, 16.r, 16.r),
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _FighterTag(label: 'YOU', name: 'You'),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.r),
-                child: Text(
-                  'VS',
-                  style: TextStyle(
-                    color: const Color(0xFFFF6B00).withValues(alpha: 0.85),
-                    fontSize: 18.sp,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1,
-                  ),
+              const Expanded(
+                child: _Fighter(
+                  label: 'YOU',
+                  name: 'You',
+                  color: AppColors.primary,
                 ),
               ),
-              _FighterTag(label: 'RIVAL', name: rivalUsername),
+              const _VsMedallion(),
+              Expanded(
+                child: _Fighter(
+                  // The relationship is the one piece of friendship state
+                  // worth showing: the actions themselves stay in the AppBar ⋯.
+                  label: isFriend ? 'FRIEND' : 'RIVAL',
+                  name: rivalUsername,
+                  color: AppColors.accent,
+                  badgeColor: isFriend ? AppColors.correct : null,
+                ),
+              ),
             ],
           ),
-          SizedBox(height: 14.h),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 8.r),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceAlt.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: h2h == null
-                ? Text(
-                    h2hError != null
-                        ? 'Could not load record: $h2hError'
-                        : 'Loading record…',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 12.sp,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  )
-                : Text(
-                    '${h2h!['wins'] ?? 0}W · ${h2h!['draws'] ?? 0}D · ${h2h!['losses'] ?? 0}L all-time incl. sparring + code duels',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 13.sp,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-          ),
+          SizedBox(height: 18.h),
+          Container(height: 1, color: AppColors.divider),
+          SizedBox(height: 16.h),
+          _HeadToHead(h2h: h2h, h2hError: h2hError),
         ],
       ),
     );
   }
 }
 
-class _FighterTag extends StatelessWidget {
-  final String label;
-  final String name;
-
-  const _FighterTag({required this.label, required this.name});
+/// The glowing "VS" coin between the two players.
+class _VsMedallion extends StatelessWidget {
+  const _VsMedallion();
 
   @override
   Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(left: 8.w, right: 8.w, top: 8.h),
+      child: Container(
+        width: 46.r,
+        height: 46.r,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.primary,
+              AppColors.primary.withValues(alpha: 0.55),
+            ],
+          ),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Text(
+          'VS',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.5,
+            height: 1,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One side of the face-off: avatar, role chip, name.
+class _Fighter extends StatelessWidget {
+  final String label;
+  final String name;
+  final Color color;
+
+  /// Chip colour when it should differ from the identity colour (a friend is
+  /// still the accent-coloured rival, but the chip reads as a positive state).
+  final Color? badgeColor;
+
+  const _Fighter({
+    required this.label,
+    required this.name,
+    required this.color,
+    this.badgeColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = badgeColor ?? color;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
+        RivalAvatar(name: name, size: 62.r, color: color),
+        SizedBox(height: 10.h),
         Container(
-          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 4.r),
+          padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 3.r),
           decoration: BoxDecoration(
-            color: AppColors.surfaceAlt,
-            borderRadius: BorderRadius.circular(6.r),
-            border: Border.all(color: AppColors.divider),
+            color: badge.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(AppRadii.full),
+            border: Border.all(color: badge.withValues(alpha: 0.35)),
           ),
           child: Text(
             label,
             style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
+              color: badge,
+              fontSize: 9.sp,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.1,
+              height: 1,
             ),
           ),
         ),
-        SizedBox(height: 6.h),
-        SizedBox(
-          width: 100.w,
-          child: Text(
-            name,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w700,
-            ),
+        SizedBox(height: 7.h),
+        Text(
+          name,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 14.sp,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.2,
           ),
         ),
       ],
@@ -462,8 +523,147 @@ class _FighterTag extends StatelessWidget {
   }
 }
 
-// ─── Series banner (always visible) ───────────────────────────────────────────
-class _SeriesBanner extends StatelessWidget {
+/// The all-time W / D / L head-to-head, or the load error.
+class _HeadToHead extends StatelessWidget {
+  final Map<String, int>? h2h;
+  final Object? h2hError;
+
+  const _HeadToHead({required this.h2h, this.h2hError});
+
+  @override
+  Widget build(BuildContext context) {
+    if (h2h == null) {
+      if (h2hError != null) {
+        return Text(
+          'All-time record unavailable — reopen to retry.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 11.5.sp,
+            fontWeight: FontWeight.w700,
+          ),
+        );
+      }
+      return const _RecordSkeleton();
+    }
+
+    final wins = h2h!['wins'] ?? 0;
+    final draws = h2h!['draws'] ?? 0;
+    final losses = h2h!['losses'] ?? 0;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _StatBlock(
+                value: wins,
+                label: 'WINS',
+                color: AppColors.correct,
+              ),
+            ),
+            const _StatDivider(),
+            Expanded(
+              child: _StatBlock(
+                value: draws,
+                label: 'DRAWS',
+                color: AppColors.draw,
+              ),
+            ),
+            const _StatDivider(),
+            Expanded(
+              child: _StatBlock(
+                value: losses,
+                label: 'LOSSES',
+                color: AppColors.lose,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 12.h),
+        Text(
+          'All-time · sparring and code duels included',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 10.sp,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatBlock extends StatelessWidget {
+  final int value;
+  final String label;
+  final Color color;
+
+  const _StatBlock({
+    required this.value,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          '$value',
+          style: TextStyle(
+            color: color,
+            fontSize: 24.sp,
+            fontWeight: FontWeight.w900,
+            height: 1,
+          ),
+        ),
+        SizedBox(height: 5.h),
+        Text(
+          label,
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 9.sp,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+            height: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatDivider extends StatelessWidget {
+  const _StatDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(width: 1, height: 34.h, color: AppColors.divider);
+  }
+}
+
+class _RecordSkeleton extends StatelessWidget {
+  const _RecordSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < 3; i++) ...[
+          if (i > 0) SizedBox(width: 12.w),
+          Expanded(
+            child: AppSkeleton(height: 40.h, radius: AppRadii.md),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Series panel (always visible) ───────────────────────────────────────────
+class _SeriesPanel extends StatelessWidget {
   final int seriesNo;
   final int myWins;
   final int opWins;
@@ -472,7 +672,7 @@ class _SeriesBanner extends StatelessWidget {
   final bool unavailable;
   final DateTime? lastPrizeAt;
 
-  const _SeriesBanner({
+  const _SeriesPanel({
     required this.seriesNo,
     required this.myWins,
     required this.opWins,
@@ -482,107 +682,147 @@ class _SeriesBanner extends StatelessWidget {
     required this.lastPrizeAt,
   });
 
-  static const _purple = Color(0xFF8B5CF6);
-
   @override
   Widget build(BuildContext context) {
-    final isNew = myWins == 0 && opWins == 0;
-    final lead = isNew
-        ? 'First to $kSeriesWinsRequired wins the series'
-        : myWins == opWins
-            ? 'Tied $myWins–$opWins'
-            : (myWins > opWins
-                ? 'You lead $myWins–$opWins'
-                : 'They lead $opWins–$myWins');
+    final decided = status == 'decided' || status == 'expired';
+    final accent = unavailable
+        ? AppColors.textMuted
+        : (decided ? AppColors.gold : AppColors.primary);
 
-    String title;
-    String sub;
+    final String tag;
     if (unavailable) {
-      title = 'SERIES $seriesNo · SCORE UNAVAILABLE';
-      sub = 'Showing record only — check connection and reopen.';
+      tag = 'UNAVAILABLE';
     } else if (status == 'expired') {
-      title = 'SERIES $seriesNo EXPIRED · NEXT GAME OPENS SERIES ${seriesNo + 1}';
-      sub = 'Stale series never pay a prize. Win series games to take the next one.';
+      tag = 'EXPIRED';
     } else if (status == 'decided') {
-      title = iWon
-          ? 'SERIES $seriesNo WON · +$kSeriesAcPrize AC'
-          : 'SERIES $seriesNo DECIDED';
-      sub = iWon
-          ? 'Next series game opens series ${seriesNo + 1}.'
-          : 'Next series game opens series ${seriesNo + 1}. Decided series pay +$kSeriesAcPrize AC at most once per 7 days.';
-    } else if (isNew) {
-      title = 'SERIES $seriesNo · FIRST TO $kSeriesWinsRequired';
-      sub = 'Staked duels only — sparring never counts.';
+      tag = iWon ? 'WON' : 'DECIDED';
     } else {
-      title = 'SERIES $seriesNo · FIRST TO $kSeriesWinsRequired';
-      sub = '$lead — win series games to take it.';
+      tag = 'LIVE';
+    }
+
+    final String caption;
+    if (unavailable) {
+      caption = 'Series score could not be read — showing what we have.';
+    } else if (status == 'expired') {
+      caption =
+          'Next staked duel opens series ${seriesNo + 1}. Stale series never pay a prize.';
+    } else if (status == 'decided') {
+      caption = iWon
+          ? 'You took it — next staked duel opens series ${seriesNo + 1}.'
+          : 'They took it — next staked duel opens series ${seriesNo + 1}.';
+    } else {
+      caption = '';
     }
 
     String? prizeNote;
     if (!unavailable && lastPrizeAt != null) {
-      final remaining = kSeriesPrizeCooldown - DateTime.now().difference(lastPrizeAt!);
+      final remaining =
+          kSeriesPrizeCooldown - DateTime.now().difference(lastPrizeAt!);
       if (remaining > Duration.zero) {
         final days = (remaining.inHours / 24).ceil().clamp(1, 7);
         prizeNote =
-            'Series prize on cooldown — available again in $days day${days == 1 ? '' : 's'}.';
+            'Series prize on cooldown — back in $days day${days == 1 ? '' : 's'}.';
       }
     }
 
-    return Container(
-      padding: EdgeInsets.all(14.r),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            _purple.withValues(alpha: 0.16),
-            _purple.withValues(alpha: 0.06),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: _purple.withValues(alpha: 0.45)),
-      ),
-      child: Row(
+    return AppCard(
+      padding: EdgeInsets.all(16.r),
+      borderColor: accent.withValues(alpha: 0.40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('🏆', style: TextStyle(fontSize: 24.sp)),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
+          Row(
+            children: [
+              Container(
+                width: 38.r,
+                height: 38.r,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                ),
+                child: Text('🏆', style: TextStyle(fontSize: 18.sp)),
+              ),
+              SizedBox(width: 10.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'SERIES $seriesNo',
+                      style: TextStyle(
+                        color: accent,
+                        fontSize: 12.sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1,
+                        height: 1.1,
+                      ),
+                    ),
+                    SizedBox(height: 3.h),
+                    Text(
+                      unavailable
+                          ? 'Score unavailable'
+                          : 'First to $kSeriesWinsRequired wins takes it',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: 10.5.sp,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 8.w),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  border: Border.all(color: accent.withValues(alpha: 0.35)),
+                ),
+                child: Text(
+                  tag,
                   style: TextStyle(
-                    color: _purple,
-                    fontSize: 11.sp,
+                    color: accent,
+                    fontSize: 9.sp,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.8,
                   ),
                 ),
-                SizedBox(height: 3.h),
-                Text(
-                  sub,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12.sp,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (prizeNote != null) ...[
-                  SizedBox(height: 3.h),
-                  Text(
-                    prizeNote,
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 11.sp,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+              ),
+            ],
           ),
+          SizedBox(height: 16.h),
+          SeriesProgressBar(
+            myWins: myWins,
+            opWins: opWins,
+            unavailable: unavailable,
+          ),
+          SizedBox(height: 14.h),
+          if (caption.isNotEmpty)
+            Text(
+              caption,
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12.sp,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+          if (prizeNote != null) ...[
+            SizedBox(height: 6.h),
+            Text(
+              prizeNote,
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -600,11 +840,9 @@ class _BountyLine extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
       decoration: BoxDecoration(
-        color: const Color(0xFFF59E0B).withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(
-          color: const Color(0xFFF59E0B).withValues(alpha: 0.45),
-        ),
+        color: AppColors.amber.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.amber.withValues(alpha: 0.45)),
       ),
       child: Row(
         children: [
@@ -635,7 +873,7 @@ class _BountyUnavailable extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
       decoration: BoxDecoration(
         color: AppColors.surfaceAlt.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(12.r),
+        borderRadius: BorderRadius.circular(AppRadii.md),
         border: Border.all(color: AppColors.divider),
       ),
       child: Row(
@@ -658,235 +896,6 @@ class _BountyUnavailable extends StatelessWidget {
   }
 }
 
-// ─── Mode buttons (Spar / Duel) ──────────────────────────────────────────────
-class _ModeButton extends StatelessWidget {
-  final String emoji;
-  final String title;
-  final String subtitle;
-  final Color accent;
-  final bool busy;
-  final VoidCallback? onTap;
-
-  const _ModeButton({
-    required this.emoji,
-    required this.title,
-    required this.subtitle,
-    required this.accent,
-    this.busy = false,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 16.r),
-        decoration: BoxDecoration(
-          color: accent.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(18.r),
-          border: Border.all(color: accent.withValues(alpha: 0.5), width: 1.5),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (busy)
-              SizedBox(
-                width: 26.w,
-                height: 26.h,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: accent,
-                ),
-              )
-            else
-              Text(emoji, style: TextStyle(fontSize: 28.sp)),
-            SizedBox(height: 8.h),
-            Text(
-              title,
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16.sp,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            SizedBox(height: 3.h),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: accent,
-                fontSize: 11.sp,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── History vs this rival ───────────────────────────────────────────────────
-// CAUSE (confirmed in code): history needs the composite index
-// (matches: opponentUid ASC + timestamp DESC) now declared in
-// firestore.indexes.json. The all-time record uses getHeadToHeadRecord with
-// NO orderBy, so it worked while history failed with failed-precondition —
-// and the old builder swallowed the error (snap.hasError unchecked) and
-// rendered "No battles yet". Errors are now surfaced.
-class _RivalryHistory extends StatelessWidget {
-  final String rivalUid;
-
-  const _RivalryHistory({required this.rivalUid});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(FirestoreService.instance.currentUid)
-          .collection('matches')
-          .where('opponentUid', isEqualTo: rivalUid)
-          .orderBy('timestamp', descending: true)
-          .limit(8)
-          .snapshots(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: CircularProgressIndicator(color: AppColors.primary),
-            ),
-          );
-        }
-        if (snap.hasError) {
-          return Container(
-            padding: EdgeInsets.all(16.r),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Text(
-              'Could not load history: ${snap.error}. If this says a missing index, deploy firestore.indexes.json.',
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          );
-        }
-        final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
-          return Container(
-            padding: EdgeInsets.all(16.r),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Text(
-              'No battles yet — spar or duel to open the history.',
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          );
-        }
-        return Column(
-          children: [
-            for (final doc in docs) _HistoryRow(data: doc.data()),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _HistoryRow extends StatelessWidget {
-  final Map<String, dynamic> data;
-
-  const _HistoryRow({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    final outcome = data['outcome'] as String?;
-    final mine = (data['playerScore'] as num?)?.toInt() ?? 0;
-    final theirs = (data['opponentScore'] as num?)?.toInt() ?? 0;
-    final type = (data['challengeType'] as String?) ?? '';
-    final isSpar = type == 'spar';
-    final isSeriesGame = type == 'rival';
-    final stake = (data['stakeAmount'] as num?)?.toInt() ?? 0;
-    final seriesNo = (data['seriesNo'] as num?)?.toInt() ?? 0;
-    final color = outcome == 'win'
-        ? AppColors.correct
-        : (outcome == 'draw' ? AppColors.secondary : AppColors.wrong);
-    final tag = isSpar
-        ? 'SPAR · never counts'
-        : isSeriesGame
-            ? (stake > 0 ? '$stake AC · series${seriesNo > 0 ? ' $seriesNo' : ''}' : 'SERIES')
-            : (stake > 0 ? '$stake AC' : 'DUEL');
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 8.h),
-      padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 11.r),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 8.w,
-            height: 8.h,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-          ),
-          SizedBox(width: 10.w),
-          Text(
-            '$mine–$theirs',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          SizedBox(width: 10.w),
-          Text(
-            outcome == 'win'
-                ? 'Won'
-                : (outcome == 'draw' ? 'Drew' : 'Lost'),
-            style: TextStyle(
-              color: color,
-              fontSize: 12.sp,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const Spacer(),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceAlt,
-              borderRadius: BorderRadius.circular(20.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Text(
-              tag,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 10.sp,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// The foldable match-history section used to live here. It was removed to keep
+// this page focused on the head-to-head record, the series and the two ways to
+// play; the all-time W/D/L line in the face-off card already summarises form.

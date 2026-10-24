@@ -714,6 +714,7 @@ const VALID_UNIVERSITIES = [
   'ABU Zaria',
   'UNIPORT',
   'NOUN',
+  'Babcock',
   'Other',
 ];
 
@@ -5273,7 +5274,7 @@ const FRIEND_USERNAME_MAX = 30;
 const FRIEND_DECLINE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FRIEND_UNIS = [
   'UNILAG', 'UI (University of Ibadan)', 'OAU', 'FUTA', 'UNIABUJA',
-  'UNIBEN', 'ABU Zaria', 'UNIPORT', 'NOUN', 'Other',
+  'UNIBEN', 'ABU Zaria', 'UNIPORT', 'NOUN', 'Babcock', 'Other',
 ];
 
 function _friendPairId(a, b) {
@@ -9090,19 +9091,75 @@ function _resolveProductFromTxRef(txRefStr) {
   return entry ? { productId: entry[0], product: entry[1] } : { productId: '', product: null };
 }
 
-// Shared: verify a charge with Flutterwave by tx_ref. Used by getPurchasedCode
-// to self-heal a payment whose webhook was late, lost, or transiently rejected.
-// Throws on transport/auth errors so the caller can return a retryable status.
-async function _verifyFlutterwaveByTxRef(txRef) {
-  const resp = await fetch(
-    'https://api.flutterwave.com/v3/transactions?tx_ref=' + encodeURIComponent(txRef),
-    { headers: { Authorization: 'Bearer ' + FLW_SECRET_KEY.value() } }
-  );
-  const json = await resp.json();
+// One authenticated GET against the Flutterwave v3 API. Throws unless the call
+// succeeded, EXCEPT for an explicit "no such transaction" (400/404 answering
+// { status: 'error', data: null }), which is a normal empty result: the charge
+// may simply not have reached Flutterwave yet.
+async function _flwGet(url, secret) {
+  const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + secret } });
+  const json = await resp.json().catch(() => ({}));
+  const notFound = !resp.ok
+    && (resp.status === 400 || resp.status === 404)
+    && json && json.status === 'error' && !json.data;
+  if (notFound) return { status: 'success', data: null };
   if (!resp.ok || json.status !== 'success') {
     throw new Error('Flutterwave verify HTTP ' + resp.status + ': ' + JSON.stringify(json).slice(0, 300));
   }
-  return Array.isArray(json.data) ? json.data : [];
+  return json;
+}
+
+// Normalise a transaction from either verify endpoint into ONE shape. The
+// documented verify-by-reference endpoint nests the buyer's address under
+// `customer.email`; the transaction LIST returns a flat `customer_email` (and
+// often no customer object at all), so both are folded into customer.email.
+function _normalizeFlwTxn(t) {
+  if (!t || typeof t !== 'object') return null;
+  const email = String(
+    (t.customer && t.customer.email) || t.customer_email || ''
+  ).trim().toLowerCase();
+  return { ...t, customer: { ...(t.customer || {}), email } };
+}
+
+// Shared: verify a charge with Flutterwave by tx_ref. Used by getPurchasedCode
+// to self-heal a payment whose webhook was late, lost, or transiently rejected.
+//
+// Prefers the documented verify-by-reference endpoint (ONE transaction, with
+// the buyer's customer.email) and falls back to the transaction list when that
+// endpoint is unavailable or does not know the reference yet. The list is a
+// search: it can return rows for other references, so results are filtered to
+// the exact tx_ref. Returns the matching transactions (possibly empty); throws
+// on transport/auth errors so the caller can answer with a retryable status.
+async function _verifyFlutterwaveByTxRef(txRef) {
+  const secret = FLW_SECRET_KEY.value();
+  const enc = encodeURIComponent(txRef);
+
+  let firstErr = null;
+  try {
+    const one = await _flwGet(
+      'https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=' + enc,
+      secret
+    );
+    const row = _normalizeFlwTxn(one.data);
+    if (row) return [row];
+  } catch (err) {
+    firstErr = err;
+    console.warn(`[getPurchasedCode] verify_by_reference unavailable (${err.message}); trying the transactions list`);
+  }
+
+  try {
+    const list = await _flwGet(
+      'https://api.flutterwave.com/v3/transactions?tx_ref=' + enc,
+      secret
+    );
+    const rows = Array.isArray(list.data) ? list.data : [];
+    return rows
+      .map(_normalizeFlwTxn)
+      .filter((t) => t && (!t.tx_ref || t.tx_ref === txRef));
+  } catch (err) {
+    // Surface the documented endpoint's failure first: it is the one that
+    // should have worked.
+    throw firstErr || err;
+  }
 }
 
 // Shared: mint the code for a CONFIRMED charge (single source of truth).
@@ -9323,13 +9380,12 @@ function _txRefLookupLimited(txRef) {
   return entry.hits > TXREF_RATE_LIMIT.maxHits;
 }
 
-// ─── Failed-verification cache for getPurchasedCode ────────────────────────
-// When a tx_ref verifies as NOT successfully charged (empty/pending/failed),
-// remember that for a short window so repeated probes of the same reference
-// don't hit the Flutterwave API every time. Success is never cached: a
-// confirmed charge is minted immediately, and a payment that only completes
-// after this cache window expires is re-verified fresh (so a late-arriving
-// success is still caught).
+// ─── Terminal-failure cache for getPurchasedCode ───────────────────────────
+// When a tx_ref verifies as FAILED or CANCELLED, remember that for a short
+// window so repeated probes of the same dead reference don't hit the
+// Flutterwave API every time. Anything else (not found yet / pending / success)
+// is never cached: the success page polls while a charge settles, and success
+// mints immediately, so a cached miss would break both paths.
 const _verifyCache = new Map(); // tx_ref -> { untilMs, confirmed }
 const VERIFY_CACHE_MS = 30 * 1000; // 30s
 
@@ -10885,13 +10941,16 @@ exports.getPurchasedCode = onRequest(
       // webhook never fires.
       //
       // Anti-abuse before touching Flutterwave:
-      //  (1) a short-lived failure cache means a known-bad/unconfirmed ref does
-      //      not repeatedly hit the API,
+      //  (1) a short-lived cache for a KNOWN-TERMINAL failure (failed/cancelled)
+      //      stops a dead reference hitting the API on every retry,
       //  (2) a per-tx_ref limiter (in addition to per-IP above) caps probes of a
       //      single reference so random refs can't burn the verify quota.
+      // A "not confirmed yet" result is deliberately NOT cached: the success
+      // page polls every 3s while the charge settles, and a cached miss would
+      // turn every one of those retries into a no-op.
       const cached = _cachedVerifyResult(txRef);
       if (cached === false) {
-        return _sendJson(res, 404, { error: 'No processed transaction for that reference yet - try again shortly' }, req);
+        return _sendJson(res, 402, { error: 'This payment was not successful - no code was issued' }, req);
       }
       if (_txRefLookupLimited(txRef)) {
         return _sendJson(res, 429, { error: 'Too many requests for this reference - try again shortly' }, req);
@@ -10913,13 +10972,13 @@ exports.getPurchasedCode = onRequest(
       });
 
       if (!confirmed) {
-        // Remember the failure briefly so repeated probes of this ref do not
-        // hammer the API; the cache expires and a late success is re-verified.
-        _rememberVerifyResult(txRef, false);
         const terminal = txns.some((t) => {
           const s = String(t && t.status || '').toLowerCase();
           return s === 'failed' || s === 'cancelled';
         });
+        // Only a terminal outcome is worth remembering; a pending/unknown
+        // charge must be re-verified on the next poll.
+        if (terminal) _rememberVerifyResult(txRef, false);
         return _sendJson(res, terminal ? 402 : 404, {
           error: terminal
             ? 'This payment was not successful - no code was issued'

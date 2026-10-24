@@ -106,7 +106,7 @@ class _BankSelectorSheetState extends State<_BankSelectorSheet> {
             ),
             SizedBox(height: 4.h),
             Text(
-              'Verified list — provided securely by the server.',
+              'Verified banks only',
               style: TextStyle(
                 color: AppColors.textMuted,
                 fontSize: 12.sp,

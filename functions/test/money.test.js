@@ -215,6 +215,36 @@ describe('money', () => {
     assert.ok(!(aDoc2.ownedCosmetics || []).includes('frame_rivalry'));
   });
 
+  it('spend retry is Premium-only; premium users pay 40 AC and clear the lineup locks', async () => {
+    // Free user: rejected before any coins move.
+    await H.rejectsWith(
+      fns.spendCoins.run(H.req('A', {
+        amount: 40, type: 'spend_retry', titles: ['testanime'],
+      })),
+      'permission-denied', 'premium_required');
+    assert.equal((await H.getDoc(db, 'users/A')).animeCoins, 1000);
+
+    // Premium user: 40 AC leaves the balance and the cooldown doc is deleted.
+    await db.collection('users').doc('A').update({ premiumActive: true });
+    await db.collection('users').doc('A').collection('cooldowns').doc('testanime').set({
+      expiresAt: FakeTimestamp.fromMillis(Date.now() + 60 * 60 * 1000),
+    });
+    const res = await fns.spendCoins.run(H.req('A', {
+      amount: 40, type: 'spend_retry', titles: ['testanime'],
+    }));
+    assert.equal(res.success, true);
+    assert.equal(res.newBalance, 960);
+    assert.equal(await H.getDoc(db, 'users/A/cooldowns/testanime'), null);
+  });
+
+  it('other spend types are unaffected for free users (hint still 10 AC)', async () => {
+    const res = await fns.spendCoins.run(H.req('A', {
+      amount: 10, type: 'spend_hint',
+    }));
+    assert.equal(res.success, true);
+    assert.equal(res.newBalance, 990);
+  });
+
   it('resolve trigger skips already-resolved docs (no double payout)', async () => {
     const id = await makeDuel(100, 50);
     await settle(id, 8, 5);

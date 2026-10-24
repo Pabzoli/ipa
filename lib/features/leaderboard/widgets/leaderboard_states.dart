@@ -87,9 +87,12 @@ class LeaderboardEntryCta extends StatelessWidget {
     this.disabledReason,
   });
 
-  /// Web completes the payment inline; every other platform hands off to the
-  /// hosted shop.
-  bool get _usesExternalLink => !kIsWeb;
+  /// Web completes the payment inline. On mobile the hand-off to the hosted
+  /// shop is only allowed while [kLeaderboardAllowsExternalEntryLink] is set
+  /// (sideloaded APKs, which carry no Play billing obligation). A future Play
+  /// build sets that flag false and this becomes the in-app path instead — the
+  /// switch is actually read here, not just documented.
+  bool get _usesExternalLink => !kIsWeb && kLeaderboardAllowsExternalEntryLink;
 
   String get _label =>
       _usesExternalLink ? kEntryCtaLabelExternal : kEntryCtaLabelWeb;
@@ -159,7 +162,19 @@ class LeaderboardEntryCta extends StatelessWidget {
       return;
     }
 
-    await showLeaderboardPurchaseSheet(context);
+    if (kIsWeb) {
+      await showLeaderboardPurchaseSheet(context);
+      return;
+    }
+
+    // Non-web build with the external link switched off (a Play Store build):
+    // nothing here can complete a purchase yet, so say so plainly instead of
+    // opening a page that cannot finish the job.
+    _snack(
+      context,
+      'Leaderboard entries are not available in this version. Redeem an entry '
+      'code under Profile → Redeem Code.',
+    );
   }
 
   /// Hands the player to the hosted shop in an external browser, so they return
@@ -227,7 +242,6 @@ class BoardEmptyState extends StatelessWidget {
       return const AppEmptyState(
         icon: Icons.emoji_events_outlined,
         title: 'No players yet',
-        message: 'Be the first on the leaderboard this week.',
       );
     }
 
@@ -263,8 +277,7 @@ class BoardEmptyState extends StatelessWidget {
             ),
             SizedBox(height: 6.h),
             Text(
-              'Only paid players appear here. Buy your entry to compete for '
-              "this week's prize pool.",
+              'Only paid players appear here.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textSecondary,
@@ -297,7 +310,7 @@ class WeekClosingState extends StatelessWidget {
       color: AppColors.accent,
       title: 'Week closing',
       message: 'Scores are locked for this week and results are published on '
-          'Monday. A new prize pool starts with the new week.',
+          'Monday.',
     );
   }
 }
@@ -360,66 +373,6 @@ class BoardErrorState extends StatelessWidget {
                 ),
               ),
             ),
-    );
-  }
-}
-
-/// Placeholder rows, so a slow first load has a shape rather than a blank
-/// screen.
-class BoardSkeleton extends StatelessWidget {
-  final int rows;
-
-  const BoardSkeleton({super.key, this.rows = 8});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20.r),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: List.generate(rows, (i) {
-          return Padding(
-            padding: EdgeInsets.only(bottom: 8.r),
-            child: Container(
-              height: 56.r,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppRadii.md),
-                border: Border.all(color: AppColors.divider),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
-/// Podium-tinted placeholder for the top of the board.
-class PodiumSkeleton extends StatelessWidget {
-  const PodiumSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20.r),
-      child: Row(
-        children: List.generate(3, (i) {
-          return Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(right: i == 2 ? 0 : 8.w),
-              child: Container(
-                height: 150.r,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(AppRadii.lg),
-                  border: Border.all(color: AppColors.divider),
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
     );
   }
 }

@@ -19,6 +19,9 @@ const Color _warningBorder = Color(0x52F4A261); // warning @ ~32%
 /// because requiring consent to a term you have already published is friction
 /// without protection and costs conversions.
 ///
+/// For full-width card surfaces where this box is too heavy (the Premium and
+/// coin-pack pages), use the shrunken footer variant [NoRefundsMiniNote].
+///
 /// Deliberately NOT for the in-game stake refunds on expired multiplayer
 /// challenges. Those return in-game credit between players and are not refunds
 /// of money paid to us; showing this widget there would be a false statement.
@@ -116,5 +119,34 @@ class NoRefundsNote extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+/// Footer variant of [NoRefundsNote] for full-width surfaces where the boxed
+/// notice above is too heavy: the same [kNoRefundsNotice] copy, rendered as a
+/// single small muted line with a lock glyph. Still [kNoRefundsNotice]
+/// verbatim — only the presentation shrinks, never the policy text.
+class NoRefundsMiniNote extends StatelessWidget {
+  const NoRefundsMiniNote({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.lock_outline_rounded,
+            size: 12.r, color: AppColors.textMuted),
+        SizedBox(width: 6.w),
+        Expanded(
+          child: Text(
+            kNoRefundsNotice,
+            style: AppTypography.bodySmall.copyWith(
+              fontSize: 10.sp,
+              height: 1.45,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

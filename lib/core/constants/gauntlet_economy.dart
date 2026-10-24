@@ -1,6 +1,17 @@
 // ── Gauntlet v4.8 economy ────────────────────────────────────────────────────
-// Mirrors GAUNTLET_RETRY_COST_* and GAUNTLET_MAX_RETRIES in functions/index.js.
-// Change both together. Single source of truth for all Gauntlet retry UI.
+// Mirrors GAUNTLET_MILESTONES, GAUNTLET_RETRY_COST_* and GAUNTLET_MAX_RETRIES
+// in functions/index.js. Change both together. Single source of truth for all
+// Gauntlet reward labels and retry UI.
+
+/// Streak-day → reward label, mirroring GAUNTLET_MILESTONES (functions/index.js).
+/// Awarded once per streak run at the listed day counts. Keep this the ONLY
+/// client copy so the home card and the confirm dialog can never disagree.
+const Map<int, String> kGauntletMilestones = {
+  3: '40🪙',
+  7: '100🪙 + 50 WP',
+  14: '200🪙 + 100 WP + 🖼️',
+  30: '500🪙 + Premium',
+};
 
 /// Maximum paid retries per WAT day (index 0..5 → 6 retries).
 const int kGauntletMaxRetries = 6;
@@ -10,9 +21,6 @@ const List<int> kGauntletRetryCostFree = [40, 72, 130, 234, 420, 756];
 
 /// PREMIUM curve — first retry (index 0) is free, then 40 → 203.
 const List<int> kGauntletRetryCostPremium = [0, 40, 60, 90, 135, 203];
-
-/// Legacy single-value alias used by older call sites — do not use for UI labels.
-const int kGauntletRetryCost = 40;
 
 /// Returns the AC cost for the current retry, or null when no retries remain.
 /// [retryIndex] is the 0-based paid-retry index for today (0 = next retry is

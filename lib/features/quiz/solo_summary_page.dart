@@ -1,9 +1,7 @@
 // lib/features/quiz/solo_summary_page.dart
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
@@ -15,8 +13,10 @@ import '../../core/widgets/coin_earn_animation.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/ad_service.dart';
 import '../../core/providers/user_data_provider.dart';
+import '../premium/premium_upsell_screen.dart';
 import 'questions_page.dart';
 import 'quiz_controller.dart' show kGauntletTiers;
+import '../../core/constants/gauntlet_economy.dart';
 
 // Solo cooldown-retry (non-Gauntlet) flat cost. Kept for the legacy
 // "Try Again 40 AC" replay that clears local cooldown locks only.
@@ -34,11 +34,9 @@ class SoloSummaryPage extends StatefulWidget {
   /// CF). Rendered with a distinct trophy/purple UI from base [coinsEarned]
   /// and logged as a separate `earn_achievement` ledger entry server-side.
   final int achievementCoins;
-  final bool isDailyChallenge;
   final bool isGauntlet;
   final int gauntletStreak;
   final List<int> gauntletPerQuestionWP;
-  final VoidCallback? onRetryLockCleared;
 
   const SoloSummaryPage({
     super.key,
@@ -49,11 +47,9 @@ class SoloSummaryPage extends StatefulWidget {
     this.coinsEarned = 0,
     this.wpEarned = 0,
     this.achievementCoins = 0,
-    this.isDailyChallenge = false,
     this.isGauntlet = false,
     this.gauntletStreak = 0,
     this.gauntletPerQuestionWP = const [],
-    this.onRetryLockCleared,
   });
 
   @override
@@ -120,7 +116,6 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
   Future<void> _runAdSequence() async {
     if (!mounted) return;
     final userData = context.read<UserDataProvider>();
-    userData.incrementSessionQuizCount();
     await Future.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
     await AdService.instance.recordResultAndMaybeShowInterstitial(
@@ -150,12 +145,25 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     Navigator.of(context).pop();
   }
 
+  void _openPremiumUpsell() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+    );
+  }
+
   Future<void> _tryAgainWithCoins() async {
     if (_navigating) return;
 
     if (widget.isGauntlet) return;
 
     final userData = context.read<UserDataProvider>();
+
+    // Retry is a Premium perk — free users are routed to the upsell instead.
+    if (!userData.premiumActive) {
+      _openPremiumUpsell();
+      return;
+    }
+
     if (userData.animeCoins < _kRetryCost) {
       if (mounted)
         await showInsufficientCoinsSheet(context, needed: _kRetryCost);
@@ -189,14 +197,12 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
     if (confirmed != true || !mounted) return;
 
     try {
-      await userData.spendCoins(_kRetryCost, 'spend_retry');
-
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final prefs = await SharedPreferences.getInstance();
-      for (final title in widget.selectedTitles) {
-        await prefs.remove(uid.isEmpty ? title : '${uid}_$title');
-      }
-      widget.onRetryLockCleared?.call();
+      // The server clears this lineup's cooldown locks as part of the spend.
+      await userData.spendCoins(
+        _kRetryCost,
+        'spend_retry',
+        extra: {'titles': widget.selectedTitles},
+      );
 
       if (!mounted) return;
       _navigating = true;
@@ -205,11 +211,11 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
           builder: (_) => QuestionsPage(
             selectedTitles: widget.selectedTitles,
             soloDifficulty: widget.soloDifficulty,
-            isDailyChallenge: false,
-            onRetryLockCleared: widget.onRetryLockCleared,
           ),
         ),
       );
+    } on PremiumRequiredException {
+      if (mounted) _openPremiumUpsell();
     } on InsufficientCoinsException {
       if (mounted)
         await showInsufficientCoinsSheet(context, needed: _kRetryCost);
@@ -228,7 +234,9 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
   Widget build(BuildContext context) {
     final tier = _tier;
     final pct = (_accuracy * 100).round();
-    final currentCoins = context.watch<UserDataProvider>().animeCoins;
+    final userData = context.watch<UserDataProvider>();
+    final currentCoins = userData.animeCoins;
+    final isPremium = userData.premiumActive;
 
     return PopScope(
       canPop: false,
@@ -273,7 +281,6 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                       wpEarned: widget.wpEarned,
                       achievementCoins: widget.achievementCoins,
                       isGauntlet: widget.isGauntlet,
-                      isDailyChallenge: widget.isDailyChallenge,
                       titles: widget.selectedTitles,
                       soloDifficulty: widget.soloDifficulty,
                     ),
@@ -315,19 +322,26 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                         onPressed: _goHome,
                       ),
                     ),
-                    if (!widget.isDailyChallenge && !widget.isGauntlet) ...[
+                    if (!widget.isGauntlet) ...[
                       SizedBox(height: 10.h),
                       SizedBox(
                         width: double.infinity,
                         height: 44.h,
                         child: AppButton(
-                          label: 'Try Again  —  40🪙',
-                          icon: Text('🔄', style: TextStyle(fontSize: 13.sp)),
+                          label: isPremium
+                              ? 'Try Again  —  40🪙'
+                              : 'Try Again  —  Premium only',
+                          icon: isPremium
+                              ? Text('🔄',
+                                  style: TextStyle(fontSize: 13.sp))
+                              : Icon(Icons.lock_rounded),
                           variant: AppButtonVariant.outline,
-                          color: AppColors.accent,
+                          color: isPremium ? AppColors.accent : AppColors.gold,
                           size: AppButtonSize.small,
                           height: 44.h,
-                          onPressed: _tryAgainWithCoins,
+                          onPressed: isPremium
+                              ? _tryAgainWithCoins
+                              : _openPremiumUpsell,
                         ),
                       ),
                     ],
@@ -487,18 +501,6 @@ class _ResultHero extends StatelessWidget {
             ),
           ),
           SizedBox(height: 12.h),
-
-          // ── Subtitle ────────────────────────────────────────────
-          Text(
-            tier.subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13.sp,
-              height: 1.45,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
         ],
       ),
     );
@@ -516,7 +518,6 @@ class _StatsCard extends StatelessWidget {
   final int wpEarned;
   final int achievementCoins;
   final bool isGauntlet;
-  final bool isDailyChallenge;
   final List<String> titles;
   final String soloDifficulty;
 
@@ -528,7 +529,6 @@ class _StatsCard extends StatelessWidget {
     required this.wpEarned,
     this.achievementCoins = 0,
     required this.isGauntlet,
-    required this.isDailyChallenge,
     required this.titles,
     this.soloDifficulty = 'easy',
   });
@@ -612,11 +612,7 @@ class _StatsCard extends StatelessWidget {
                     child: _RewardBlock(
                       icon: Icons.leaderboard_rounded,
                       value: '+$wpEarned',
-                      label: isGauntlet
-                          ? 'weekly pts'
-                          : isDailyChallenge
-                              ? 'weekly pts ⚡'
-                              : 'weekly pts',
+                      label: 'weekly pts',
                       color: AppColors.skyBright,
                     ),
                   ),
@@ -839,7 +835,7 @@ class _AchievementBonusBanner extends StatelessWidget {
                 ),
                 SizedBox(height: 3.h),
                 Text(
-                  'Bonus coins from crossed achievement tiers — tracked separately in your ledger.',
+                  'Bonus coins from achievement tiers.',
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 11.5.sp,
@@ -889,7 +885,7 @@ class _HintCard extends StatelessWidget {
           SizedBox(width: 12.w),
           Expanded(
             child: Text(
-              'Use a hint next round to eliminate wrong answers before guessing.',
+              'Try a hint next round.',
               style: TextStyle(
                 color: AppColors.textSecondary,
                 fontSize: 12.sp,
@@ -936,19 +932,6 @@ extension _TierProps on _Tier {
     }
   }
 
-  String get subtitle {
-    switch (this) {
-      case _Tier.perfect:
-        return 'Flawless. You know your anime.';
-      case _Tier.great:
-        return 'Strong performance — leaderboard material.';
-      case _Tier.good:
-        return 'Decent run. One more session and you\'re climbing.';
-      case _Tier.keepPracticing:
-        return 'Every legend starts somewhere. Keep going.';
-    }
-  }
-
   Color get color {
     switch (this) {
       case _Tier.perfect:
@@ -975,15 +958,8 @@ class _GauntletResultPanel extends StatelessWidget {
     required this.perQuestionWP,
   });
 
-  static const Map<int, String> _milestones = {
-    3: '40🪙',
-    7: '100🪙 + 50 WP',
-    14: '200🪙 + 100 WP + 🖼️ Frame',
-    30: '500🪙 + 7d Premium',
-  };
-
   int? get _nextMilestoneDay {
-    for (final day in _milestones.keys) {
+    for (final day in kGauntletMilestones.keys) {
       if (streak < day) return day;
     }
     return null;
@@ -1016,7 +992,7 @@ class _GauntletResultPanel extends StatelessWidget {
               Flexible(
                 child: Text(
                   nextDay != null
-                      ? '${nextDay - streak}d → ${_milestones[nextDay]}'
+                      ? '${nextDay - streak}d → ${kGauntletMilestones[nextDay]}'
                       : 'All milestones claimed',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

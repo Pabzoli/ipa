@@ -146,10 +146,6 @@ class ChallengeModel {
   /// 7-day anti-farm gate suppressed it). Written by _resolveChallengeCore.
   final bool seriesPrizePaid;
 
-  /// Preset reactions (uid → one of 👏 🔥 😅 GG), written CF-only via
-  /// reactToChallenge. Shown on the result page; never affects settlement.
-  final Map<String, String> reactions;
-
   const ChallengeModel({
     required this.challengeId,
     required this.creatorUid,
@@ -174,7 +170,6 @@ class ChallengeModel {
     this.seriesNo = 0,
     this.seriesWinnerUid,
     this.seriesPrizePaid = false,
-    this.reactions = const {},
   });
 
   // ── Kind ───────────────────────────────────────────────────────────────
@@ -547,10 +542,6 @@ class ChallengeModel {
       seriesNo: ((d['seriesNo'] as num?)?.toInt()) ?? 0,
       seriesWinnerUid: d['seriesWinnerUid'] as String?,
       seriesPrizePaid: (d['seriesPrizePaid'] as bool?) ?? false,
-      reactions: (d['reactions'] is Map)
-          ? Map<String, String>.unmodifiable(
-              (d['reactions'] as Map).map((k, v) => MapEntry('$k', '$v')))
-          : const {},
     );
   }
 

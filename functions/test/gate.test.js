@@ -24,7 +24,6 @@ const OK_STAMP = { platform: 'android', appBuild: 3 };
   ['removeFriend', () => H.req('A', { otherUid: 'B' })],
   ['getFriendsBoard', () => H.req('A', {})],
   ['nudgeFriend', () => H.req('A', { friendUid: 'B' })],
-  ['reactToChallenge', () => H.req('A', { challengeId: 'x', emoji: 'GG' })],
   ['getHeadToHeadRecord', () => H.req('A', { uid1: 'A', uid2: 'B' })],
 ];
 

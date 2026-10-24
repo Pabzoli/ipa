@@ -8,7 +8,7 @@ publish_to: 'none'
 # AppUpdateService via package_info_plus. It is compared against
 # app_config/android.minBuild by both the client wall and the server gate —
 # bump this and minBuild together, never separately.
-version: 1.1.0+3
+version: 1.2.0+4
 
 environment:
   sdk: '>=3.1.5 <4.0.0'
@@ -20,7 +20,7 @@ dependencies:
   shared_preferences: ^2.2.3
   url_launcher: ^6.3.0
   firebase_core: ^4.7.0
-  firebase_auth: ^6.4.0
+  firebase_auth: ^6.7.0        # 6.7+ is required with firebase_core 4.15 (customAuthDomain moved)
   cloud_firestore: ^6.3.0
   cloud_functions: ^6.2.0     # Call Cloud Functions (prize pool increment)
   connectivity_plus: ^6.1.4   # offline detection

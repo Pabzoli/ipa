@@ -1,13 +1,16 @@
 {
-  "version": "1.1.0",
-  "build": 3,
-  "file": "animequiz-3.apk",
-  "size": 60656415,
-  "released": "2026-09-28",
+  "version": "1.2.0",
+  "build": 4,
+  "file": "animequiz-4.apk",
+  "size": 69879525,
+  "released": "2026-10-20",
   "minAndroid": "Android 6.0 (Marshmallow) or newer",
   "notes": [
-    "Fixed a crash on launch that affected release builds on Android.",
-    "Outdated installs are now blocked once a newer build is published, so update before your next match.",
-    "Faster rematch flow and a number of quiz fixes."
+    "Friends and rivalries: spar a friend directly, track your rivalry record, and see who is online.",
+    "New referral centre: share your invite code and follow pending, rewarded and expired referrals.",
+    "Weekly leaderboard rebuilt: the correct prize pool, your live rank, and a clear no-entry state.",
+    "New in-app help and feedback screen.",
+    "Premium pass now runs 28 days, matching the shop and the refund policy.",
+    "Security hardening: App Check, plus server-authoritative profile, payout, ad and redemption writes."
   ]
 }

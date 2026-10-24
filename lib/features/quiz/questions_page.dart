@@ -25,7 +25,6 @@ import 'package:provider/provider.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/insufficient_coins_sheet.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_page_route.dart';
@@ -58,7 +57,6 @@ class QuestionsPage extends StatefulWidget {
   final bool isQuickMatch;
   final bool isGhost;
   final String opponentName;
-  final bool isDailyChallenge;
   final bool isGauntlet;
 
   /// Prepaid Gauntlet entry ticket from `enterDailyGauntlet` (null for the
@@ -66,7 +64,6 @@ class QuestionsPage extends StatefulWidget {
   /// was entered; the ticket is consumed at submit WITHOUT a second charge.
   final String? gauntletTicketId;
 
-  final VoidCallback? onRetryLockCleared;
 
   const QuestionsPage({
     super.key,
@@ -79,10 +76,8 @@ class QuestionsPage extends StatefulWidget {
     this.isQuickMatch = false,
     this.isGhost = false,
     this.opponentName = '',
-    this.isDailyChallenge = false,
     this.isGauntlet = false,
     this.gauntletTicketId,
-    this.onRetryLockCleared,
   });
 
   @override
@@ -125,7 +120,6 @@ class _QuestionsPageState extends State<QuestionsPage>
       challengeId: widget.challengeId,
       isCreator: widget.isCreator,
       isQuickMatch: widget.isQuickMatch,
-      isDailyChallenge: widget.isDailyChallenge,
       isGauntlet: widget.isGauntlet,
       gauntletTicketId: widget.gauntletTicketId,
       userDataProvider: context.read<UserDataProvider>(),
@@ -151,11 +145,9 @@ class _QuestionsPageState extends State<QuestionsPage>
               coinsEarned: coins,
               wpEarned: wp,
               achievementCoins: achievementCoins,
-              isDailyChallenge: _controller.isDailyChallenge,
               isGauntlet: isGauntlet,
               gauntletStreak: streak,
               gauntletPerQuestionWP: gauntletPerQuestionWP,
-              onRetryLockCleared: widget.onRetryLockCleared,
             ),
           ),
         );
@@ -202,8 +194,13 @@ class _QuestionsPageState extends State<QuestionsPage>
         return Future.value(); // no waiting needed
       },
 
-      onError: (msg) {
+      onError: (msg, {VoidCallback? onRetry}) {
         if (!mounted) return;
+        // Replace any queued retryable snackbar so repeated failures never
+        // stack a stale "Retry" action on top of the current one.
+        if (onRetry != null) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(msg),
@@ -212,6 +209,17 @@ class _QuestionsPageState extends State<QuestionsPage>
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(AppRadii.md),
             ),
+            // Retryable failures keep the snackbar up long enough to act on.
+            duration: onRetry == null
+                ? const Duration(seconds: 4)
+                : const Duration(seconds: 8),
+            action: onRetry == null
+                ? null
+                : SnackBarAction(
+                    label: 'Retry',
+                    textColor: Colors.white,
+                    onPressed: onRetry,
+                  ),
           ),
         );
       },
@@ -229,7 +237,11 @@ class _QuestionsPageState extends State<QuestionsPage>
   }
 
   void _confirmQuit() {
-    if (widget.mode == QuizMode.asyncChallenge) {
+    // A live challenge cannot be quit — but once the final submission has
+    // failed there is no way to finish in place (the last answer is locked and
+    // there is no submit control), so let the player leave. The server settles
+    // the abandoned challenge as a forfeit, exactly as if they had walked away.
+    if (widget.mode == QuizMode.asyncChallenge && !_controller.submitFailed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('You cannot quit an active challenge!'),
@@ -249,7 +261,10 @@ class _QuestionsPageState extends State<QuestionsPage>
       builder: (ctx) => AppDialog(
         icon: Icons.help_outline_rounded,
         title: 'Quit Quiz?',
-        content: 'Your progress will be lost.',
+        content: widget.isGauntlet && widget.gauntletTicketId != null
+            ? 'Your progress will be lost.\n\n'
+                  'The retry fee is non-refundable.'
+            : 'Your progress will be lost.',
         actions: [
           AppButton(
             label: 'Keep Playing',

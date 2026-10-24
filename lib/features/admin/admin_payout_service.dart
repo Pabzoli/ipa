@@ -13,10 +13,12 @@
 //     the ADMIN_UIDS gate SERVER-SIDE (functions/index.js) and rejects
 //     unauthenticated AND authenticated-non-admin callers. Nothing here can
 //     bypass that.
-//   * [isAdminUid] below is a UX-ONLY mirror used to decide whether to SHOW
-//     the dashboard entry point. It grants zero capability: a non-admin who
-//     somehow opened the dashboard would get `permission-denied` from every
-//     callable and see the "Not authorized" state.
+//   * [isAdminUid] (re-exported below from
+//     lib/core/constants/admin_accounts.dart) is a UX-ONLY mirror used to
+//     decide whether to SHOW the dashboard entry point. It grants zero
+//     capability: a non-admin who somehow opened the dashboard would get
+//     `permission-denied` from every callable and see the "Not authorized"
+//     state.
 //   * [accountNumber] arrives UNMASKED, because the admin has to read it out
 //     and type it into a banking app. That is the one meaningful difference
 //     from a masked feed, and it is why the ADMIN_UIDS gate matters so much.
@@ -25,22 +27,13 @@
 //     from the server (ranked[].share via listPayoutClaims).
 
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../core/services/firestore_service.dart';
 
-/// UX-ONLY mirror of the backend ADMIN_UIDS gate (functions/index.js).
-/// Controls dashboard VISIBILITY only — never authorization.
-const List<String> kAdminUids = <String>[
-  'owMNkXmb6QSzO0xfHkSgMlx0zSJ3',
-];
-
-/// True when [uid] (or the current user) matches the known admin list.
-/// UX gate only — the backend callable remains authoritative.
-bool isAdminUid([String? uid]) {
-  final u = uid ?? FirebaseAuth.instance.currentUser?.uid;
-  return u != null && kAdminUids.contains(u);
-}
+// Re-export the canonical admin list so existing importers
+// (`import '.../admin_payout_service.dart'` → `isAdminUid`) keep working
+// without a second, drifting copy of the UIDs.
+export '../../core/constants/admin_accounts.dart';
 
 /// Display states for one winner's payout, derived ONLY from backend fields.
 ///

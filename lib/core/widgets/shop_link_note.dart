@@ -6,9 +6,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
-/// Website shop reference: shows the shop URL with an "Open" button that
-/// launches the website in the external browser (works on Android and web).
-/// If no browser is available the URL is copied to the clipboard instead.
+/// Website shop reference: a compact action card that opens the shop in the
+/// external browser (works on Android and web). If no browser is available the
+/// URL is copied to the clipboard instead.
+///
+/// Styled to match the app's native cards (flat surface + accent shop icon
+/// tile, matching the coin-pack and "How to get it" headers) instead of a
+/// web-style gradient banner.
 ///
 /// Contract (pinned by test/widget_test.dart): the full [kShopUrl] text must
 /// be shown underlined inside a tappable GestureDetector, with exactly one
@@ -23,56 +27,100 @@ class ShopLinkNote extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(compact ? 10.r : 14.r),
+      padding: EdgeInsets.all(compact ? 12.r : 14.r),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withValues(alpha: 0.12),
-            AppColors.primary.withValues(alpha: 0.04),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.30)),
+        border: Border.all(color: AppColors.divider),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: compact ? 34.r : 40.r,
-            height: compact ? 34.r : 40.r,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.30),
-              ),
-            ),
-            child: Icon(
-              Icons.language_rounded,
-              size: (compact ? 17 : 20).r,
-              color: AppColors.primary,
-            ),
-          ),
-          SizedBox(width: 10.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Visit our website',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontFamily: 'Nunito',
-                    fontSize: (compact ? 12 : 13).sp,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.2,
+          // ── Main row: shop icon + copy + Open button ─────────────
+          Row(
+            children: [
+              Container(
+                width: compact ? 34.r : 40.r,
+                height: compact ? 34.r : 40.r,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12.r),
+                  border: Border.all(
+                    color: AppColors.accent.withValues(alpha: 0.32),
                   ),
                 ),
-                SizedBox(height: 2.h),
-                GestureDetector(
-                  onTap: () => _open(context),
+                child: Icon(
+                  Icons.storefront_rounded,
+                  size: (compact ? 17 : 20).r,
+                  color: AppColors.accent,
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Shop on our website',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontFamily: 'Nunito',
+                        fontSize: (compact ? 12 : 13).sp,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 8.w),
+              TextButton.icon(
+                onPressed: () => _open(context),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: AppColors.primary,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 12.r,
+                    vertical: 8.r,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10.r),
+                  ),
+                  textStyle: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 12.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                icon: Icon(Icons.open_in_new_rounded,
+                    size: 14.r, color: Colors.white),
+                label: const Text('Open'),
+              ),
+            ],
+          ),
+
+          SizedBox(height: 12.h),
+
+          // ── Divider ──────────────────────────────────────────────
+          Container(height: 1, color: AppColors.divider),
+
+          SizedBox(height: 10.h),
+
+          // ── Footer: the shop URL as a tappable link ──────────────
+          GestureDetector(
+            onTap: () => _open(context),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                Icon(Icons.language_rounded,
+                    size: (compact ? 11 : 12).r, color: AppColors.textMuted),
+                SizedBox(width: 6.w),
+                Expanded(
                   child: Text(
                     kShopUrl,
                     maxLines: 1,
@@ -80,39 +128,15 @@ class ShopLinkNote extends StatelessWidget {
                     style: TextStyle(
                       color: AppColors.primary,
                       fontFamily: 'Nunito',
-                      fontSize: (compact ? 11 : 12).sp,
-                      fontWeight: FontWeight.w600,
+                      fontSize: (compact ? 10 : 11).sp,
+                      fontWeight: FontWeight.w800,
                       decoration: TextDecoration.underline,
+                      decorationColor: AppColors.primary,
                     ),
                   ),
                 ),
               ],
             ),
-          ),
-          SizedBox(width: 8.w),
-          TextButton.icon(
-            onPressed: () => _open(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              backgroundColor: AppColors.primary,
-              padding: EdgeInsets.symmetric(
-                horizontal: 12.r,
-                vertical: 8.r,
-              ),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.r),
-              ),
-              textStyle: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            icon: Icon(Icons.open_in_new_rounded,
-                size: 14.r, color: Colors.white),
-            label: const Text('Open'),
           ),
         ],
       ),

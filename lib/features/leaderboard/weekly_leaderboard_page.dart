@@ -8,26 +8,18 @@ import '../../core/providers/user_data_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_page_route.dart';
+import '../../core/widgets/weekly_points_pill.dart';
 import '../admin/admin_payout_service.dart';
 import '../auth/auth_service.dart';
 import '../friends/add_friend_page.dart';
+import '../multiplayer/rivalry_page.dart';
 import 'leaderboard_models.dart';
-import 'widgets/campus_picker_card.dart';
 import 'widgets/friends_board_tab.dart';
 import 'widgets/leaderboard_pool_card.dart';
 import 'widgets/leaderboard_position.dart';
-import 'widgets/leaderboard_prizes.dart';
 import 'widgets/leaderboard_rows.dart';
-import 'widgets/leaderboard_sheets.dart';
 import 'widgets/leaderboard_states.dart';
-
-/// Small campus-chip payload: the campus name plus the COUNT-derived rank,
-/// or null rank when the count failed (chip then shows the campus only).
-class CampusChipData {
-  final String university;
-  final int? rank;
-  const CampusChipData({required this.university, required this.rank});
-}
 
 /// The paid weekly leaderboard ("Rankings").
 ///
@@ -37,25 +29,25 @@ class CampusChipData {
 /// shows a button that would do nothing.
 ///
 /// DATA FRESHNESS (locked design, amended)
-/// The board rows are polled every [kLeaderboardRefreshInterval] (six hours,
-/// four times a day) rather than subscribed — one shared per-device cadence
-/// for Global, Friends and the campus chip. Live snapshots held an open
-/// Firestore websocket per board for the whole time the page was mounted,
-/// streaming every cohort member's `weeklyPoints` write — for a weekly
-/// ranking, updates nobody reads that fast.
+/// The Global board loads when the page is opened, re-reads on pull-to-refresh,
+/// and re-reads on resume only once the data is older than
+/// [kLeaderboardRefreshInterval]. There is NO timer and NO live subscription:
+/// an idle screen performs **zero** Firestore reads. (It previously held an
+/// open websocket, then a self-rearming six-hour timer; both spent reads and
+/// battery delivering changes nobody acts on that fast.)
 ///
-/// Two things stay live AHEAD of that cadence, deliberately, at zero extra
-/// reads: the signed-in player's own weekly points (arrive live via
-/// [UserDataProvider]) and their own rank (recomputed from the stored
-/// snapshot against those live points). Everything else — other players'
-/// rows, friend rows, the campus-chip number — waits for the next refresh.
-/// Also refreshing ahead of cadence: a resume, if the cache has aged past
-/// the refresh interval; an explicit retry, only after the board fetch
-/// failed; an entry-week change (it swaps the cohort being queried).
+/// The Friends tab loads on demand the same way — tab open, tab re-visible,
+/// resume, and pull-to-refresh — floored by a five-minute service cache. So a
+/// player who never looks at Friends spends nothing on it, and a player who
+/// does look gets current data.
 ///
-/// Nothing else triggers a read. In particular, scoring more points does NOT:
-/// the player's own points and rank are derived from the stored snapshot, so
-/// the screen stays correct for them without a network call.
+/// Two things stay live WITHOUT a read: the signed-in player's own weekly
+/// points (arrive live via [UserDataProvider]) and their own rank (recomputed
+/// from the stored snapshot against those live points).
+///
+/// A fetch is also forced when the entry week changes, because it swaps the
+/// cohort the board queries. Scoring more points deliberately does not trigger
+/// a read.
 class WeeklyLeaderboardPage extends StatefulWidget {
   final int initialTab;
 
@@ -80,14 +72,15 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
   /// True rank past the 100-row window, read at fetch time only.
   Future<WeeklyStanding> _standingFuture = Future.value(WeeklyStanding.none);
 
-  /// Friends board (getFriendsBoard callable, 6h client cache inside the
-  /// service). Assigned on the same cadence as the global snapshot.
-  Future<FriendsBoardData> _friendsFuture =
-      Future.value(const FriendsBoardData(friends: [], fetchedAt: null));
+  /// Friends board (getFriendsBoard callable, 5-minute client cache inside the
+  /// service). Loaded on demand — tab open, tab re-visible, resume, or
+  /// pull-to-refresh — never on the Global six-hour cadence. Null until the
+  /// first request, so the tab shows a spinner rather than an error card.
+  Future<FriendsBoardData>? _friendsFuture;
 
-  /// Campus chip (one COUNT query). Null rank hides the number, never errors.
-  Future<CampusChipData> _campusChipFuture =
-      Future.value(const CampusChipData(university: '', rank: null));
+  /// Whether a friends future has ever been assigned. Combined with the
+  /// service cache freshness to decide when re-opening the tab actually reads.
+  bool _friendsRequested = false;
 
   /// When the current snapshot was READ. Set only on success, so a failed
   /// fetch leaves the page "stale" and a later resume retries it.
@@ -103,14 +96,9 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
   /// callbacks never touch an ancestor lookup after an await.
   String _providerWeek = '';
 
-  /// The single scheduled refresh. One-shot: armed only after a successful
-  /// fetch, fired once, then re-armed by that fetch's own completion. There is
-  /// no repeating timer, so an idle leaderboard performs no work at all.
-  Timer? _refreshTimer;
-
-  /// Bumped to re-run the winner-cycle query, which is not part of the
-  /// snapshot.
-  int _prizesNonce = 0;
+  /// Last selected tab index, so the tab controller's frequent notifications
+  /// only trigger work when the tab actually changed.
+  int _lastTabIndex = 0;
 
   @override
   void initState() {
@@ -123,12 +111,56 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
       vsync: this,
       initialIndex: widget.initialTab,
     );
+    _lastTabIndex = widget.initialTab;
+    _tabCtrl.addListener(_onTabChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _loadUserUniversity();
       _refresh();
+      if (_tabCtrl.index == 1) _ensureFriends();
     });
+  }
+
+  /// Fires once per real tab change. Opening the Friends tab reads the board
+  /// (subject to the cache floor below).
+  void _onTabChanged() {
+    final index = _tabCtrl.index;
+    if (index == _lastTabIndex) return;
+    _lastTabIndex = index;
+    if (index == 1) _ensureFriends();
+  }
+
+  /// Loads the friends board on tab open, floored by the service's five-minute
+  /// cache. While the cache is fresh the rendered future is left alone, so
+  /// re-visiting the tab never flashes a spinner and never spends a callable.
+  void _ensureFriends({bool force = false}) {
+    if (!force &&
+        _friendsRequested &&
+        FirestoreService.instance.friendsBoardCacheFresh) {
+      return;
+    }
+    if (!_canRebuild) return;
+    _friendsRequested = true;
+    setState(() {
+      _friendsFuture =
+          FirestoreService.instance.fetchFriendsBoard(force: force);
+    });
+  }
+
+  /// Pull-to-refresh / "Try again" on the Friends tab: bypasses the cache and
+  /// completes when the new data lands, so the gesture's spinner clears on the
+  /// right frame.
+  Future<void> _reloadFriends() async {
+    if (!_canRebuild) return;
+    _friendsRequested = true;
+    final future = FirestoreService.instance.fetchFriendsBoard(force: true);
+    setState(() => _friendsFuture = future);
+    try {
+      await future;
+    } catch (_) {
+      // Rendered by the FutureBuilder's error state.
+    }
   }
 
   /// True when the data on screen is older than the refresh interval, or when
@@ -140,47 +172,6 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
         currentWeek: FirestoreService.currentWeekId(),
       );
 
-  /// Arms the one-shot refresh for the next due moment — a week boundary if
-  /// one is nearer than the full interval.
-  void _scheduleNextRefresh(DateTime fetchedAt) {
-    _refreshTimer?.cancel();
-    final now = DateTime.now();
-    final due = nextRefreshAt(fetchedAt: fetchedAt, now: now);
-    _refreshTimer = Timer(due.difference(now), _onScheduledRefresh);
-  }
-
-  void _onScheduledRefresh() {
-    _refreshTimer = null;
-    _refresh();
-  }
-
-  /// Backoff for an automatic retry after a failed read.
-  ///
-  /// At most two extra reads, then the page stays on the error state and waits
-  /// for the player to act. One minute catches the common case — a transient
-  /// blip or a tunnel — and five catches a device that just came back online;
-  /// beyond that, retrying silently would burn battery to render a screen
-  /// nobody is necessarily looking at.
-  static const List<Duration> _failureBackoff = <Duration>[
-    Duration(minutes: 1),
-    Duration(minutes: 5),
-  ];
-
-  /// Retries consumed by the current failure sequence. Reset on any success and
-  /// on an explicit user retry.
-  int _retriesUsed = 0;
-
-  /// Arms the next automatic attempt after a failed read, or does nothing once
-  /// the backoff budget is spent.
-  void _scheduleRetry() {
-    if (!mounted) return;
-    if (_retriesUsed >= _failureBackoff.length) return;
-    final delay = _failureBackoff[_retriesUsed];
-    _retriesUsed++;
-    _refreshTimer?.cancel();
-    _refreshTimer = Timer(delay, _onScheduledRefresh);
-  }
-
   /// Whether it is safe to call setState right now.
   ///
   /// `mounted` alone is NOT sufficient. Between `deactivate()` and `dispose()`
@@ -191,9 +182,9 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
   /// familiar "setState() called after dispose()" — a much harder error to
   /// trace back to its cause.
   ///
-  /// A timer is the realistic way to land in that window, since it can fire
-  /// while a rebuild is in flight. Requiring the route to be the current one
-  /// closes it: a deactivated page is never current.
+  /// Requiring the route to be the current one also keeps a backgrounded tab
+  /// (covered by a pushed route) from rebuilding under the user's feet when a
+  /// resumed lifecycle callback fires.
   bool get _canRebuild {
     if (!mounted) return false;
     return ModalRoute.of(context)?.isCurrent ?? true;
@@ -233,20 +224,21 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // A backgrounded app cannot run its timer, so returning after longer than
-    // one interval must re-read. Resuming sooner leaves the scheduled refresh
-    // alone rather than costing a query per app switch.
-    if (state == AppLifecycleState.resumed && _isStale) _refresh();
+    // The board only refreshes on open, on pull-to-refresh, and here. A resume
+    // after the data has aged past [kLeaderboardRefreshInterval] re-reads;
+    // resuming sooner costs nothing rather than burning a query per app switch.
+    if (state != AppLifecycleState.resumed) return;
+    if (_isStale) _refresh();
+    // The Friends tab is on-demand: a resume while it is open re-checks it
+    // (still floored by the cache).
+    if (_tabCtrl.index == 1) _ensureFriends();
   }
 
-  /// Re-reads everything, arms the next scheduled refresh, and completes when
-  /// the new snapshot has landed.
+  /// Re-reads the Global board and completes when the new snapshot has landed.
   ///
-  /// This is the player-facing Retry, so it restores the automatic-retry budget:
-  /// someone who tapped "Try again" has earned a fresh pair of backoffs rather
-  /// than inheriting an exhausted one.
+  /// This backs both the error state's "Try again" and the Global tab's
+  /// pull-to-refresh, so the gesture's spinner clears on the right frame.
   Future<void> refreshAndWait() async {
-    _retriesUsed = 0;
     _refresh();
     try {
       await _snapshotFuture;
@@ -254,30 +246,21 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
       // The failure is rendered by the FutureBuilder's error state; swallowing
       // it here keeps it from escaping as an unhandled async error.
     }
-    // Retry also bypasses the friends cache so a failed friends fetch heals
-    // on tap rather than waiting out the 6h window.
-    if (_canRebuild) {
-      setState(() {
-        _friendsFuture =
-            FirestoreService.instance.fetchFriendsBoard(force: true);
-      });
-    }
   }
 
   Future<void> _refreshAndWait() => refreshAndWait();
 
-  /// Re-reads everything the page shows, and rebinds the week if it rolled.
+  /// Re-reads the Global board and rebinds the week if it rolled.
   ///
-  /// The single entry point for every read: the initial fetch, the scheduled
-  /// boundary, a stale resume, and the error state's retry. Exactly one
+  /// The single entry point for every Global read: the initial load, a stale
+  /// resume, pull-to-refresh, and the error state's retry. Exactly one
   /// assignment and one rebuild per call keeps the transitions predictable.
   void _refresh() {
     if (!_canRebuild) return;
     setState(_assignData);
   }
 
-  /// Computes and stores the next snapshot/standing futures, then arms the
-  /// follow-up refresh once the read succeeds.
+  /// Computes and stores the snapshot/standing/campus futures for this frame.
   ///
   /// Split out from [_refresh] so `didChangeDependencies` can update the data
   /// without a `setState` — a build is already on its way, and calling setState
@@ -287,69 +270,29 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
     if (week != _activeWeek) _activeWeek = week;
 
     final provider = _lastKnownProvider;
+    final eligible = provider?.isLeaderboardEligible ?? false;
     final entryWeek = provider?.leaderboardEntryWeekId ?? '';
-    final university = _userUniversity ?? '';
-    final myPoints = provider?.weeklyPoints ?? 0;
+    // Only a CURRENT-week entry names a cohort the player may read. A stale
+    // entry week (paid last week, not this one) would otherwise query last
+    // week's cohort and render it — every row unranked and zeroed — which is
+    // not a board anyone should see. An empty week resolves to an empty board
+    // and the pay-to-enter state instead.
+    final cohortWeek = eligible ? entryWeek : '';
     final service = FirestoreService.instance;
 
-    _prizesNonce++;
+    final snapshot = _fetchSnapshot(admin: isAdminUid(), entryWeek: cohortWeek);
 
-    final snapshot = _fetchSnapshot(
-      admin: isAdminUid(),
-      entryWeek: entryWeek,
-    );
+    // Record when the data was read, so a resume can tell fresh from stale. On
+    // failure it is deliberately left untouched, so the page stays "stale" and
+    // the next resume (or pull-to-refresh) retries it.
+    _snapshotFuture = snapshot.then((value) {
+      _lastFetchAt = DateTime.now();
+      return value;
+    });
 
-    // Arm the next refresh only once this one actually lands. A failure instead
-    // arms the short backoff, so a blip self-heals without the player touching
-    // anything; `_lastFetchAt` is left untouched either way on failure, so the
-    // page stays "stale" and a resume can also pick it up.
-    _snapshotFuture = snapshot.then(
-      (value) {
-        _retriesUsed = 0;
-        final fetchedAt = DateTime.now();
-        _lastFetchAt = fetchedAt;
-        if (mounted) _scheduleNextRefresh(fetchedAt);
-        return value;
-      },
-      onError: (Object error, StackTrace stack) {
-        _scheduleRetry();
-        // Rethrown so the FutureBuilder still renders the error state rather
-        // than hanging on the spinner.
-        Error.throwWithStackTrace(error, stack);
-      },
-    );
-
-    _standingFuture = (provider?.isLeaderboardEligible ?? false) &&
-            entryWeek.isNotEmpty
+    _standingFuture = eligible && entryWeek.isNotEmpty
         ? service.weeklyStanding(entryWeekId: entryWeek, eligible: true)
         : Future.value(WeeklyStanding.none);
-
-    // Friends + campus chip ride the same 6h cadence. Neither blocks nor
-    // fails the global snapshot: both degrade (empty / numberless) on error.
-    _friendsFuture = service.fetchFriendsBoard();
-    _campusChipFuture = _fetchCampusChip(
-      university: university,
-      entryWeek: entryWeek,
-      myPoints: myPoints,
-    );
-  }
-
-  /// One COUNT query (no 50-row board fetch): 1 + players above me on campus.
-  /// Null rank when campus unset, not entered, or the count failed.
-  Future<CampusChipData> _fetchCampusChip({
-    required String university,
-    required String entryWeek,
-    required int myPoints,
-  }) async {
-    if (university.isEmpty || entryWeek.isEmpty) {
-      return CampusChipData(university: university, rank: null);
-    }
-    final rank = await FirestoreService.instance.campusRankCount(
-      university: university,
-      entryWeekId: entryWeek,
-      myPoints: myPoints,
-    );
-    return CampusChipData(university: university, rank: rank);
   }
 
   /// Reads the board, pool, floor and last finalised pool concurrently into
@@ -373,7 +316,9 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
           ? service.fetchWeeklyLeaderboard()
           : service.fetchEligibleWeeklyLeaderboard(entryWeek),
       // Everything below degrades rather than failing the whole read.
-      service.fetchPrizePool().catchError((Object _) => const <String, dynamic>{}),
+      service
+          .fetchPrizePool()
+          .catchError((Object _) => const <String, dynamic>{}),
       service.guaranteedFloor().catchError((Object _) => 0.0),
       service.lastFinalisedPool().catchError((Object _) => null),
     ]);
@@ -382,18 +327,18 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
 
     return LeaderboardSnapshot(
       global: board,
-      campus: const <BoardEntry>[],
       pool: results[1]! as Map<String, dynamic>,
       guaranteedFloor: (results[2]! as num).toDouble(),
-      lastWeekPool: (results[3]! as num?)?.toDouble(),
+      lastWeekPool: (results[3] as num?)?.toDouble(),
       fetchedAt: DateTime.now(),
     );
   }
 
   /// Cached provider handle, set in `didChangeDependencies`.
   ///
-  /// Held as a field because the scheduled refresh can fire when there is no
-  /// build in flight, where `context.read` would throw for a deactivated State.
+  /// Held as a field because async callbacks (a stale resume, the retry, the
+  /// university load) can fire when there is no build in flight, where
+  /// `context.read` would throw for a deactivated State.
   UserDataProvider? _lastKnownProvider;
 
   Future<void> _loadUserUniversity() async {
@@ -404,8 +349,6 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
         _userUniversity = uni ?? '';
         _universityLoaded = true;
       });
-      // The campus chip depends on the university, so re-read now.
-      _refresh();
     } catch (_) {
       // Never leave the chip on an infinite spinner: a failed read
       // (offline / permission) still unblocks the UI.
@@ -420,20 +363,22 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _tabCtrl.removeListener(_onTabChanged);
     _tabCtrl.dispose();
-    // The only scheduled work this page owns. Cancelled here so a discarded
-    // page can never fire a read; while merely deactivated (pushed under
-    // another route) the timer is allowed to run, and its setState is blocked
-    // by _canRebuild.
-    _refreshTimer?.cancel();
-    _refreshTimer = null;
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = _lastKnownProvider;
     final canPop = ModalRoute.of(context)?.canPop ?? false;
+    // Ghost admin: sees every player, competes for nothing, needs no entry code.
+    final isAdmin = isAdminUid();
+
+    if (_tabCtrl.index == 1 && !_friendsRequested) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _ensureFriends();
+      });
+    }
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
@@ -442,8 +387,7 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
         child: Column(
           children: [
             Padding(
-              padding:
-                  EdgeInsets.fromLTRB(canPop ? 8.r : 20.r, 10.r, 20.r, 0),
+              padding: EdgeInsets.fromLTRB(canPop ? 8.r : 20.r, 10.r, 20.r, 0),
               child: Row(
                 children: [
                   if (canPop)
@@ -455,62 +399,48 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
                       tooltip: 'Back',
                     ),
                   Expanded(
-                    child: Text(
-                      'Rankings',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 26.sp,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
-                        height: 1.05,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: EdgeInsets.symmetric(
-                        horizontal: 10.r, vertical: 5.r),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(20.r),
-                      border: Border.all(color: AppColors.divider),
-                    ),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(Icons.bolt_rounded,
-                            color: AppColors.accent, size: 12.r),
-                        SizedBox(width: 4.w),
-                        Text(
-                          '${provider?.weeklyPoints ?? 0} pts',
-                          style: TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 11.sp,
-                            fontWeight: FontWeight.w900,
+                        Flexible(
+                          child: Text(
+                            'Rankings',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 26.sp,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                              height: 1.05,
+                            ),
                           ),
                         ),
+                        // The campus/university indicator lives here alongside
+                        // the points pill (it used to sit on its own row under
+                        // the tabs). It takes only the width it needs, and its
+                        // label ellipsizes when the campus name is long.
+                        // It is meaningless for the ghost admin.
+                        if (!isAdmin)
+                          Flexible(
+                            child: _CampusChip(
+                              university: _userUniversity ?? '',
+                              universityLoaded: _universityLoaded,
+                            ),
+                          ),
                       ],
                     ),
                   ),
+                  SizedBox(width: 8.w),
+                  WeeklyPointsPill(label: isAdmin ? 'ADMIN' : null),
                 ],
               ),
             ),
-
             Padding(
               padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 0.r),
               child: _RankingTabs(controller: _tabCtrl),
             ),
-
-            Padding(
-              padding: EdgeInsets.fromLTRB(20.r, 10.r, 20.r, 0.r),
-              child: _CampusChip(
-                chipFuture: _campusChipFuture,
-                universityLoaded: _universityLoaded,
-                entryWeek: provider?.leaderboardEntryWeekId ?? '',
-              ),
-            ),
-
-            SizedBox(height: 4.h),
-
+            SizedBox(height: 8.h),
             Expanded(
               child: TabBarView(
                 controller: _tabCtrl,
@@ -518,15 +448,13 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
                   _GlobalLeaderboardTab(
                     snapshotFuture: _snapshotFuture,
                     standingFuture: _standingFuture,
-                    prizesNonce: _prizesNonce,
                     onRetry: _refreshAndWait,
                   ),
                   FriendsBoardTab(
                     friendsFuture: _friendsFuture,
-                    onRetry: _refreshAndWait,
+                    onReload: _reloadFriends,
                     onAddFriend: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const AddFriendPage()),
+                      MaterialPageRoute(builder: (_) => const AddFriendPage()),
                     ),
                   ),
                 ],
@@ -539,89 +467,60 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
   }
 }
 
-/// Campus chip: "UNILAG · #N on campus" (one COUNT query, same 6h cadence).
-/// No number when the count failed; "Pick your campus" when unset;
-/// "UNILAG · join board to rank" when not entered. Tap opens the picker
-/// sheet (same card as Profile > Stats).
+/// Campus chip: just the player's campus name ("UNILAG").
+/// "Campus not set" when unset. No rank number and no "join board to rank"
+/// suffix — the chip names the campus and nothing else.
+///
+/// Read-only: the chip used to open the campus picker sheet, but campus is now
+/// changed in Settings only, so it is a display indicator with no tap action.
 class _CampusChip extends StatelessWidget {
-  final Future<CampusChipData> chipFuture;
+  final String university;
   final bool universityLoaded;
-  final String entryWeek;
 
   const _CampusChip({
-    required this.chipFuture,
+    required this.university,
     required this.universityLoaded,
-    required this.entryWeek,
   });
 
   @override
   Widget build(BuildContext context) {
     if (!universityLoaded) return const SizedBox.shrink();
-    return FutureBuilder<CampusChipData>(
-      future: chipFuture,
-      builder: (context, snap) {
-        final data = snap.data;
-        final uni = data?.university ?? '';
-        if (uni.isEmpty) {
-          return _ChipShell(
-            label: 'Pick your campus',
-            onTap: () => openCampusPickerSheet(context),
-          );
-        }
-        final rank = data?.rank;
-        final label = entryWeek.isEmpty
-            ? '$uni · join board to rank'
-            : (rank == null ? uni : '$uni · #$rank on campus');
-        return _ChipShell(
-          label: label,
-          onTap: () => openCampusPickerSheet(context),
-        );
-      },
-    );
+    if (university.isEmpty) return const _ChipShell(label: 'Campus not set');
+    return _ChipShell(label: university);
   }
 }
 
 class _ChipShell extends StatelessWidget {
   final String label;
-  final VoidCallback onTap;
-  const _ChipShell({required this.label, required this.onTap});
+  const _ChipShell({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding:
-              EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
-          decoration: BoxDecoration(
-            color: AppColors.secondary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20.r),
-            border: Border.all(
-                color: AppColors.secondary.withValues(alpha: 0.38)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.school_rounded,
-                  color: AppColors.secondary, size: 13.r),
-              SizedBox(width: 6.w),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.secondary,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
+      decoration: BoxDecoration(
+        color: AppColors.secondary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20.r),
+        border: Border.all(color: AppColors.secondary.withValues(alpha: 0.38)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.school_rounded, color: AppColors.secondary, size: 13.r),
+          SizedBox(width: 6.w),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AppColors.secondary,
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w800,
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -675,15 +574,11 @@ class _GlobalLeaderboardTab extends StatelessWidget {
   final Future<LeaderboardSnapshot> snapshotFuture;
   final Future<WeeklyStanding> standingFuture;
 
-  /// Incremented on refresh so the winner-cycle query re-runs too.
-  final int prizesNonce;
-
   final Future<void> Function() onRetry;
 
   const _GlobalLeaderboardTab({
     required this.snapshotFuture,
     required this.standingFuture,
-    required this.prizesNonce,
     required this.onRetry,
   });
 
@@ -721,6 +616,8 @@ class _GlobalLeaderboardTab extends StatelessWidget {
     final eligible = provider.isLeaderboardEligible;
     final myPoints = provider.weeklyPoints;
     final entries = snapshot.global;
+    // Ghost admin: sees all players, holds no rank, buys nothing.
+    final isAdmin = isAdminUid();
 
     // Between Sunday's reset and the week rollover the CF has already
     // snapshotted and zeroed every score while the week id still names the
@@ -762,18 +659,62 @@ class _GlobalLeaderboardTab extends StatelessWidget {
     // A board that has not loaded yet is NOT an empty board.
     final showStandaloneEmpty = entries.isEmpty;
 
+    // The player one place above, looked up across the WHOLE board — not just
+    // the rows below the podium. Searching only `split.rest` meant a player
+    // ranked 2–4 (whose target sits on the podium) never got a rival badge or
+    // a PASS ME marker, i.e. exactly where the money is.
     final rivalUid = myRank > 1
-        ? _firstWhere(split.rest, (e) => e.rank == myRank - 1)?.uid
+        ? _firstWhere(entries, (e) => e.rank == myRank - 1)?.uid
         : null;
 
     final cta = LeaderboardEntryCta();
 
-    // No pull-to-refresh: refreshes are scheduled, and a gesture would
-    // silently override the "four times a day" cadence. Recovery from a failure
-    // is the error state's Retry button instead.
-    return CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [
+    // Pull-to-refresh is the Global tab's manual re-read; otherwise the board
+    // refreshes on open and on a stale resume. A failure is recoverable here
+    // too, so the error state's Retry is a convenience, not the only path.
+    return RefreshIndicator(
+      color: AppColors.primary,
+      backgroundColor: AppColors.surface,
+      onRefresh: onRetry,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // -- Admin ghost banner ----------------------------------------
+          if (isAdmin)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20.r, 14.r, 20.r, 0.r),
+                child: Container(
+                  padding:
+                      EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(AppRadii.md),
+                    border: Border.all(
+                      color: AppColors.secondary.withValues(alpha: 0.32),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.visibility_rounded,
+                          color: AppColors.secondary, size: 15.r),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: Text(
+                          'Admin view · your account is not competing.',
+                          style: TextStyle(
+                            color: AppColors.secondary,
+                            fontSize: 11.5.sp,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           // -- Prize pool -----------------------------------------------
           SliverToBoxAdapter(
             child: Padding(
@@ -788,27 +729,19 @@ class _GlobalLeaderboardTab extends StatelessWidget {
             ),
           ),
 
-          // -- Winner payout state ---------------------------------------
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 0.r),
-              child: MyPrizesBanner(refreshSignal: prizesNonce),
-            ),
-          ),
-
           // -- Your standing ---------------------------------------------
           // Omitted only when the board is genuinely empty AND the player has
           // not entered: the empty state below already renders the same CTA,
-          // and two identical buttons read as a bug.
-          if (!showStandaloneEmpty || eligible)
+          // and two identical buttons read as a bug. Never shown to the ghost
+          // admin — it has no standing and must never see a "pay to enter" CTA.
+          if (!isAdmin && (!showStandaloneEmpty || eligible))
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 0.r),
                 child: YourPositionCard(
                   standing: standing,
                   myWeeklyPoints: provider.weeklyPoints,
-                  displayName:
-                      myRow?.username ?? _fallbackName(),
+                  displayName: myRow?.username ?? _fallbackName(),
                   isEligible: eligible,
                   entryCta: cta,
                 ),
@@ -821,7 +754,7 @@ class _GlobalLeaderboardTab extends StatelessWidget {
               hasScrollBody: false,
               child: BoardEmptyState(
                 isEligible: eligible,
-                isAdmin: isAdminUid(),
+                isAdmin: isAdmin,
                 cta: cta,
               ),
             )
@@ -846,12 +779,11 @@ class _GlobalLeaderboardTab extends StatelessWidget {
                     entries: split.podium,
                     prizes: prizes,
                     rivalUids: rivalUid == null ? const {} : {rivalUid},
-                    onRivalTap: (entry) => showRivalSheet(context, entry),
+                    onRivalTap: (entry) => _openPlayerPage(context, entry),
                   ),
                 ),
               ),
             ],
-
             if (slots.isNotEmpty) ...[
               SliverToBoxAdapter(
                 child: Padding(
@@ -860,7 +792,6 @@ class _GlobalLeaderboardTab extends StatelessWidget {
                     icon: Icons.format_list_numbered_rounded,
                     title: 'Leaderboard',
                     color: AppColors.primary,
-                    trailing: '${slots.whereType<RowSlot>().length} shown',
                   ),
                 ),
               ),
@@ -868,7 +799,8 @@ class _GlobalLeaderboardTab extends StatelessWidget {
                 padding: EdgeInsets.fromLTRB(20.r, 0.r, 20.r, 24.r),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (_, i) => _slot(context, slots[i], prizes, myRank, rivalUid),
+                    (_, i) =>
+                        _slot(context, slots[i], prizes, myRank, rivalUid),
                     childCount: slots.length,
                   ),
                 ),
@@ -886,7 +818,8 @@ class _GlobalLeaderboardTab extends StatelessWidget {
             ],
           ],
         ],
-      );
+      ),
+    );
   }
 
   Widget _slot(
@@ -908,9 +841,11 @@ class _GlobalLeaderboardTab extends StatelessWidget {
             isRival: entry.uid == rivalUid,
             isNextRank: myRank > 0 && entry.rank == myRank - 1,
             isBelowRank: myRank > 0 && entry.rank == myRank + 1,
-            onTap: entry.uid == rivalUid
-                ? () => showRivalSheet(context, entry)
-                : null,
+            // Every player other than you opens their page from here. The
+            // signed-in player's own row is not a target.
+            onTap: entry.isCurrentUser
+                ? null
+                : () => _openPlayerPage(context, entry),
           ),
         );
       case GroupSlot(:final label):
@@ -918,6 +853,23 @@ class _GlobalLeaderboardTab extends StatelessWidget {
       case GapSlot(:final hiddenAbove, :final hiddenBelow):
         return RowGap(hiddenAbove: hiddenAbove, hiddenBelow: hiddenBelow);
     }
+  }
+
+  /// Opens the tapped player's page — the face-off card, the head-to-head
+  /// record, the series and the two ways to play (duel and spar).
+  ///
+  /// All data there is read for [entry] on open; nothing about the row is
+  /// passed through but the identity, so the page never renders a stale copy of
+  /// the board's points.
+  void _openPlayerPage(BuildContext context, BoardEntry entry) {
+    Navigator.of(context).push(
+      AppPageRoute(
+        builder: (_) => RivalryPage(
+          rivalUid: entry.uid,
+          rivalUsername: entry.username,
+        ),
+      ),
+    );
   }
 
   /// Builds the standing card's data around the live-points [myRank].
@@ -936,18 +888,27 @@ class _GlobalLeaderboardTab extends StatelessWidget {
     required int myPoints,
     required WeeklyStanding resolved,
   }) {
-    final above = _firstWhere(entries, (e) => myRank > 0 && e.rank == myRank - 1);
-    final below = _firstWhere(entries, (e) => myRank > 0 && e.rank == myRank + 1);
+    // Keep the delta and its target on ONE points scale. `myRank` is derived
+    // from the player's LIVE points, so the overtake target must be picked by
+    // live points too — looking it up by the stored snapshot's rank mixed two
+    // vintages and could name a row that is no longer directly above.
+    BoardEntry? above;
+    for (final e in entries) {
+      if (e.isCurrentUser || !e.isRanked) continue;
+      if (e.weeklyPoints > myPoints &&
+          (above == null || e.weeklyPoints < above.weeklyPoints)) {
+        above = e;
+      }
+    }
 
     return WeeklyStanding(
       rank: myRank,
-      totalPlayers: resolved.totalPlayers > 0
-          ? resolved.totalPlayers
-          : entries.where((e) => e.isRanked).length,
-      myPoints: myRow?.weeklyPoints ?? myPoints,
+      // 0 == unknown (the ghost admin has no standing). The footer renders that
+      // as "top N shown" rather than claiming the capped board is complete.
+      totalPlayers: resolved.totalPlayers,
+      myPoints: myPoints,
       pointsToNextRank: above?.weeklyPoints,
       nextRankUsername: above?.username,
-      belowRankUsername: below?.username,
     );
   }
 

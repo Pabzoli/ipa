@@ -1,0 +1,390 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Challenges ────────────────────────────────────────────────────────
+    match /challenges/{challengeId} {
+      allow read:   if request.auth != null;
+      // Creation goes through the server-authoritative createChallenge callable
+      // (validates stake/WP caps, active-challenge limits, question pools).
+      // A bare client create could otherwise mint arbitrary challenges.
+      allow create: if false;
+      allow update: if request.auth != null && (
+        request.auth.uid == resource.data.creatorUid
+        ||
+        request.auth.uid == resource.data.get('opponentUid', null)
+        ||
+        (
+          resource.data.get('opponentUid', null) == null
+          && request.auth.uid == request.resource.data.opponentUid
+        )
+      );
+    }
+
+    // ── Leaderboard visibility (cohort rule) ─────────────────────────────
+    // Players may read ONLY their own doc + docs of players who entered the
+    // SAME leaderboard week they entered (their cohort). A current-week payer
+    // therefore sees exactly the current paid board; anyone else sees only
+    // themselves. The payout admin bypasses this and sees every player.
+    //
+    // Why cohort-equality instead of "current week" date math: comparing two
+    // stored strings uses only long-stable rules APIs (get/exists/==). The
+    // client always constrains its board queries to its own entry week, so a
+    // current payer's cohort IS the live paid board. Residual: two stale
+    // non-payers from the same old week can see each other — no live-board
+    // data leaks. The empty-string guard ensures users with no entry week
+    // match nobody (missing field reads as '' via the get-default below).
+    function viewerEntryWeek() {
+      let viewerPath =
+        /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(viewerPath)
+        ? get(viewerPath).data.get('leaderboardEntryWeekId', '')
+        : '';
+    }
+
+    function isSameWeekEntrant(userData) {
+      let viewedWeek = userData.get('leaderboardEntryWeekId', '');
+      let viewerWeek = viewerEntryWeek();
+      return viewedWeek != '' && viewedWeek == viewerWeek;
+    }
+
+    // Mirror of ADMIN_UIDS (functions/index.js) for the admin all-players
+    // exception. This project does not use custom claims; update the UID
+    // here if the backend admin list ever rotates.
+    function isPayoutAdmin() {
+      return request.auth.uid == 'owMNkXmb6QSzO0xfHkSgMlx0zSJ3';
+    }
+
+    // ── Safe new-user create guard ────────────────────────────────────────
+    // A freshly signed-up client may only create a starting profile. Any
+    // economy / entitlement field must be created at zero or absent — the
+    // server-authoritative Cloud Functions (redeemCode, challenge settlement,
+    // ad watch, etc.) are the ONLY writers that may raise them. This prevents
+    // a malicious client from seeding itself animeCoins/weeklyPoints/premium
+    // at signup. Fields already covered by the update rule's blocked list are
+    // forbidden here at create too.
+    function isSafeNewUserCreate(data) {
+      // Currency / points must start at exactly zero.
+      return data.get('animeCoins', 0) is int
+        && data.get('animeCoins', 0) == 0
+        && data.get('weeklyPoints', 0) is int
+        && data.get('weeklyPoints', 0) == 0
+        // Premium + entitlement fields may not exist on a brand-new account.
+        && !('premiumActive' in data)
+        && !('qmTokens' in data)
+        && !('qmWindowId' in data)
+        && !('dailyAdWatched' in data)
+        && !('ownedCosmetics' in data)
+        && !('equippedFrame' in data)
+        && !('equippedColor' in data)
+        && !('equippedBadge' in data)
+        && !('leaderboardEntryWeekId' in data)
+        && !('wpStakedToday' in data)
+        && !('wpEarnedToday' in data);
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == userId ||
+        isPayoutAdmin() ||
+        isSameWeekEntrant(resource.data)
+      );
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isSafeNewUserCreate(request.resource.data);
+
+      allow update: if request.auth != null && (
+        (
+          request.auth.uid == userId
+          && !request.resource.data.diff(resource.data)
+               .affectedKeys()
+               .hasAny([
+                 'animeCoins',
+                 'dailyAdWatched',
+                 'lastAdWatchDate',
+                 'lastStreakMilestoneAwarded',
+                 'referralBonusClaimed',
+                 'firstQuizCompleted',
+                 'referredBy',
+                 'referralCode',
+                 'weeklyPoints',
+                 'premiumActive',
+                 'stats',
+                 'totalScore',
+                 'dailyChallengeDate',
+                 'dailyChallengeUsed',
+                 'unlockedCategories',
+                 'unlockedAnimes',
+                 'ownedCosmetics',
+                 'equippedFrame',
+                 'equippedColor',
+                 'equippedBadge',
+                 'hasChampionBadge',
+                 'phoneNumber',
+                 'phoneVerified',
+                   // NEW: WP fields (server-only)
+                  'wpStakedToday',
+                  'wpStakedDate',
+                  'wpEarnedToday',
+                  'wpEarnedDate',
+                  'lastRivalChallenge',
+                  'lastRivalUid',
+                  'rivalCooldowns',
+                  'soloPlayedToday',
+                  'soloPlayedDate',
+                  'gauntletStreak',
+                  'currentStreak',
+                  'lastStreakWPMilestoneAwarded',
+                  'achievementsGranted',
+                  // Leaderboard entry fields (server-only)
+                  'leaderboardEntryWeekId',
+                  'leaderboardEntryEmail',
+                  // QM token fields (server-only)
+                  'qmTokens',
+                  'qmWindowId',
+                  'qmAdTokenUsed'
+                ])
+        )
+      );
+
+      allow delete: if false;
+
+      // Match history — CF-only via admin SDK (_resolveChallengeCore,
+      // submitQuickMatchResult). Clients may read their own history but
+      // may never create documents here.
+      match /matches/{matchId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow create:         if false;
+        allow update, delete: if false;
+      }
+
+      // Seen-question markers (Step 5) — written ONLY by Cloud Functions
+      // (Admin SDK) on successful submit; clients can never self-mark.
+      // Owner reads feed the fetch-side unseen filtering
+      // (candidates minus seen). Doc shape:
+      //   { animeTitle, difficulty ('easy'|'medium'|'hard'; legacy docs
+      //     recorded as 'medium'), seenAt }
+      match /seenQuestions/{questionId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow create:         if false; // CF-only (submit flows mark on success)
+        allow update, delete: if false; // CF-only (resetSeenPool deletes)
+      }
+
+      // Per-pool observability counters, maintained by the same CFs:
+      //   { animeTitle, difficulty, seenCount, totalCount, exhaustedAt }
+      // Read by owner (e.g. future "pool health" UI); never client-written.
+      match /questionPoolState/{stateId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only
+      }
+
+      // Coin transaction log — owner-read, owner-append, permanently immutable.
+      match /coinTransactions/{txId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+
+        allow create: if request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasAll(
+               ['type', 'delta', 'balanceAfter', 'timestamp']
+             )
+          && request.resource.data.type in [
+              'earn_daily', 'earn_quiz', 'earn_ad', 'earn_referral',
+              'earn_streak_3', 'earn_streak_7', 'earn_streak_14',
+              'earn_challenge_win',
+              'earn_challenge_draw',
+              'earn_quick_match',
+              'spend_hint', 'spend_cooldown', 'spend_retry',
+              'spend_unlock', 'spend_timer', 'iap',
+              'spend_challenge_stake',
+              'refund_challenge_stake',
+              'spend_cosmetic'
+            ]
+          && request.resource.data.delta is int
+          && request.resource.data.balanceAfter is int;
+
+        allow update, delete: if false;
+      }
+
+      // ── NEW: WP transaction log ──────────────────────────────────────
+      match /wpTransactions/{txId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+
+        allow create: if request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasAll(
+               ['type', 'delta', 'balanceAfter', 'timestamp']
+             )
+          && request.resource.data.type in [
+              'earn_premium_monday',
+              'earn_premium_monthly',
+              'spend_challenge_stake',
+              'refund_challenge_stake',
+              'earn_challenge_win',
+              'earn_challenge_draw',
+              'earn_challenge_lose'
+            ]
+          && request.resource.data.delta is int
+          && request.resource.data.balanceAfter is int;
+
+        allow update, delete: if false;
+      }
+
+      // IAP purchase receipts — idempotency ledger, CF-only via admin SDK.
+      match /iapReceipts/{purchaseToken} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only (verifyIAPPurchase)
+      }
+
+      // Premium subscription receipts — idempotency ledger, CF-only.
+      match /premiumReceipts/{purchaseToken} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only (verifyPremiumPurchase)
+      }
+
+      // Leaderboard entry receipts — audit ledger, CF-only.
+      match /leaderboardReceipts/{codeId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only (redeemCode)
+      }
+
+      // ── Payout Details (reusable bank account info per user) ───────────
+      // Winner submits once; CF purges sensitive fields after transfer completes.
+      // Client can CRUD their own. No other user can read/write these.
+      match /payoutDetails/{detailId} {
+        allow read:    if request.auth != null && request.auth.uid == userId;
+        allow create:  if request.auth != null && request.auth.uid == userId;
+        allow update:  if request.auth != null && request.auth.uid == userId;
+        allow delete:  if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ── Questions ─────────────────────────────────────────────────────────
+    // Client-read-only: all writes go through the Admin SDK (seed script /
+    // Cloud Functions), which bypasses security rules. The difficulty
+    // contract below documents the schema for reviewers and is enforced in
+    // scripts/seed_questions.js; it is also conjunctively attached to the
+    // (still false) write rule so that if client writes are ever opened,
+    // invalid difficulty values are rejected by default.
+    function isValidQuestionDifficulty(data) {
+      return data.get('difficulty', '') in ['easy', 'medium', 'hard'];
+    }
+    match /questions/{questionId} {
+      allow read:  if request.auth != null;
+      allow create, update: if false && isValidQuestionDifficulty(request.resource.data);
+      allow delete: if false;
+    }
+
+    // ── Prize Pool ────────────────────────────────────────────────────────
+    match /prize_pool/{weekId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── Leaderboard Cycles (paid leaderboard payout snapshots) ────────────
+    match /leaderboardCycles/{weekId} {
+      allow read:  if request.auth != null;
+      allow write: if false; // CF-only via admin SDK
+
+      // Winner claim submissions — winner reads their own; CF writes.
+      match /pendingClaim/{uid} {
+        allow read:    if request.auth != null && request.auth.uid == uid;
+        allow create:  if false; // CF-only (submitPayoutDetails)
+        allow update:  if false; // CF-only (approveLeaderboardPayout / checkPendingClaim)
+        allow delete:  if false;
+      }
+
+      // Immutable per-transfer audit log — CF-only, no client access.
+      match /payouts/{payoutId} {
+        allow read:    if false;
+        allow write:   if false; // CF-only (approveLeaderboardPayout / payoutWebhook)
+      }
+    }
+
+    // ── Withdrawals ───────────────────────────────────────────────────────
+    match /withdrawals/{withdrawalId} {
+      allow read:   if request.auth != null
+                    && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ── Matchmaking Queue ─────────────────────────────────────────────────
+    match /matchmaking_queue/{docId} {
+      // Managed entirely by Cloud Functions (matchmaking CFs). Clients must
+      // not read/write the queue directly — it could expose opponent
+      // information or let a client flood/poison the queue.
+      allow read, write: if false;
+    }
+
+    // ── Ghost Sessions ────────────────────────────────────────────────────
+    match /ghost_sessions/{animeId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── House Fees ────────────────────────────────────────────────────────
+    match /house_fees/{docId} {
+      allow read, write: if false; // CF-only via admin SDK
+    }
+
+    // ── App Config ────────────────────────────────────────────────────────
+    // Default: authenticated read, never client-writable (CF via Admin SDK).
+    // This covers the sensitive tunables: app_config/antifraud holds the
+    // fraud-scoring weights/thresholds, and app_config/leaderboard_entry_config
+    // holds the entry floor. Neither should be readable anonymously.
+    match /app_config/{docId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // Android forced-update gate config (minBuild / latestBuild / apkUrl).
+    //
+    // Deliberately the ONLY publicly-readable app_config doc, and readable
+    // WITHOUT authentication: the client-side "Update required" wall has to be
+    // able to read it before sign-in, otherwise an outdated install would be
+    // allowed to authenticate and only then hit the wall — and the gate would
+    // not truly be "on launch". The doc carries no secrets (three numbers and
+    // a public download URL), so anonymous exposure is acceptable.
+    //
+    // Rules are OR-ed, not AND-ed: Firestore grants access if ANY matching
+    // block allows it. The block above therefore still requires auth for every
+    // other app_config doc; this block only widens access to this one path.
+    //
+    // Write is admin-UID only (isPayoutAdmin, same list as functions/index.js
+    // ADMIN_UIDS). Raising minBuild is what arms the gate, so it must not be
+    // client-writable under any circumstances.
+    match /app_config/android {
+      allow read:  if true;
+      allow write: if request.auth != null && isPayoutAdmin();
+    }
+
+    // ── Payout Ledger (idempotency guard for transfers) ───────────────────
+    // Prevents duplicate transfers: keyed on "{weekId}_{uid}". CF-only write.
+    // Read is CF-only to avoid leaking payout timing info to clients.
+    match /payoutLedger/{ref} {
+      allow read:    if false;
+      allow write:   if false; // CF-only (approveLeaderboardPayout)
+    }
+
+    // ── Fraud Reviews (Phase 3 advisory scores, server-computed) ─────────
+    // Written ONLY by scoreFraudForWeek via Admin SDK. Admins consume them
+    // through the admin-gated listPayoutClaims callable (which attaches
+    // fraudScore/fraudReasons per claim) — never via direct reads, so no
+    // client can read/write them here.
+    match /fraudReviews/{ref} {
+      allow read:    if false;
+      allow write:   if false; // CF-only (scoreFraudForWeek)
+    }
+
+    // ── Telemetry ────────────────────────────────────────────────────────
+    // Server-side only (Cloud Functions via admin SDK). Clients must not
+    // be able to write telemetry data.
+    match /telemetry/{docId=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}

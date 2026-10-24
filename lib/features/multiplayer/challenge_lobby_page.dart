@@ -7,28 +7,34 @@ import 'package:provider/provider.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../core/constants/rival_economy.dart';
+import '../../core/constants/share_links.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_page_route.dart';
+import '../../core/widgets/rival_avatar.dart';
+import '../../core/widgets/share_card.dart';
+import '../../core/widgets/weekly_points_pill.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/share_service.dart';
 import '../../core/providers/user_data_provider.dart';
-import '../quiz/quiz_controller.dart' show QuizMode;
+import '../friends/friend_nudge_button.dart';
 import '../quiz/questions_page.dart';
 import 'challenge_model.dart';
 import 'challenge_result_page.dart';
 
 // ─── Challenge Lobby ──────────────────────────────────────────────────────────
 //
-// Scope of this page is now strictly PRE-completion: waiting for an opponent,
+// Scope of this page is strictly PRE-completion: waiting for an opponent,
 // accepting, declining, and playing. The moment the challenge settles it
-// hands off to ChallengeResultPage and gets out of the way — there is no
-// "View Full Results" button, because a settled challenge should never be
-// sitting on a lobby screen waiting for someone to tap through.
+// hands off to ChallengeResultPage and gets out of the way.
 //
-// That replaces the previous arrangement, which had two exit doors: a manual
-// button that pushed ChallengeResultPage, and a post-quiz creator state that
-// suppressed the lobby's own waiting UI. Both are gone.
+// Layout: the match is an "arena" (two players split by a diagonal), a stat
+// grid with the facts that matter before you commit, and a bottom dock that
+// holds the one action the current state allows.
 class ChallengeLobbyPage extends StatefulWidget {
   final String challengeId;
 
@@ -78,17 +84,6 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
     _uid = FirebaseAuth.instance.currentUser?.uid;
   }
 
-  void _shareChallenge(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: widget.challengeId));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Challenge code copied! Share it with a friend.'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<ChallengeModel?>(
@@ -114,12 +109,6 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
           });
         }
 
-        final isCreator = challenge != null && challenge.creatorUid == _uid;
-        final canShareCode = challenge != null &&
-            isCreator &&
-            !challenge.isQuickMatch &&
-            challenge.kind != ChallengeKind.rival;
-
         // Show AC/WP balance in app bar for opponent accepting a rival challenge
         final isOpponent = challenge != null && challenge.opponentUid == _uid;
         final isWaiting = challenge?.status == ChallengeStatus.waiting;
@@ -134,7 +123,7 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
         } else if (challenge == null) {
           body = const _NotFoundView();
         } else {
-          body = _LobbyContent(
+          body = ChallengeLobbyContent(
             challenge: challenge,
             currentUid: _uid ?? '',
           );
@@ -150,25 +139,11 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
                   color: AppColors.textPrimary),
               onPressed: () => Navigator.pop(context),
             ),
-            title: Text(
-              'Challenge Lobby',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 20.sp,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.5,
-              ),
-            ),
+            title: Text('Challenge Lobby', style: AppTypography.heading3),
             actions: [
-              if (canShareCode)
-                IconButton(
-                  icon: const Icon(Icons.share_rounded,
-                      color: AppColors.textMuted),
-                  onPressed: () => _shareChallenge(context),
-                ),
               if (showBalance)
                 Padding(
-                  padding: EdgeInsets.only(right: 8.r), // added margin
+                  padding: EdgeInsets.only(right: 8.r),
                   child: Consumer<UserDataProvider>(
                     builder: (context, userData, child) {
                       return Row(
@@ -179,11 +154,7 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
                             color: AppColors.accent,
                           ),
                           SizedBox(width: 6.w),
-                          _BalancePill(
-                            emoji: '⭐',
-                            amount: userData.weeklyPoints,
-                            color: AppColors.secondary,
-                          ),
+                          const WeeklyPointsPill(),
                         ],
                       );
                     },
@@ -209,7 +180,7 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
       c.status == ChallengeStatus.expiredRefunded;
 }
 
-// ─── Balance Pill (matches multiplayer hub style) ──────────────────────
+// ─── Balance Pill ─────────────────────────────────────────────────────────────
 class _BalancePill extends StatelessWidget {
   final String emoji;
   final int amount;
@@ -226,22 +197,18 @@ class _BalancePill extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 5.r),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.13),
-        borderRadius: BorderRadius.circular(20.r),
-        border: Border.all(color: color.withOpacity(0.38)),
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(AppRadii.full),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(emoji, style: TextStyle(fontSize: 14.sp)),
+          Text(emoji, style: AppTypography.bodyLarge),
           SizedBox(width: 4.w),
           Text(
             '$amount',
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 14.sp,
-            ),
+            style: AppTypography.labelLarge.copyWith(color: color),
           ),
         ],
       ),
@@ -250,20 +217,21 @@ class _BalancePill extends StatelessWidget {
 }
 
 // ─── Lobby Content ────────────────────────────────────────────────────────────
-class _LobbyContent extends StatefulWidget {
+class ChallengeLobbyContent extends StatefulWidget {
   final ChallengeModel challenge;
   final String currentUid;
 
-  const _LobbyContent({
+  const ChallengeLobbyContent({
+    super.key,
     required this.challenge,
     required this.currentUid,
   });
 
   @override
-  State<_LobbyContent> createState() => _LobbyContentState();
+  State<ChallengeLobbyContent> createState() => _ChallengeLobbyContentState();
 }
 
-class _LobbyContentState extends State<_LobbyContent> {
+class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
   bool _isAccepting = false;
   bool _isRejecting = false;
 
@@ -278,7 +246,7 @@ class _LobbyContentState extends State<_LobbyContent> {
   bool get isParticipant => isCreator || isOpponent;
   bool get isCompleted => c.isCompleted;
   bool get isDraw => c.isDraw;
-  bool get isGhost => c.opponentUid == 'ghost';
+  bool get isGhost => c.isGhostMatch;
 
   // ── Status helpers ──────────────────────────────────────────────────────────
   String get _statusText {
@@ -292,7 +260,7 @@ class _LobbyContentState extends State<_LobbyContent> {
       case ChallengeStatus.waiting:
         return isCreator
             ? 'Waiting for opponent to join…'
-            : 'Pending — Accept to play';
+            : 'Pending';
       case ChallengeStatus.opponentJoined:
         return 'Opponent joined — Ready to play';
       case ChallengeStatus.creatorSubmitted:
@@ -361,8 +329,15 @@ class _LobbyContentState extends State<_LobbyContent> {
     return false;
   }
 
+  // A seat is still takeable while the invite is open — including after the
+  // creator played first (their score is promoted to creator_submitted) — and
+  // while the joiner's own score is unset.
+  bool get _isJoinableStatus =>
+      c.status == ChallengeStatus.waiting ||
+      c.status == ChallengeStatus.creatorSubmitted;
+
   bool get _canAccept {
-    if (isCreator || c.status != ChallengeStatus.waiting) return false;
+    if (isCreator || !_isJoinableStatus || c.opponentScore != null) return false;
 
     // Rival challenges are directly assigned to one opponent.
     // Code challenges can still be accepted by any non-creator who has the code.
@@ -370,11 +345,12 @@ class _LobbyContentState extends State<_LobbyContent> {
     return true;
   }
 
-  // Only the specifically-invited opponent on a still-pending rival
+  // Only the specifically-invited opponent on a still-takeable rival
   // challenge can decline it — mirrors declineChallenge's server-side check.
   bool get _canDecline {
     return !isCreator &&
-        c.status == ChallengeStatus.waiting &&
+        _isJoinableStatus &&
+        c.opponentScore == null &&
         c.opponentUid == uid;
   }
 
@@ -394,17 +370,6 @@ class _LobbyContentState extends State<_LobbyContent> {
       _requiredWp <= 0 ||
       context.watch<UserDataProvider>().weeklyPoints >= _requiredWp;
 
-  // ─── Challenge type (with fallback) ──────────────────────────────────────
-  // `challengeType` is only written for Code challenges by createChallenge and
-  // is absent on Quick Match documents, so `isQuickMatch` is the field that
-  // decides the Quick Match case and `c.kind` handles the rest.
-  String get _challengeType => switch (c.kind) {
-        ChallengeKind.rival => '⚔️ Rival Challenge',
-        ChallengeKind.quick => '⚡ Quick Match',
-        ChallengeKind.code => '📤 Code Challenge',
-        ChallengeKind.spar => '🤝 Spar',
-      };
-
   // ─── Force Resolve recovery action ─────────────────────────────────────
   bool get _canForceResolve {
     if (isCompleted) return false;
@@ -420,7 +385,10 @@ class _LobbyContentState extends State<_LobbyContent> {
     try {
       final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('forceResolveChallenge')
-          .call({'challengeId': c.challengeId});
+          .call({
+        'challengeId': c.challengeId,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
 
       if (!mounted) return;
 
@@ -461,146 +429,153 @@ class _LobbyContentState extends State<_LobbyContent> {
   Widget build(BuildContext context) {
     final canAffordAC = _canAffordAC(context);
     final canAffordWp = _canAffordWp(context);
+
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20.r, 4.h, 20.r, 24.h),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Arena(
+                  challenge: c,
+                  currentUid: uid,
+                  statusText: _statusText,
+                  statusColor: _statusColor,
+                  isCompleted: isCompleted,
+                ),
+
+                SizedBox(height: 14.h),
+
+                _LedgerGrid(challenge: c),
+
+                // Recovery only: useful if both scores exist but the backend has not resolved yet.
+                if (_canForceResolve) ...[
+                  SizedBox(height: 14.h),
+                  AppButton(
+                    variant: AppButtonVariant.outline,
+                    color: AppColors.wrong,
+                    label: _isResolving ? 'Resolving…' : '⚡ Force Resolve',
+                    loading: _isResolving,
+                    onPressed: _isResolving ? null : _forceResolve,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        _Dock(
+          child: _dock(
+            context,
+            canAffordAC: canAffordAC,
+            canAffordWp: canAffordWp,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // The dock shows exactly one primary intent for the current state.
+  Widget _dock(
+    BuildContext context, {
+    required bool canAffordAC,
+    required bool canAffordWp,
+  }) {
     final canAfford = canAffordAC && canAffordWp;
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 28.r), // moderate
-      child: Column(
+    if (_canAccept && !canAfford) {
+      return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Challenge type badge ──────────────────────────────────────
-          _TypeBadge(type: _challengeType),
-
-          SizedBox(height: 14.h), // moderate
-
-          // ── Status header ─────────────────────────────────────────────
-          _StatusHeader(
-            statusText: _statusText,
-            statusColor: _statusColor,
-            isCompleted: isCompleted,
+          _BalanceNotice(
+            requiredAC: c.stakeAmount,
+            requiredWp: _requiredWp,
+            missingAC: !canAffordAC,
+            missingWp: !canAffordWp,
           ),
+          SizedBox(height: 12.h),
+          _acceptRow(context, canAfford),
+        ],
+      );
+    }
+    if (_canAccept) return _acceptRow(context, canAfford);
 
-          SizedBox(height: 16.h), // moderate
+    if (_canPlay) {
+      return _PlayButton(onTap: () => _launchQuiz(context));
+    }
 
-          // ── VS card ────────────────────────────────────────────────────
-          _VsCard(
-            challenge: c,
-            currentUid: uid,
-            isCompleted: isCompleted,
-          ),
-
-          SizedBox(height: 16.h), // moderate
-
-          // ── Challenge details ─────────────────────────────────────────
-          _ChallengeDetailsCard(
-            challenge: c,
-            isCreator: isCreator,
-          ),
-
-          SizedBox(height: 16.h), // moderate
-
-          // ── Stakes ─────────────────────────────────────────────────────
-          _StakesCard(
-            challenge: c,
-            isCompleted: isCompleted,
-          ),
-
-          SizedBox(height: 18.h), // moderate
-
-          // ── Actions ────────────────────────────────────────────────────
-          // No completed branch: the parent redirects to
-          // ChallengeResultPage the moment the challenge settles, so reaching
-          // this point means the challenge is genuinely still in play.
-          if (_canAccept && !canAfford) ...[
-            _InsufficientBalanceWidget(
-              requiredAC: c.stakeAmount,
-              requiredWp: _requiredWp,
-              missingAC: !canAffordAC,
-              missingWp: !canAffordWp,
-            ),
-            if (_canDecline) ...[
-              SizedBox(height: 10.h),
-              _RejectButton(
-                loading: _isRejecting,
-                onTap: () => _onDecline(context),
-              ),
-            ],
-          ] else if (_canAccept) ...[
-            _AcceptButton(
-              onTap: () => _onAccept(context, canAfford: canAfford),
-              loading: _isAccepting,
-            ),
-            if (_canDecline) ...[
-              SizedBox(height: 10.h),
-              _RejectButton(
-                loading: _isRejecting,
-                onTap: () => _onDecline(context),
-              ),
-            ],
-          ] else if (_canPlay)
-            _PlayButton(
-              onTap: () => _launchQuiz(context),
-            )
-          else if (_isWaitingForOtherPlayer) ...[
-            _WaitingForOtherPlayerWidget(
+    if (_isWaitingForOtherPlayer) {
+      return Row(
+        children: [
+          Expanded(
+            child: _WaitingNote(
               message: isCreator
                   ? 'Waiting for opponent to play…'
                   : 'Waiting for creator to play…',
             ),
-            SizedBox(height: 10.h),
-            _LobbyNudgeButton(
-              challengeId: c.challengeId,
-              otherUid:
-                  isCreator ? (c.opponentUid ?? '') : c.creatorUid,
-            ),
-          ]
-          else if (_showCopyCode)
-            _CopyCodeButton(code: c.challengeId)
-          else if (isCreator && c.status == ChallengeStatus.waiting)
-            const _WaitingForOtherPlayerWidget(
-              message: 'Waiting for opponent to join…',
-            )
-          else if (!isParticipant)
-            const _SpectatorWidget(),
-
-          // Recovery only: useful if both scores exist but the backend has not resolved yet.
-          if (_canForceResolve) ...[
-            SizedBox(height: 12.h),
-            OutlinedButton.icon(
-              onPressed: _isResolving ? null : _forceResolve,
-              icon: _isResolving
-                  ? SizedBox(
-                      width: 18.w,
-                      height: 18.h,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(Icons.warning_amber_rounded, size: 18.r),
-              label: Text(_isResolving ? 'Resolving…' : '⚡ Force Resolve'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.wrong,
-                side: BorderSide(color: AppColors.wrong.withOpacity(0.5)),
-                padding: EdgeInsets.symmetric(vertical: 12.r),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14.r),
-                ),
-              ),
-            ),
-          ],
+          ),
+          SizedBox(width: 10.w),
+          FriendNudgeButton(
+            friendUid: isCreator ? (c.opponentUid ?? '') : c.creatorUid,
+            challengeId: c.challengeId,
+            variant: AppButtonVariant.outline,
+            size: AppButtonSize.medium,
+          ),
         ],
-      ),
+      );
+    }
+
+    if (_showCopyCode) return _CodeShare(code: c.challengeId);
+
+    if (isCreator && c.status == ChallengeStatus.waiting) {
+      return const _WaitingNote(message: 'Waiting for opponent to join…');
+    }
+
+    if (!isParticipant) {
+      return const _WaitingNote(
+        message: 'You are watching this challenge',
+        icon: Icons.visibility_rounded,
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _acceptRow(BuildContext context, bool canAfford) {
+    final accept = _AcceptButton(
+      onTap: () => _onAccept(canAfford: canAfford),
+      loading: _isAccepting,
+    );
+    if (!_canDecline) return accept;
+    return Row(
+      children: [
+        Expanded(
+          child: _RejectButton(
+            loading: _isRejecting,
+            onTap: _onDecline,
+          ),
+        ),
+        SizedBox(width: 10.w),
+        Expanded(flex: 2, child: accept),
+      ],
     );
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────────
-  String _friendlyAcceptError(String raw) {
+  String _friendlyAcceptError(String raw, {bool premiumActive = false}) {
+    final joinLimit = premiumActive ? kDailyJoinPremium : kDailyJoinFree;
+    final activeLimit =
+        premiumActive ? kActiveChallengesPremium : kActiveChallengesFree;
     final s = raw.replaceFirst('Exception: ', '');
     return switch (s) {
       'insufficient_coins' => 'Not enough AC for this stake.',
       'insufficient_wp' => 'Not enough WP for this stake.',
       'daily_challenge_limit_reached' =>
-        'Daily limit reached — max 5 challenges joined per day.',
+        'Daily limit reached — max $joinLimit challenges joined per day.',
       'too_many_active_challenges' =>
-        'You already have 5 active challenges running.',
+        'You already have $activeLimit active challenges running.',
       'challenge_not_waiting' => 'This challenge is no longer available.',
       'cannot_join_own_challenge' => "That's your own challenge!",
       'not_friends' => 'Add them as a friend to spar.',
@@ -608,8 +583,7 @@ class _LobbyContentState extends State<_LobbyContent> {
     };
   }
 
-  Future<void> _onAccept(BuildContext context,
-      {required bool canAfford}) async {
+  Future<void> _onAccept({required bool canAfford}) async {
     if (_isAccepting) return;
 
     // NOTE: previously this recomputed affordability here via
@@ -658,9 +632,11 @@ class _LobbyContentState extends State<_LobbyContent> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isAccepting = false);
+      final premiumActive =
+          context.read<UserDataProvider>().premiumActive;
       final message = e is FirebaseFunctionsException
-          ? _friendlyAcceptError(e.message ?? e.code)
-          : _friendlyAcceptError(e.toString());
+          ? _friendlyAcceptError(e.message ?? e.code, premiumActive: premiumActive)
+          : _friendlyAcceptError(e.toString(), premiumActive: premiumActive);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to join: $message'),
@@ -680,28 +656,28 @@ class _LobbyContentState extends State<_LobbyContent> {
     };
   }
 
-  Future<void> _onDecline(BuildContext context) async {
+  Future<void> _onDecline() async {
     if (_isRejecting || _isAccepting) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Decline challenge?',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-        content: const Text(
-          'Their stake will be refunded to them. This can\'t be undone.',
-        ),
+    final confirmed = await showAppDialog<bool>(
+      context,
+      builder: (ctx) => AppDialog(
+        icon: Icons.person_off_rounded,
+        iconColor: AppColors.wrong,
+        title: 'Decline challenge?',
+        content: 'Their stake will be refunded to them. This can\'t be undone.',
         actions: [
-          TextButton(
+          AppButton(
+            variant: AppButtonVariant.text,
+            color: AppColors.textSecondary,
+            label: 'Cancel',
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
           ),
-          TextButton(
+          AppButton(
+            variant: AppButtonVariant.primary,
+            color: AppColors.wrong,
+            label: 'Decline',
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Decline',
-                style: TextStyle(
-                    color: AppColors.wrong, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -713,7 +689,10 @@ class _LobbyContentState extends State<_LobbyContent> {
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('declineChallenge')
-          .call({'challengeId': c.challengeId});
+          .call({
+        'challengeId': c.challengeId,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
 
       if (!mounted) return;
 
@@ -749,146 +728,21 @@ class _LobbyContentState extends State<_LobbyContent> {
   }
 }
 
-// ─── Widget: Type Badge ──────────────────────────────────────────────────────
-class _TypeBadge extends StatelessWidget {
-  final String type;
-  const _TypeBadge({required this.type});
-
-  @override
-  Widget build(BuildContext context) {
-    final isRival = type.contains('Rival');
-    final isQuick = type.contains('Quick');
-
-    Color color;
-    IconData icon;
-    if (isRival) {
-      color = const Color(0xFFFF6B00);
-      icon = Icons.emoji_events_rounded;
-    } else if (isQuick) {
-      color = AppColors.primary;
-      icon = Icons.bolt_rounded;
-    } else {
-      color = AppColors.secondary;
-      icon = Icons.qr_code_rounded;
-    }
-
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20.r),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 14.r),
-          SizedBox(width: 6.w),
-          Text(
-            type,
-            style: TextStyle(
-              color: color,
-              fontSize: 11.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Widget: Status Header ──────────────────────────────────────────────────
-class _StatusHeader extends StatelessWidget {
+// ─── Arena ──────────────────────────────────────────────────────────────────
+// The two players sit on either side of a diagonal split, with the live status
+// in a strip along the bottom edge.
+class _Arena extends StatelessWidget {
+  final ChallengeModel challenge;
+  final String currentUid;
   final String statusText;
   final Color statusColor;
   final bool isCompleted;
 
-  const _StatusHeader({
-    required this.statusText,
-    required this.statusColor,
-    required this.isCompleted,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(14.r), // moderate (was 12)
-      decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(
-          color: statusColor.withOpacity(0.25),
-          width: 1.5,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 4.w,
-            height: 30.h,
-            decoration: BoxDecoration(
-              color: statusColor,
-              borderRadius: BorderRadius.circular(2.r),
-            ),
-          ),
-          SizedBox(width: 14.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isCompleted ? 'Match Complete' : 'Status',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 10.sp,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1,
-                  ),
-                ),
-                SizedBox(height: 2.h),
-                Text(
-                  statusText,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (!isCompleted)
-            Container(
-              width: 8.w,
-              height: 8.h,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: statusColor,
-                boxShadow: [
-                  BoxShadow(
-                    color: statusColor.withOpacity(0.5),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Widget: VS Card ────────────────────────────────────────────────────────
-class _VsCard extends StatelessWidget {
-  final ChallengeModel challenge;
-  final String currentUid;
-  final bool isCompleted;
-
-  const _VsCard({
+  const _Arena({
     required this.challenge,
     required this.currentUid,
+    required this.statusText,
+    required this.statusColor,
     required this.isCompleted,
   });
 
@@ -905,175 +759,356 @@ class _VsCard extends StatelessWidget {
     final creatorScoreVisible = isCreator || canRevealOthersScore;
     final opponentScoreVisible = isOpponent || canRevealOthersScore;
 
-    return Container(
-      padding: EdgeInsets.all(16.r), // moderate (was 14)
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20.r),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                isCompleted ? 'FINAL SCORE' : 'PLAYERS',
-                style: TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 10.sp,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 12.h), // moderate (was 10)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: _PlayerTile(
-                  name: challenge.creatorUsername,
-                  score: challenge.creatorScore,
-                  scoreVisible: creatorScoreVisible,
-                  isCurrentUser: isCreator,
-                  isWinner: isCompleted && challenge.outcome == 'creator_wins',
-                  alignRight: false,
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12.r),
-                child: Container(
-                  width: 44.w,
-                  height: 44.h,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14.r),
-                    border: Border.all(
-                      color: AppColors.primary.withOpacity(0.2),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadii.feature),
+      child: AppCard(
+        tier: AppCardTier.feature,
+        padding: EdgeInsets.zero,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 188.h,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: const _SlashPainter(
+                        left: AppColors.secondary,
+                        right: AppColors.primary,
+                      ),
                     ),
                   ),
-                  child: Text(
-                    'VS',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12.sp,
-                      letterSpacing: 2,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _Fighter(
+                          name: challenge.creatorUsername,
+                          score: challenge.creatorScore,
+                          scoreVisible: creatorScoreVisible,
+                          isYou: isCreator,
+                          isWinner:
+                              isCompleted && challenge.outcome == 'creator_wins',
+                          color: AppColors.secondary,
+                          alignEnd: false,
+                        ),
+                      ),
+                      Expanded(
+                        child: _Fighter(
+                          name: challenge.opponentUsername ?? 'Open slot',
+                          score: challenge.opponentScore,
+                          scoreVisible: opponentScoreVisible,
+                          isYou: isOpponent,
+                          isWinner:
+                              isCompleted && challenge.outcome == 'opponent_wins',
+                          color: AppColors.primary,
+                          alignEnd: true,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                  _VsBadge(),
+                ],
               ),
-              Expanded(
-                child: _PlayerTile(
-                  name: challenge.opponentUsername ?? 'Opponent',
-                  score: challenge.opponentScore,
-                  scoreVisible: opponentScoreVisible,
-                  isCurrentUser: isOpponent,
-                  isWinner: isCompleted && challenge.outcome == 'opponent_wins',
-                  alignRight: true,
-                ),
-              ),
-            ],
-          ),
-        ],
+            ),
+            _StatusStrip(
+              text: statusText,
+              color: statusColor,
+              live: !isCompleted,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _PlayerTile extends StatelessWidget {
+class _SlashPainter extends CustomPainter {
+  final Color left;
+  final Color right;
+
+  const _SlashPainter({required this.left, required this.right});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final mid = w / 2;
+    const lean = 26.0;
+    final rect = Offset.zero & size;
+
+    final leftPath = Path()
+      ..moveTo(0, 0)
+      ..lineTo(mid + lean, 0)
+      ..lineTo(mid - lean, h)
+      ..lineTo(0, h)
+      ..close();
+    final rightPath = Path()
+      ..moveTo(mid + lean, 0)
+      ..lineTo(w, 0)
+      ..lineTo(w, h)
+      ..lineTo(mid - lean, h)
+      ..close();
+
+    canvas.drawPath(
+      leftPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [left.withValues(alpha: 0.55), left.withValues(alpha: 0.12)],
+        ).createShader(rect),
+    );
+    canvas.drawPath(
+      rightPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+          colors: [right.withValues(alpha: 0.55), right.withValues(alpha: 0.12)],
+        ).createShader(rect),
+    );
+    canvas.drawLine(
+      Offset(mid + lean, 0),
+      Offset(mid - lean, h),
+      Paint()
+        ..color = AppColors.textPrimary.withValues(alpha: 0.85)
+        ..strokeWidth = 2.5,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SlashPainter old) =>
+      old.left != left || old.right != right;
+}
+
+class _VsBadge extends StatelessWidget {
+  const _VsBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 46.r,
+      height: 46.r,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceDim,
+        shape: BoxShape.circle,
+        border: Border.all(
+            color: AppColors.textPrimary.withValues(alpha: 0.85), width: 2),
+      ),
+      child: Text(
+        'VS',
+        style: AppTypography.labelLarge.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _Fighter extends StatelessWidget {
   final String name;
   final int? score;
   final bool scoreVisible;
-  final bool isCurrentUser;
+  final bool isYou;
   final bool isWinner;
-  final bool alignRight;
+  final Color color;
+  final bool alignEnd;
 
-  const _PlayerTile({
+  const _Fighter({
     required this.name,
     required this.score,
     required this.scoreVisible,
-    required this.isCurrentUser,
+    required this.isYou,
     required this.isWinner,
-    required this.alignRight,
+    required this.color,
+    required this.alignEnd,
   });
 
   @override
   Widget build(BuildContext context) {
-    final scoreColor = isWinner ? AppColors.correct : AppColors.textPrimary;
-
+    final isHidden = score != null && !scoreVisible;
     final String scoreText;
     if (score == null) {
       scoreText = '…';
-    } else if (!scoreVisible) {
+    } else if (isHidden) {
       scoreText = '🔒';
     } else {
       scoreText = '$score';
     }
 
-    return Column(
-      crossAxisAlignment:
-          alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        if (isWinner) ...[
-          Text('👑', style: TextStyle(fontSize: 16.sp)),
-          SizedBox(height: 2.h),
-        ],
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 4.r),
-          decoration: BoxDecoration(
-            color: isCurrentUser
-                ? AppColors.primary.withOpacity(0.10)
-                : AppColors.surfaceAlt.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(8.r),
-            border: Border.all(
-              color: isCurrentUser
-                  ? AppColors.primary.withOpacity(0.2)
-                  : Colors.transparent,
+    final align = alignEnd ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 12.r),
+      child: Column(
+        crossAxisAlignment: align,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            height: 22.r,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isWinner)
+                  Text('👑', style: AppTypography.titleMedium),
+                if (isWinner && isYou) SizedBox(width: 6.w),
+                if (isYou)
+                  Container(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 8.r, vertical: 2.r),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceDim.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(AppRadii.full),
+                    ),
+                    child: Text(
+                      'You',
+                      style: AppTypography.labelSmall.copyWith(
+                        color: AppColors.textPrimary,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-          child: Text(
-            isCurrentUser ? 'You' : name,
+          SizedBox(height: 6.h),
+          RivalAvatar(
+            name: name,
+            size: 58.r,
+            color: color,
+            highlight: isWinner,
+          ),
+          SizedBox(height: 8.h),
+          Text(
+            name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: isCurrentUser ? AppColors.primary : AppColors.textMuted,
-              fontSize: 11.sp,
-              fontWeight: FontWeight.w700,
+            textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+            style: AppTypography.labelLarge
+                .copyWith(color: AppColors.textPrimary),
+          ),
+          SizedBox(height: 4.h),
+          Text(
+            scoreText,
+            style: AppTypography.heading1.copyWith(
+              fontSize: isHidden ? 24.sp : 38.sp,
+              height: 1,
+              color: isWinner ? AppColors.correct : AppColors.textPrimary,
             ),
           ),
-        ),
-        SizedBox(height: 8.h),
-        Text(
-          scoreText,
-          style: TextStyle(
-            color: score != null && !scoreVisible
-                ? AppColors.textMuted
-                : scoreColor,
-            fontSize: score != null && !scoreVisible ? 28.sp : 38.sp,
-            fontWeight: FontWeight.w900,
-            height: 0.9,
-            letterSpacing: -1.5,
-            shadows: isWinner
-                ? [
-                    Shadow(
-                      color: AppColors.correct.withOpacity(0.3),
-                      blurRadius: 12,
-                    ),
-                  ]
-                : null,
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusStrip extends StatelessWidget {
+  final String text;
+  final Color color;
+  final bool live;
+
+  const _StatusStrip({
+    required this.text,
+    required this.color,
+    required this.live,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 12.r),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceDim,
+        border: Border(top: BorderSide(color: AppColors.divider)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (live) ...[
+            Container(
+              width: 8.r,
+              height: 8.r,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.6),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: 10.w),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: AppTypography.bodyLarge.copyWith(
+                color: color,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
-        ),
-        SizedBox(height: 2.h),
-        Text(
-          scoreVisible || score == null ? '/ 10' : 'hidden',
-          style: TextStyle(
-            color: AppColors.textMuted.withOpacity(0.5),
-            fontSize: 11.sp,
-            fontWeight: FontWeight.w700,
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Ledger ─────────────────────────────────────────────────────────────────
+// The two facts that matter before committing: what is at stake and how long
+// is left. Names already sit in the arena.
+class _LedgerGrid extends StatelessWidget {
+  final ChallengeModel challenge;
+
+  const _LedgerGrid({required this.challenge});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = challenge;
+    final wp = c.wpStake ?? 0;
+    final isFree = c.stakeAmount <= 0 && wp <= 0;
+
+    final String stakeValue;
+    if (isFree) {
+      stakeValue = 'Free';
+    } else {
+      stakeValue = [
+        if (c.stakeAmount > 0) '${c.stakeAmount} AC',
+        if (wp > 0) '$wp WP',
+      ].join(' + ');
+    }
+
+    final remaining = c.timeRemaining;
+    final lifetime = c.expiresAt.difference(c.createdAt);
+    final fraction = lifetime.inSeconds <= 0
+        ? 0.0
+        : (remaining.inSeconds / lifetime.inSeconds).clamp(0.0, 1.0);
+    final urgent = remaining.inHours < 6;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _LedgerTile(label: 'Stake', value: stakeValue),
+        SizedBox(height: 10.h),
+        _LedgerTile(
+          label: 'Time left',
+          value: _formatTimeLeft(remaining),
+          valueColor: urgent ? AppColors.wrong : null,
+          footer: LinearProgressIndicator(
+            value: fraction.toDouble(),
+            minHeight: 4.r,
+            backgroundColor: AppColors.divider,
+            color: urgent ? AppColors.wrong : AppColors.accent,
+            borderRadius: BorderRadius.circular(AppRadii.full),
           ),
         ),
       ],
@@ -1081,213 +1116,39 @@ class _PlayerTile extends StatelessWidget {
   }
 }
 
-// ─── Widget: Challenge Details ──────────────────────────────────────────────
-class _ChallengeDetailsCard extends StatelessWidget {
-  final ChallengeModel challenge;
-  final bool isCreator;
-
-  const _ChallengeDetailsCard({
-    required this.challenge,
-    required this.isCreator,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(16.r), // moderate (was 14)
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'DETAILS',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.5,
-            ),
-          ),
-          SizedBox(height: 12.h),
-          _DetailRow(
-            icon: '🎬',
-            label: 'Anime',
-            value: challenge.animeTitle,
-          ),
-          SizedBox(height: 7.h), // moderate (was 6)
-          _DetailRow(
-            icon: '👤',
-            label: 'Created by',
-            value: challenge.creatorUsername,
-          ),
-          if (challenge.opponentUsername != null &&
-              challenge.opponentUsername!.isNotEmpty) ...[
-            SizedBox(height: 7.h),
-            _DetailRow(
-              icon: '👥',
-              label: 'Opponent',
-              value: challenge.opponentUsername!,
-            ),
-          ],
-          SizedBox(height: 7.h),
-          _DetailRow(
-            icon: '📅',
-            label: 'Created',
-            value: _formatDate(challenge.createdAt),
-          ),
-          if (!challenge.isCompleted) ...[
-            SizedBox(height: 7.h),
-            _DetailRow(
-              icon: '⏳',
-              label: 'Expires',
-              value: _formatTimeRemaining(challenge.timeRemaining),
-              valueColor:
-                  challenge.timeRemaining.inHours < 6 ? AppColors.wrong : null,
-            ),
-          ],
-          // Removed the info box about sharing the code below stakes.
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inDays > 0) return '${diff.inDays}d ago';
-    if (diff.inHours > 0) return '${diff.inHours}h ago';
-    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
-    return 'Just now';
-  }
-
-  String _formatTimeRemaining(Duration d) {
-    if (d == Duration.zero) return 'Expired';
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    return h > 0 ? '${h}h ${m}m' : '${m}m';
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final String icon;
+class _LedgerTile extends StatelessWidget {
   final String label;
   final String value;
   final Color? valueColor;
+  final Widget? footer;
 
-  const _DetailRow({
-    required this.icon,
+  const _LedgerTile({
     required this.label,
     required this.value,
     this.valueColor,
+    this.footer,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(icon, style: TextStyle(fontSize: 14.sp)),
-        SizedBox(width: 8.w),
-        Text(
-          label,
-          style: TextStyle(
-            color: AppColors.textMuted,
-            fontSize: 12.sp,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          value,
-          style: TextStyle(
-            color: valueColor ?? AppColors.textPrimary,
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Widget: Stakes Card ────────────────────────────────────────────────────
-class _StakesCard extends StatelessWidget {
-  final ChallengeModel challenge;
-  final bool isCompleted;
-
-  const _StakesCard({
-    required this.challenge,
-    required this.isCompleted,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isQuickMatch = challenge.isQuickMatch;
-
-    // Quick Match has no stake at all (stakeAmount is always 0, wpStake is
-    // never set) — before completion there's nothing meaningful to preview
-    // here, so the whole card is skipped rather than showing an empty
-    // "REWARD" header with nothing under it.
-    if (isQuickMatch && !isCompleted) {
-      return const SizedBox.shrink();
-    }
-
-    final hasWP = challenge.wpStake != null && challenge.wpStake! > 0;
-
-    return Container(
-      padding: EdgeInsets.all(16.r), // moderate (was 14)
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: AppColors.divider),
-      ),
+    return AppCard(
+      padding: EdgeInsets.all(14.r),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(label, style: AppTypography.bodySmall),
+          SizedBox(height: 6.h),
           Text(
-            isQuickMatch ? 'REWARD' : 'STAKES',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.5,
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.titleLarge.copyWith(
+              color: valueColor ?? AppColors.textPrimary,
             ),
           ),
-          SizedBox(height: 10.h), // moderate (was 8)
-          // Quick Match never has a real stake — showing "0 AC" pills here
-          // was meaningless clutter, so they're skipped entirely and this
-          // card goes straight to the reward actually earned below.
-          if (!isQuickMatch)
-            Row(
-              children: [
-                _StakePill(
-                  icon: '🪙',
-                  label: '${challenge.stakeAmount} AC',
-                  color: AppColors.accent,
-                ),
-                if (hasWP) ...[
-                  SizedBox(width: 10.w),
-                  _StakePill(
-                    icon: '⭐',
-                    label: '${challenge.wpStake} WP',
-                    color: AppColors.secondary,
-                  ),
-                ],
-              ],
-            ),
-          if (isCompleted) ...[
-            if (!isQuickMatch) ...[
-              SizedBox(height: 10.h), // moderate (was 8)
-              const Divider(color: AppColors.divider),
-              SizedBox(height: 10.h), // moderate (was 8)
-            ],
-            _RewardRow(
-              challenge: challenge,
-              currentUid: FirebaseAuth.instance.currentUser?.uid ?? '',
-            ),
+          if (footer != null) ...[
+            SizedBox(height: 10.h),
+            footer!,
           ],
         ],
       ),
@@ -1295,312 +1156,35 @@ class _StakesCard extends StatelessWidget {
   }
 }
 
-class _StakePill extends StatelessWidget {
-  final String icon;
-  final String label;
-  final Color color;
-
-  const _StakePill({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
+// ─── Dock ───────────────────────────────────────────────────────────────────
+class _Dock extends StatelessWidget {
+  final Widget child;
+  const _Dock({required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 6.r),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(10.r),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(icon, style: TextStyle(fontSize: 14.sp)),
-          SizedBox(width: 6.w),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+    return SafeArea(
+      top: false,
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.fromLTRB(20.r, 14.h, 20.r, 14.h),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.divider)),
+        ),
+        child: child,
       ),
     );
   }
 }
 
-// ─── Widget: Reward row (was _OutcomeRow) ──────────────────────────────────
-// This used to lead with an emoji + "Outcome: Win/Loss/Draw" label — but
-// _StatusHeader at the top of the page already shows exactly that ("You Won
-// 🏆" / "You Lost 💀" / "Draw 🤝"), so every completed challenge showed the
-// same win/loss/draw verdict twice on one screen. This row now only shows
-// the actual AC/WP reward, which the top banner doesn't convey.
-class _RewardRow extends StatelessWidget {
-  final ChallengeModel challenge;
-  final String currentUid;
-
-  const _RewardRow({
-    required this.challenge,
-    required this.currentUid,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDraw = challenge.isDraw;
-    final iWon = challenge.didCurrentUserWin(currentUid);
-
-    final int acChange;
-    final int wpChange;
-
-    if (challenge.isQuickMatch) {
-      // Flat Quick Match rewards — mirrors ChallengeResultPage's
-      // _acEarnedFor/_wpEarnedFor.
-      acChange = iWon
-          ? ChallengeModel.quickMatchAcWin
-          : isDraw
-              ? ChallengeModel.quickMatchAcDraw
-              : ChallengeModel.quickMatchAcLose;
-      wpChange = iWon
-          ? ChallengeModel.quickMatchWpWin
-          : isDraw
-              ? ChallengeModel.quickMatchWpDraw
-              : ChallengeModel.quickMatchWpLose;
-    } else {
-      acChange = isDraw
-          ? ChallengeModel.payoutDraw(challenge.stakeAmount) -
-              challenge.stakeAmount
-          : (iWon ? ChallengeModel.payoutWin(challenge.stakeAmount) : 0);
-
-      // WP: total credited = flat base reward (50/25) + stake settlement,
-      // mirroring _resolveChallengeCore's cBaseWp += wpCreatorChange (see
-      // ChallengeModel.wpTotalCredited). Code challenges (wpStake == 0)
-      // still earn the flat base reward on a win/draw — previously shown
-      // as +0 here. A loss credits nothing further (the stake was already
-      // forfeited at create/join time), so it keeps "Nothing this time".
-      final wpStake = challenge.wpStake ?? 0;
-      wpChange = (iWon || isDraw)
-          ? ChallengeModel.wpTotalCredited(
-              wpStake: wpStake,
-              won: iWon,
-              isDraw: isDraw,
-            )
-          : 0;
-    }
-
-    final hasAc = acChange != 0;
-    final hasWp = wpChange != 0;
-
-    return Row(
-      children: [
-        Text(
-          'You earned',
-          style: TextStyle(
-            color: AppColors.textMuted,
-            fontSize: 13.sp,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const Spacer(),
-        if (hasAc)
-          Text(
-            '${acChange > 0 ? '+' : ''}$acChange AC',
-            style: TextStyle(
-              color: acChange > 0 ? AppColors.accent : AppColors.wrong,
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        if (hasWp) ...[
-          SizedBox(width: hasAc ? 10.w : 0.w),
-          Text(
-            '${wpChange > 0 ? '+' : ''}$wpChange WP',
-            style: TextStyle(
-              color: wpChange > 0 ? AppColors.correct : AppColors.wrong,
-              fontSize: 14.sp,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-        if (!hasAc && !hasWp)
-          Text(
-            'Nothing this time',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-// ─── Widget: Accept Button (FIXED - stateless, no duplicate call) ──────────
-class _AcceptButton extends StatelessWidget {
-  final VoidCallback onTap;
-  final bool loading;
-
-  const _AcceptButton({
-    required this.onTap,
-    this.loading = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AppButton(
-      variant: AppButtonVariant.gradient,
-      label: loading ? 'Accepting…' : '⚔️ Accept & Play',
-      icon: loading ? null : const Icon(Icons.flash_on_rounded),
-      onPressed: loading ? null : onTap,
-    );
-  }
-}
-
-// ─── Widget: Reject/Decline Button ──────────────────────────────────────────
-class _RejectButton extends StatelessWidget {
-  final bool loading;
-  final VoidCallback onTap;
-
-  const _RejectButton({required this.loading, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton(
-        onPressed: loading ? null : onTap,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.wrong,
-          side: BorderSide(color: AppColors.wrong.withOpacity(0.45)),
-          padding: EdgeInsets.symmetric(vertical: 14.r),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14.r),
-          ),
-        ),
-        child: loading
-            ? SizedBox(
-                width: 18.w,
-                height: 18.h,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Text(
-                'Decline',
-                style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w800),
-              ),
-      ),
-    );
-  }
-}
-
-// ─── Widget: Lobby Nudge Button ───────────────────────────────────────────
-// Preset "Your turn!" ping for a challenge waiting on the other side.
-// Server verifies friendship, turn order and the once-per-day gate.
-class _LobbyNudgeButton extends StatefulWidget {
-  final String challengeId;
-  final String otherUid;
-  const _LobbyNudgeButton(
-      {required this.challengeId, required this.otherUid});
-
-  @override
-  State<_LobbyNudgeButton> createState() => _LobbyNudgeButtonState();
-}
-
-class _LobbyNudgeButtonState extends State<_LobbyNudgeButton> {
-  bool _busy = false;
-  bool _done = false;
-
-  Future<void> _nudge() async {
-    if (_busy || _done || widget.otherUid.isEmpty) return;
-    setState(() => _busy = true);
-    try {
-      await FirestoreService.instance.nudgeFriend(
-        friendUid: widget.otherUid,
-        challengeId: widget.challengeId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _done = true;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Nudge sent!'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 1),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not nudge — try again later.'),
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton(
-        onPressed:
-            (_busy || _done || widget.otherUid.isEmpty) ? null : _nudge,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.secondary,
-          side: BorderSide(
-              color: AppColors.secondary.withOpacity(0.45)),
-          padding: EdgeInsets.symmetric(vertical: 12.r),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14.r),
-          ),
-        ),
-        child: Text(
-          _done
-              ? 'Nudged ✓'
-              : _busy
-                  ? 'Sending…'
-                  : 'Nudge them',
-          style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w800),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Widget: Play Button ────────────────────────────────────────────────────
-class _PlayButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _PlayButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppButton(
-      variant: AppButtonVariant.gradient,
-      label: '⚡ Play Now',
-      icon: const Icon(Icons.flash_on_rounded),
-      onPressed: onTap,
-    );
-  }
-}
-
-// ─── Widget: Insufficient Balance ───────────────────────────────────────────
-class _InsufficientBalanceWidget extends StatelessWidget {
+class _BalanceNotice extends StatelessWidget {
   final int requiredAC;
   final int requiredWp;
   final bool missingAC;
   final bool missingWp;
 
-  const _InsufficientBalanceWidget({
+  const _BalanceNotice({
     required this.requiredAC,
     required this.requiredWp,
     required this.missingAC,
@@ -1615,37 +1199,23 @@ class _InsufficientBalanceWidget extends StatelessWidget {
     ].join(' and ');
 
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(12.r),
       decoration: BoxDecoration(
-        color: AppColors.wrong.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.wrong.withOpacity(0.3)),
+        color: AppColors.wrong.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.wrong.withValues(alpha: 0.3)),
       ),
-      child: Column(
+      child: Row(
         children: [
-          const Icon(
-            Icons.warning_amber_rounded,
-            color: AppColors.wrong,
-            size: 22,
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Insufficient Balance',
-            style: TextStyle(
-              color: AppColors.wrong,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'You need $parts to accept this challenge.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              height: 1.3,
+          Icon(Icons.warning_amber_rounded,
+              color: AppColors.wrong, size: 20.r),
+          SizedBox(width: 10.w),
+          Expanded(
+            child: Text(
+              'You need $parts to accept this challenge.',
+              style: AppTypography.bodyMedium.copyWith(
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
         ],
@@ -1654,41 +1224,42 @@ class _InsufficientBalanceWidget extends StatelessWidget {
   }
 }
 
-// ─── Widget: Waiting for Other Player ───────────────────────────────────────
-class _WaitingForOtherPlayerWidget extends StatelessWidget {
+class _WaitingNote extends StatelessWidget {
   final String message;
+  final IconData? icon;
 
-  const _WaitingForOtherPlayerWidget({required this.message});
+  const _WaitingNote({required this.message, this.icon});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 14.r),
       decoration: BoxDecoration(
-        color: AppColors.textMuted.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.textMuted.withOpacity(0.15),
-        ),
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.textMuted,
+          if (icon != null)
+            Icon(icon, color: AppColors.textMuted, size: 18.r)
+          else
+            SizedBox(
+              width: 16.r,
+              height: 16.r,
+              child: const CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.textMuted,
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            message,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+          SizedBox(width: 10.w),
+          Flexible(
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppTypography.bodyMedium.copyWith(
+                color: AppColors.textSecondary,
+              ),
             ),
           ),
         ],
@@ -1697,114 +1268,155 @@ class _WaitingForOtherPlayerWidget extends StatelessWidget {
   }
 }
 
-// ─── Widget: Copy Code Button ──────────────────────────────────────────────
-class _CopyCodeButton extends StatelessWidget {
+class _CodeShare extends StatelessWidget {
   final String code;
-
-  const _CopyCodeButton({required this.code});
+  const _CodeShare({required this.code});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        Clipboard.setData(ClipboardData(text: code));
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Challenge code copied!'),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        onTap: () {
+          Clipboard.setData(ClipboardData(text: code));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Challenge code copied!'),
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        },
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 12.r),
+          decoration: BoxDecoration(
+            color: AppColors.primarySoft,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: AppColors.primaryBorder),
           ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.copy_rounded, color: AppColors.primary, size: 18),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Share Challenge Code',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  code,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2.5,
-                  ),
-                ),
-              ],
-            ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                'Tap to Copy',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+          child: Row(
+            children: [
+              Icon(Icons.copy_rounded, color: AppColors.primary, size: 18.r),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Challenge code', style: AppTypography.bodySmall),
+                    SizedBox(height: 2.h),
+                    Text(
+                      code,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.heading3
+                          .copyWith(letterSpacing: 2.5),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          ],
+              Text(
+                'Tap to copy',
+                style: AppTypography.labelMedium
+                    .copyWith(color: AppColors.primary),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              IconButton(
+                tooltip: 'Share challenge',
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
+                ),
+                onPressed: () => ShareService.instance.shareCard(
+                  context,
+                  card: ShareCard.forChallenge(code),
+                  logicalSize: kShareCardSize,
+                  fileName: 'animequiz-challenge-card',
+                  text: challengeShareMessage(code),
+                  subject: 'AnimeQuiz challenge',
+                ),
+                icon: Icon(
+                  Icons.share_rounded,
+                  color: AppColors.primary,
+                  size: 18.r,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-// ─── Widget: Spectator ──────────────────────────────────────────────────────
-class _SpectatorWidget extends StatelessWidget {
-  const _SpectatorWidget();
+// ─── Widget: Accept / Decline / Play ────────────────────────────────────────
+class _AcceptButton extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool loading;
+
+  const _AcceptButton({
+    required this.onTap,
+    this.loading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.textMuted.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: AppColors.textMuted.withOpacity(0.15),
-        ),
-      ),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.visibility_rounded, color: AppColors.textMuted),
-          const SizedBox(width: 10),
-          Text(
-            'You are not a participant in this challenge',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
+    return AppButton(
+      variant: AppButtonVariant.gradient,
+      size: AppButtonSize.large,
+      label: loading ? 'Accepting…' : '⚔️ Accept & Play',
+      icon: loading ? null : const Icon(Icons.flash_on_rounded),
+      loading: loading,
+      onPressed: loading ? null : onTap,
     );
   }
+}
+
+class _RejectButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTap;
+
+  const _RejectButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppButton(
+      variant: AppButtonVariant.outline,
+      size: AppButtonSize.medium,
+      color: AppColors.wrong,
+      label: 'Decline',
+      loading: loading,
+      onPressed: loading ? null : onTap,
+    );
+  }
+}
+
+class _PlayButton extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _PlayButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppButton(
+      variant: AppButtonVariant.gradient,
+      size: AppButtonSize.large,
+      label: '⚡ Play Now',
+      icon: const Icon(Icons.flash_on_rounded),
+      onPressed: onTap,
+    );
+  }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+String _formatTimeLeft(Duration d) {
+  if (d == Duration.zero) return 'Expired';
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  return h > 0 ? '${h}h ${m}m' : '${m}m';
 }
 
 // ─── Widget: Not Found ──────────────────────────────────────────────────────
@@ -1814,45 +1426,39 @@ class _NotFoundView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.divider),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 24.r),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80.r,
+              height: 80.r,
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.divider),
+              ),
+              child: Icon(Icons.error_outline_rounded,
+                  color: AppColors.textMuted, size: 40.r),
             ),
-            child: const Icon(Icons.error_outline_rounded,
-                color: AppColors.textMuted, size: 40),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Challenge Not Found',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
+            SizedBox(height: 20.h),
+            Text('Challenge Not Found', style: AppTypography.heading3),
+            SizedBox(height: 8.h),
+            Text(
+              'This challenge may have expired or been deleted.',
+              textAlign: TextAlign.center,
+              style: AppTypography.bodyMedium,
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'This challenge may have expired or been deleted.',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 14,
+            SizedBox(height: 24.h),
+            AppButton(
+              variant: AppButtonVariant.gradient,
+              label: 'Back to Challenges',
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.pop(context),
             ),
-          ),
-          const SizedBox(height: 24),
-          AppButton(
-            variant: AppButtonVariant.gradient,
-            label: 'Back to Challenges',
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

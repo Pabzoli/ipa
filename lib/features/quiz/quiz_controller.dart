@@ -44,21 +44,6 @@
 //    Quick Match play, not just ghost matches.
 //  • Non-quick-match asyncChallenge path is completely unchanged.
 //
-//  DAILY CHALLENGE ADDITIONS (Stage DC):
-//  • isDailyChallenge constructor param (default false).
-//  • When true, the 'isDailyChallenge' flag is included in the
-//    submitQuizAnswers CF payload — the CF multiplies totalWP by 1.5 there.
-//    The CF also sets dailyChallengeDate/dailyChallengeUsed atomically, so
-//    no client-side stamp is needed after submission.
-//  • If the CF is unreachable after retries, _isNavigating is reset and an
-//    error snackbar is shown — no daily attempt is consumed.
-//  • isDailyChallenge is a public field so QuestionsPage can forward it to
-//    SoloSummaryPage without requiring a callback-signature change.
-//    QuestionsPage should:
-//      1. Accept isDailyChallenge in its own constructor (default false).
-//      2. Pass it to QuizController(..., isDailyChallenge: isDailyChallenge).
-//      3. In the onSoloComplete handler, pass controller.isDailyChallenge to
-//         SoloSummaryPage(isDailyChallenge: controller.isDailyChallenge, ...).
 // =============================================================================
 
 import 'dart:async';
@@ -69,6 +54,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/providers/user_data_provider.dart';
+import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/constants/solo_economy.dart';
 import 'questions.dart';
@@ -111,6 +97,17 @@ const int kTimerDuration = 10;
 /// by an exponential back-off starting at 1 s (1 s, 2 s, …).
 const int _kCfMaxAttempts = 2;
 
+/// Bridge used to invoke the final submission Cloud Function.
+///
+/// [name] is either `submitChallengeScore` or `submitQuickMatchResult` and
+/// [payload] is the callable data map. Production leaves the controller's
+/// `submitCaller` null, so the real [FirebaseFunctions] client is used; tests
+/// inject a fake to drive the success / failure outcomes offline.
+typedef QuizSubmitCaller = Future<Map<String, dynamic>> Function(
+  String name,
+  Map<String, dynamic> payload,
+);
+
 // =============================================================================
 
 class QuizController extends ChangeNotifier {
@@ -122,16 +119,17 @@ class QuizController extends ChangeNotifier {
     this.challengeId,
     this.isCreator = true,
     this.isQuickMatch = false,
-    this.isDailyChallenge = false, // ← DC
     this.isGauntlet = false, // ← Daily Gauntlet
     this.gauntletTicketId,
+    QuizSubmitCaller? submitCaller,
     required UserDataProvider userDataProvider,
     required this.onQuestionAdvance,
     required this.onSoloComplete,
     required this.onChallengeComplete,
     required this.onInsufficientCoins,
     required this.onError,
-  }) : _ud = userDataProvider;
+  })  : _submitCaller = submitCaller,
+        _ud = userDataProvider;
 
   // ── Config ─────────────────────────────────────────────────────────────────
   final QuizMode mode;
@@ -151,16 +149,6 @@ class QuizController extends ChangeNotifier {
   /// same live ChallengeResultPage flow Rival/Code challenges use.
   final bool isQuickMatch;
 
-  /// When true this is the user's Daily Challenge session.
-  ///
-  /// Passed to the [submitQuizAnswers] Cloud Function which multiplies
-  /// [totalWP] by 1.5 (round-up) server-side. The CF sets
-  /// [dailyChallengeDate] and [dailyChallengeUsed] atomically — no
-  /// client-side write is needed. Exposed as a public field so [QuestionsPage]
-  /// can forward it directly to [SoloSummaryPage] without needing a
-  /// callback-signature change.
-  final bool isDailyChallenge; // ← DC
-
   /// When true this is a Daily Gauntlet session — 7 mixed-anime questions
   /// loaded from [questionIds] (positional order matters: the WP tier for
   /// each question is derived from its index). Completion routes through the
@@ -177,6 +165,11 @@ class QuizController extends ChangeNotifier {
   final String? gauntletTicketId;
 
   final UserDataProvider _ud;
+
+  /// Test seam for the final challenge / quick-match submission. Null in
+  /// production, where [_invokeSubmitCallable] goes straight to
+  /// [FirebaseFunctions].
+  final QuizSubmitCaller? _submitCaller;
 
   // ── Callbacks ──────────────────────────────────────────────────────────────
 
@@ -222,7 +215,11 @@ class QuizController extends ChangeNotifier {
   final Future<void> Function(int needed) onInsufficientCoins;
 
   /// Show a SnackBar error message.
-  final void Function(String msg) onError;
+  ///
+  /// [onRetry] is non-null for failures the player can retry in place (the
+  /// final challenge / quick-match submission); the page renders it as the
+  /// snackbar's "Retry" action.
+  final void Function(String msg, {void Function()? onRetry}) onError;
 
   // ── Loading / error ────────────────────────────────────────────────────────
   bool _isLoading = true;
@@ -258,11 +255,18 @@ class QuizController extends ChangeNotifier {
   bool _isNavigating = false;
   bool _disposed = false;
 
+  /// True when the final score submission of an async challenge / quick match
+  /// failed. The page exposes a "Retry" snackbar action while this is set and
+  /// permits leaving through the normal quit flow (the server settles the
+  /// abandoned match as a forfeit) instead of trapping the player here.
+  bool _submitFailed = false;
+
   int get qIndex => _qIndex;
   int get selectedOption => _selectedOption;
   int get correctCount => _correctCount;
   bool get showResult => _showResult;
   bool get isNavigating => _isNavigating;
+  bool get submitFailed => _submitFailed;
 
   // ── Answer history (submitted to CF at quiz completion) ────────────────────
   //
@@ -365,6 +369,7 @@ class QuizController extends ChangeNotifier {
       _correctCount = 0;
       _showResult = false;
       _isNavigating = false;
+      _submitFailed = false;
       _selectedAnswers = [];
       _answerTimings = [];
 
@@ -697,15 +702,13 @@ class QuizController extends ChangeNotifier {
         final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
             .httpsCallable('submitQuizAnswers');
 
-        // isDailyChallenge is always included in the payload (true or false).
-        // The CF multiplies totalWP by 1.5 when isDailyChallenge == true.
         final result = await callable.call<Map<Object?, Object?>>({
           'questionIds': cfQuestionIds,
           'selectedAnswers': _selectedAnswers,
           'timings': _answerTimings,
           'sessionId': sessionId,
-          'isDailyChallenge': isDailyChallenge, // ← DC flag
           'soloDifficulty': normalizeSoloDifficulty(soloDifficulty),
+          ...AppUpdateService.instance.clientBuildStamp,
         });
 
         if (_disposed) return;
@@ -779,32 +782,86 @@ class QuizController extends ChangeNotifier {
   // Routes to _finishQuickMatch for quick matches, otherwise uses the existing
   // submitCreatorScore / submitOpponentScore path (completely unchanged).
 
+  /// Runs a final-submission callable through the injected test seam when one
+  /// is present, otherwise through the real [FirebaseFunctions] client. Both
+  /// paths return the callable's data map.
+  Future<Map<String, dynamic>> _invokeSubmitCallable(
+    String name,
+    Map<String, dynamic> payload,
+  ) async {
+    final injected = _submitCaller;
+    if (injected != null) return injected(name, payload);
+
+    final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable(name)
+        .call<Map<Object?, Object?>>(payload);
+    return Map<String, dynamic>.from(result.data);
+  }
+
   Future<void> _finishChallenge() async {
     if (isQuickMatch) {
       await _finishQuickMatch();
       return;
     }
 
-    // ── Standard async challenge (non-quick) — unchanged ──────────────────
+    // ── Standard async challenge (Rival / Code / Spar) ────────────────────
+    // The score is computed SERVER-side from the submitted answers by
+    // submitChallengeScore, exactly like Quick Match. The old path wrote
+    // creatorScore / opponentScore straight to Firestore, which made the payout
+    // input client-attested — a patched client could claim a perfect score and
+    // take the opponent's stake. firestore.rules now denies that write.
     try {
-      if (isCreator) {
-        await FirestoreService.instance
-            .submitCreatorScore(challengeId!, _correctCount);
-      } else {
-        await FirestoreService.instance
-            .submitOpponentScore(challengeId!, _correctCount);
-      }
-      if (!_disposed) {
-        onChallengeComplete(challengeId!, isCreator, _correctCount);
-      }
+      final cfQuestionIds = _questions.map((q) => q.id).toList();
+      final data = await _invokeSubmitCallable('submitChallengeScore', {
+        'challengeId': challengeId,
+        'questionIds': cfQuestionIds,
+        'selectedAnswers': _selectedAnswers,
+        'timings': _answerTimings,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+
+      if (_disposed) return;
+      final correctCount =
+          (data['correctCount'] as num?)?.toInt() ?? _correctCount;
+      onChallengeComplete(challengeId!, isCreator, correctCount);
     } catch (e) {
       if (!_disposed) {
         _isNavigating = false;
+        _submitFailed = true;
         _notify();
-        onError('Failed to save score: $e');
+        onError('Failed to save score: $e', onRetry: retrySubmit);
       }
     }
   }
+
+  // ── Retry a failed final submission ────────────────────────────────────────
+  //
+  // The final challenge / quick-match submission has no re-enterable UI: once
+  // the last question advances, _advance is done and the answer tiles are
+  // locked. Without this method a transient CF failure stranded the player on
+  // the last question — quitting was blocked and there was nothing to tap.
+  //
+  // Exposed through the "Retry" action on the failure snackbar. A no-op unless
+  // a submission actually failed, so a stale snackbar tap can never re-submit.
+
+  Future<void> retrySubmit() async {
+    if (_disposed || _isNavigating || !_submitFailed) return;
+    if (mode != QuizMode.asyncChallenge) return;
+
+    _submitFailed = false;
+    _isNavigating = true;
+    _notify();
+
+    // _finishChallenge routes quick matches to _finishQuickMatch internally.
+    await _finishChallenge();
+  }
+
+  /// Drives the final submission exactly like the last question advancing.
+  ///
+  /// Test-only entry point: lets the failure → retry path run without a loaded
+  /// quiz or a live Cloud Function (see the injected `submitCaller`).
+  @visibleForTesting
+  Future<void> finishRunForTest() => _finishChallenge();
 
   // ── Quick Match completion ─────────────────────────────────────────────────
   //
@@ -833,19 +890,15 @@ class QuizController extends ChangeNotifier {
     final cfQuestionIds = _questions.map((q) => q.id).toList();
 
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('submitQuickMatchResult');
-
-      final result = await callable.call<Map<Object?, Object?>>({
+      final data = await _invokeSubmitCallable('submitQuickMatchResult', {
         'challengeId': challengeId,
         'questionIds': cfQuestionIds,
         'selectedAnswers': _selectedAnswers,
         'timings': _answerTimings,
+        ...AppUpdateService.instance.clientBuildStamp,
       });
 
       if (_disposed) return;
-
-      final data = Map<String, dynamic>.from(result.data);
 
       // correctCount is server-validated for both ghost and real paths.
       final correctCount = (data['correctCount'] as num).toInt();
@@ -861,8 +914,9 @@ class QuizController extends ChangeNotifier {
     } catch (e) {
       if (!_disposed) {
         _isNavigating = false;
+        _submitFailed = true;
         _notify();
-        onError('Failed to save Quick Match result: $e');
+        onError('Failed to save Quick Match result: $e', onRetry: retrySubmit);
       }
     }
   }
@@ -892,6 +946,7 @@ class QuizController extends ChangeNotifier {
         'answers': _selectedAnswers,
         'score': correctCount,
         'username': username,
+        ...AppUpdateService.instance.clientBuildStamp,
       });
     } catch (e) {
       debugPrint('[QuizController] saveGhostSession failed (non-fatal): $e');

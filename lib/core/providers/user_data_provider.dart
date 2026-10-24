@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/firestore_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import '../widgets/insufficient_coins_sheet.dart'; // for InsufficientCoinsException
 
 // =============================================================================
 // Quick Match runs 24/7 on a daily token budget (free 5/day, premium 8/day,
@@ -55,23 +54,9 @@ class UserDataProvider extends ChangeNotifier {
   // ── Challenge daily counter ───────────────────────────────────────────────
   int  _challengesCreatedToday  = 0;
 
-  // ── P-05: Session quiz counter ────────────────────────────────────────────
-  int  _sessionQuizCount        = 0;
-
   // ── Quick Match token state ───────────────────────────────────────────────
   int  _qmTokens                = 0;
   bool _qmAdTokenUsed           = false;
-
-  // ── Cooldown Skip Counter ────────────────────────────────────────────────
-  int  _cooldownSkipsToday       = 0;
-
-  // ── Daily Challenge state ─────────────────────────────────────────────────
-  // Streamed from users/{uid}.dailyChallengeUsed / dailyChallengeDate.
-  // True when the user has already consumed their free Daily Challenge today
-  // (WAT). Resets to false locally at WAT midnight (stream handles this).
-  // Used by HomePage to toggle the DC badge appearance, and by
-  // _startDailyChallenge to decide whether to prompt the 40 AC retry payment.
-  bool _dailyChallengeUsedToday = false;
 
   // ── Coin reservation system ──────────────────────────────────────────────
   final Map<int, int> _pendingCoinReservations = <int, int>{};
@@ -111,23 +96,8 @@ class UserDataProvider extends ChangeNotifier {
   bool get connectivityChecked      => _connectivityChecked;
   bool get premiumActive            => _premiumActive;
   int  get challengesCreatedToday   => _challengesCreatedToday;
-  int  get sessionQuizCount         => _sessionQuizCount;
   int  get qmTokens                 => _qmTokens;
   bool get qmAdTokenUsed            => _qmAdTokenUsed;
-  int  get cooldownSkipsToday       => _cooldownSkipsToday;
-
-  /// Whether the signed-in user has already used their free Daily Challenge
-  /// today (WAT timezone). Sourced from users/{uid} via Firestore stream.
-  ///
-  /// `false` (not yet used) when:
-  ///   • Field is absent (new account or fresh install).
-  ///   • The stored [dailyChallengeDate] is from a prior WAT day.
-  ///   • [dailyChallengeUsed] is false.
-  ///
-  /// Used by [HomePage._DailyChallengeButton] to show "Used" vs "Available"
-  /// states, and by [_startDailyChallenge] to decide whether to prompt the
-  /// 40 AC second-attempt payment.
-  bool get dailyChallengeUsedToday  => _dailyChallengeUsedToday;
 
   // ── WP Getters ───────────────────────────────────────────────────────────────
 
@@ -180,9 +150,7 @@ class UserDataProvider extends ChangeNotifier {
   StreamSubscription<int>?                      _challengesCreatedTodaySub;
   StreamSubscription<int>?                      _qmTokensSub;
   StreamSubscription<bool>?                     _qmAdTokenUsedSub;
-  StreamSubscription<int>?                      _cooldownSkipsTodaySub;
-  StreamSubscription<bool>?                     _dailyChallengeUsedSub;
-  
+
   // ── WP Stream Subscriptions ─────────────────────────────────────────────────
   StreamSubscription<int>?                      _wpStakedTodaySub;
   StreamSubscription<String>?                   _wpStakedDateSub;
@@ -281,8 +249,6 @@ class UserDataProvider extends ChangeNotifier {
     _challengesCreatedToday  = 0;
     _qmTokens                = 0;
     _qmAdTokenUsed           = false;
-    _cooldownSkipsToday      = 0;
-    _dailyChallengeUsedToday = false;
     
     // Reset WP fields
     _wpStakedToday           = 0;
@@ -307,8 +273,6 @@ class UserDataProvider extends ChangeNotifier {
     _challengesCreatedTodaySub?.cancel();  _challengesCreatedTodaySub  = null;
     _qmTokensSub?.cancel();                _qmTokensSub                = null;
     _qmAdTokenUsedSub?.cancel();           _qmAdTokenUsedSub           = null;
-    _cooldownSkipsTodaySub?.cancel();      _cooldownSkipsTodaySub      = null;
-    _dailyChallengeUsedSub?.cancel();      _dailyChallengeUsedSub      = null;
     
     // Cancel WP subscriptions
     _wpStakedTodaySub?.cancel();           _wpStakedTodaySub           = null;
@@ -333,9 +297,6 @@ class UserDataProvider extends ChangeNotifier {
     });
     FirestoreService.instance.ensureChallengesCreatedTodayField().catchError((e) {
       debugPrint('[UserDataProvider] ensureChallengesCreatedTodayField error (ignored): $e');
-    });
-    FirestoreService.instance.ensureCooldownSkipsFields().catchError((e) {
-      debugPrint('[UserDataProvider] ensureCooldownSkipsFields error (ignored): $e');
     });
 
     // ── Score ────────────────────────────────────────────────────────────────
@@ -427,40 +388,6 @@ class UserDataProvider extends ChangeNotifier {
       },
       onError: (e) {
         debugPrint('[UserDataProvider] qmAdTokenUsed stream error (ignored): $e');
-      },
-    );
-
-    // ── Cooldown Skips Today ──────────────────────────────────────────────────
-    _cooldownSkipsTodaySub =
-        FirestoreService.instance.cooldownSkipsTodayStream().listen(
-      (count) {
-        _cooldownSkipsToday = count;
-        notifyListeners();
-      },
-      onError: (e) {
-        debugPrint('[UserDataProvider] cooldownSkipsToday stream error (ignored): $e');
-      },
-    );
-
-    // ── Daily Challenge Used Today ────────────────────────────────────────────
-    // Watches users/{uid}.dailyChallengeDate + dailyChallengeUsed to keep the
-    // DC badge in sync with whether the free attempt has been consumed today
-    // (WAT timezone). Emits true once markDailyChallengeUsed() is called by
-    // the quiz controller, and resets to false at the WAT midnight boundary
-    // without requiring a server write (the stream performs the date comparison
-    // locally, same pattern as dailyAdWatchedStream).
-    _dailyChallengeUsedSub =
-        FirestoreService.instance.dailyChallengeUsedTodayStream().listen(
-      (used) {
-        _dailyChallengeUsedToday = used;
-        notifyListeners();
-      },
-      onError: (e) {
-        debugPrint('[UserDataProvider] dailyChallengeUsed stream error (ignored): $e');
-        // Non-fatal — defaults to false (shows DC as available), which is the
-        // safer direction: worst case the user sees the DC button enabled when
-        // it has already been used (the CF enforces the actual 1.5× grant, so
-        // they won't get a second free bonus).
       },
     );
 
@@ -566,7 +493,11 @@ class UserDataProvider extends ChangeNotifier {
     }
   }
 
-  Future<int> commitReservedCoinSpend(int reservationId, String type) async {
+  Future<int> commitReservedCoinSpend(
+    int reservationId,
+    String type, {
+    Map<String, dynamic>? extra,
+  }) async {
     final amount = _pendingCoinReservations[reservationId];
     if (amount == null) {
       throw StateError('reservation_not_found');
@@ -578,6 +509,7 @@ class UserDataProvider extends ChangeNotifier {
           .call(<String, dynamic>{
         'amount': amount,
         'type': type,
+        ...?extra,
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -602,6 +534,11 @@ class UserDataProvider extends ChangeNotifier {
     } on FirebaseFunctionsException catch (e) {
       rollbackReservedCoinSpend(reservationId);
 
+      if (e.code == 'permission-denied' &&
+          (e.message ?? '').contains('premium_required')) {
+        throw const PremiumRequiredException();
+      }
+
       final insufficient = e.code == 'resource-exhausted' ||
           (e.message ?? '').contains('insufficient_coins');
 
@@ -623,15 +560,13 @@ class UserDataProvider extends ChangeNotifier {
   }
 
   /// Simple spend wrapper using the reservation system.
-  Future<void> spendCoins(int amount, String type) async {
+  Future<void> spendCoins(
+    int amount,
+    String type, {
+    Map<String, dynamic>? extra,
+  }) async {
     final reservationId = reserveCoins(amount);
-    await commitReservedCoinSpend(reservationId, type);
-  }
-
-  // ── P-05: Session quiz counter ────────────────────────────────────────────
-  void incrementSessionQuizCount() {
-    _sessionQuizCount++;
-    // No notifyListeners() — no widget reads this value for display.
+    await commitReservedCoinSpend(reservationId, type, extra: extra);
   }
 
   // ── Daily Login Bonus (+20 AC) + Streak WP Milestones ───────────────────────
@@ -710,14 +645,5 @@ class UserDataProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[UserDataProvider] claimReferralBonusIfEligible error (ignored): $e');
     }
-  }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-
-  static String _watDateString() {
-    final wat = DateTime.now().toUtc().add(const Duration(hours: 1));
-    final m   = wat.month.toString().padLeft(2, '0');
-    final d   = wat.day.toString().padLeft(2, '0');
-    return '${wat.year}-$m-$d';
   }
 }

@@ -1,0 +1,83 @@
+name: Build iOS IPA (unsigned)
+
+# Produces an *unsigned* quiz.ipa you can sideload with Sideloadly / AltStore /
+# SideStore on Windows. No Apple Developer account or signing secrets needed.
+# Signing happens on your PC at install time (Sideloadly re-signs with your
+# Apple ID, free or paid).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'functions/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'data/**'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: flutter build ipa
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Toolchain versions
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      # Flutter 3.44 defaults SPM on; several plugins in this app still ship
+      # only CocoaPods specs, so keep the CocoaPods path.
+      - name: Disable Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # firebase_core 4.x / firebase_auth 6.x require iOS 15, and the checked-in
+      # project still says 11.0 — pod install fails outright below 15.
+      - name: Pin iOS deployment target to 15.0
+        run: |
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' \
+            ios/Runner.xcodeproj/project.pbxproj
+          grep -c 'IPHONEOS_DEPLOYMENT_TARGET = 15.0' ios/Runner.xcodeproj/project.pbxproj
+
+      - name: Build (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package into .ipa
+        run: |
+          set -euo pipefail
+          IPA_DIR="$GITHUB_WORKSPACE/build/ios/ipa"
+          mkdir -p "$IPA_DIR"
+          cd "$GITHUB_WORKSPACE/build/ios/iphoneos"
+          rm -rf Payload
+          mkdir Payload
+          cp -R Runner.app Payload/
+          # ditto keeps framework symlinks + extended attributes intact, which
+          # plain `zip -r` can mangle (breaks codesign on device).
+          ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_DIR/quiz-unsigned.ipa"
+          unzip -l "$IPA_DIR/quiz-unsigned.ipa" | head -20
+          ls -lh "$IPA_DIR/quiz-unsigned.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: quiz-unsigned-ipa
+          path: build/ios/ipa/quiz-unsigned.ipa
+          retention-days: 14
+          if-no-files-found: error

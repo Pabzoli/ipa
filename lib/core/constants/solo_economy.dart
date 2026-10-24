@@ -81,6 +81,16 @@ String normalizeSoloDifficulty(String? raw) {
   return 'easy';
 }
 
+// ── Homepage spend surfaces ─────────────────────────────────────────────────
+// Mirrors the amounts enforced server-side in functions/index.js
+// (`spendCoins` type 'spend_cooldown' = 100; EARLY_UNLOCK_COST = 5000).
+
+/// Flat AC cost to skip one anime's cooldown lock (`spend_cooldown`).
+const int kCooldownSkipCost = 100;
+
+/// AC cost to permanently unlock one anime early (`unlockAnimeEarly`).
+const int kEarlyUnlockCost = 5000;
+
 /// Max raw WP for a perfect all-slow run at [difficulty] (before decay/cap).
 /// Used for UI previews only — the server is authoritative.
 int soloDifficultyMaxWP(String difficulty) {

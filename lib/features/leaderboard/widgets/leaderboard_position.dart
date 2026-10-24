@@ -167,9 +167,9 @@ class YourPositionCard extends StatelessWidget {
       // #90 of 240 is told they are in the "top 38%" of a list that only
       // contains 100 people.
       final pct = ((rank / total) * 100).ceil().clamp(1, 99);
-      return '#$rank of $total · top $pct% · $myWeeklyPoints pts';
+      return '$total entrants · top $pct% · $myWeeklyPoints pts';
     }
-    return '#$rank · $myWeeklyPoints pts';
+    return '$myWeeklyPoints pts this week';
   }
 }
 
@@ -254,7 +254,7 @@ class _NextRankGap extends StatelessWidget {
       return _GapShell(
         icon: Icons.workspace_premium_rounded,
         color: LeaderboardPalette.gold,
-        text: 'You lead the board. Hold it.',
+        text: 'You lead the board.',
       );
     }
 

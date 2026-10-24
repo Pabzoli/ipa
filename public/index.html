@@ -324,7 +324,7 @@
   }
   .email-note svg { flex-shrink: 0; color: var(--correct); }
 
-  /* ── Final-sale notice (no refunds) ─────────────────────────────── */
+  /* ── Refund notice ─────────────────────────────────────────────── */
   .final-sale {
     display: flex;
     align-items: flex-start;
@@ -342,6 +342,8 @@
   }
   .final-sale svg { flex-shrink: 0; margin-top: 1px; }
   .final-sale .final-sale-body {
+    display: block;
+    margin-top: 6px;
     font-weight: 700;
     color: var(--muted);
     letter-spacing: 0;
@@ -483,6 +485,23 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .row-perks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .row-perk {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    color: var(--muted);
+    padding: 4px 9px;
+    border-radius: 100px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--divider-2);
+    white-space: nowrap;
   }
   .row-price {
     font-size: 20px;
@@ -697,7 +716,7 @@
     <h1>Power <span class="accent">up.</span></h1>
     <p class="hero-lede">
       Buy Anime Coins, unlock Premium, or claim your spot on the weekly board.
-      <strong>Your code appears right on this page the moment payment clears — no inbox hunting.</strong>
+      <strong>Your code is shown on the next screen the moment payment clears — no inbox hunting.</strong>
     </p>
   </section>
 
@@ -728,7 +747,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20 6L9 17l-5-5"/>
         </svg>
-        Used only to process your payment. Your code is shown right here — never emailed.
+        Used to process your payment and to recover your code later. Your code is never emailed.
       </div>
     </div>
   </section>
@@ -745,12 +764,13 @@
         <circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 16.5v.01"/>
       </svg>
       <div>
-        ALL PURCHASES ARE FINAL SALE — NO REFUNDS
+        NO REFUNDS ONCE A CODE IS DELIVERED OR COINS ARE USED
         <span class="final-sale-body">
-          Once you pay, the purchase is final. We do not cancel, return, exchange or
-          refund purchases, whether or not you redeem your code. Please check the price
-          before paying.
-          <a href="/refund.html">Read the No Refunds Policy</a>.
+          Delivered codes and used coins are non-refundable. Request a refund within
+          the refund request window — 3 days from code delivery. After that, failed
+          delivery, duplicate charges, unauthorised payments, wrong amounts and
+          processor reversals are still refundable.
+          <a href="/refund.html">Refund Policy</a>.
         </span>
       </div>
     </div>
@@ -760,7 +780,7 @@
       <span class="featured-ribbon">★ Most popular</span>
       <h2 class="featured-title">2880 Anime Coins</h2>
       <p class="featured-desc">
-        Our best value pack — includes a 20% bonus. Enough for weeks of play.
+        Our best value pack — includes a 20% bonus and the Champion badge. Enough for weeks of play.
       </p>
       <div class="featured-row">
         <div>
@@ -785,9 +805,9 @@
         <a href="/download.html">Get the app</a>
         <a href="/privacy.html">Privacy Policy</a>
         <a href="/terms.html">Terms of Service</a>
-        <a href="/refund.html">No Refunds Policy</a>
+        <a href="/refund.html">Refund Policy</a>
       </div>
-      <div class="footer-copyright">© AnimeQuiz · One-time codes, redeemable in-app · All sales final, no refunds</div>
+      <div class="footer-copyright">© AnimeQuiz · One-time codes, redeemable in-app · Delivered codes and used coins are non-refundable</div>
     </div>
     <div class="footer-badges">
       <span>
@@ -833,6 +853,7 @@
       price: '₦2,000',
       color: '#A78BFA',
       cta: 'Get Premium',
+      perks: ['1.20× WP', 'Free gauntlet retry', '8 Quick Match/day'],
     },
     {
       id: 'AQ_LB_WEEK',
@@ -881,6 +902,13 @@
         '<div class="row-body">' +
           '<h3 class="row-title">' + esc(p.title) + '</h3>' +
           '<p class="row-desc">' + esc(p.desc) + '</p>' +
+          (p.perks && p.perks.length
+            ? '<div class="row-perks">' +
+                p.perks.map(function (perk) {
+                  return '<span class="row-perk">' + esc(perk) + '</span>';
+                }).join('') +
+              '</div>'
+            : '') +
         '</div>' +
         '<div class="row-price">' + esc(p.price) + '</div>' +
         '<button class="btn btn-sm" data-id="' + esc(p.id) + '">' +

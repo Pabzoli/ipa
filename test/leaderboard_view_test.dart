@@ -31,17 +31,11 @@ Widget wrap(Widget content) => MaterialApp(
     );
 
 void main() {
-  group('Refresh cadence', () {
-    test('the board is read four times a day', () {
-      // Pinned deliberately: this is a resource/bandwidth decision, not an
-      // incidental constant. Changing it should be a conscious edit.
+  group('Refresh model: load on open, pull-to-refresh, resume if stale', () {
+    test('the staleness threshold is six hours, pinned deliberately', () {
+      // This is the only refresh threshold left. It gates a resume re-read; it
+      // is not a timer. Changing it should be a conscious edit.
       expect(kLeaderboardRefreshInterval, const Duration(hours: 6));
-      expect(
-        Duration(days: 1).inMinutes ~/ kLeaderboardRefreshInterval.inMinutes,
-        4,
-      );
-      // No wake-up tick exists any more: the page arms one one-shot timer per
-      // successful fetch and does nothing at all between refreshes.
     });
 
     test('nothing fetched yet is always stale', () {
@@ -98,65 +92,9 @@ void main() {
     });
   });
 
-  // 2025-06-16 is a Monday, so 2025-06-22 is the Sunday of that week.
-  group('nextRefreshAt', () {
-    test('mid-week: plain six-hour cadence', () {
-      final fetched = DateTime.utc(2025, 6, 16, 8);
-      expect(
-        nextRefreshAt(fetchedAt: fetched, now: fetched),
-        DateTime.utc(2025, 6, 16, 14),
-      );
-    });
-
-    test('before the reset: the Sunday 23:00 boundary wins', () {
-      // Sunday 20:00 + 6h would be Monday 02:00, but the CF resets at 23:00 and
-      // zeroes every score there, so that boundary takes priority.
-      final fetched = DateTime.utc(2025, 6, 22, 20);
-      expect(
-        nextRefreshAt(fetchedAt: fetched, now: fetched),
-        DateTime.utc(2025, 6, 22, 23),
-      );
-    });
-
-    test('after the reset: the Monday 00:00 week rollover wins', () {
-      // Sunday 23:30 + 6h would be Monday 05:30. The reset has already run and
-      // points are zeroed, but currentWeekId still names the closed week until
-      // 00:00, so the rollover is the next moment worth reading.
-      final fetched = DateTime.utc(2025, 6, 22, 23, 30);
-      expect(
-        nextRefreshAt(fetchedAt: fetched, now: fetched),
-        DateTime.utc(2025, 6, 23, 0),
-      );
-    });
-
-    test('each boundary triggers exactly one fetch', () {
-      // Fetching at the reset must reschedule for the rollover, not for the
-      // same boundary again (which would fire in a loop).
-      final atReset = DateTime.utc(2025, 6, 22, 23);
-      expect(
-        nextRefreshAt(fetchedAt: atReset, now: atReset),
-        DateTime.utc(2025, 6, 23, 0),
-      );
-
-      // ...and fetching at the rollover skips to the plain cadence.
-      final atRollover = DateTime.utc(2025, 6, 23, 0);
-      expect(
-        nextRefreshAt(fetchedAt: atRollover, now: atRollover),
-        DateTime.utc(2025, 6, 23, 6),
-      );
-    });
-
-    test('never schedules in the past', () {
-      // Defensive against a busy-loop if the clock jumps backwards.
-      final fetched = DateTime.utc(2025, 6, 16, 8);
-      final now = fetched.add(const Duration(days: 3));
-      expect(nextRefreshAt(fetchedAt: fetched, now: now).isAfter(now), isTrue);
-    });
-  });
-
   group('Resume path', () {
     test('resume after an hour does NOT re-read', () {
-      // The scheduled refresh is still armed; a resume must not duplicate it.
+      // Still fresh: a resume inside the threshold costs no query.
       final at = DateTime.utc(2025, 6, 16, 6);
       expect(
         isLeaderboardDataStale(
@@ -170,8 +108,8 @@ void main() {
     });
 
     test('resume after seven hours DOES re-read', () {
-      // A backgrounded app cannot run its timer, so this is the only thing that
-      // recovers a schedule missed while suspended.
+      // There is no timer, so a resume after a long background is the only
+      // thing that re-reads the board without the player asking.
       final at = DateTime.utc(2025, 6, 16, 6);
       expect(
         isLeaderboardDataStale(
@@ -229,6 +167,26 @@ void main() {
     test('ties are shared by nobody: strictly-greater only', () {
       // 980 ties with the rank-3 row and beats ranks 4-5, so it is rank 3.
       expect(rankInSnapshot(entries: board(5), myPoints: 980), 3);
+    });
+
+    test('with the player on the board, ties keep document order', () {
+      // Stored order: A 1000, B 990, me 980, D 970, E 960.
+      final rows = [
+        row(1, uid: 'a', points: 1000),
+        row(2, uid: 'b', points: 990),
+        row(3, uid: 'me', points: 980, me: true),
+        row(4, uid: 'd', points: 970),
+        row(5, uid: 'e', points: 960),
+      ];
+      // Level with the row stored above (B): B keeps the place, I am #3.
+      expect(rankInSnapshot(entries: rows, myPoints: 980), 3);
+      // Level with the rows stored below (D): they sit behind me, I stay #3.
+      expect(rankInSnapshot(entries: rows, myPoints: 970), 3);
+      // Live points fall below D: D now outranks me, so I drop to #4.
+      expect(rankInSnapshot(entries: rows, myPoints: 960), 4);
+      // Live points climb past A: I lead the board.
+      expect(rankInSnapshot(entries: rows, myPoints: 1000), 2);
+      expect(rankInSnapshot(entries: rows, myPoints: 1001), 1);
     });
 
     test('uses live points, so scoring moves the rank with no read', () {
@@ -343,7 +301,8 @@ void main() {
       final slots = buildBoardSlots(rows, neighbourWindow: 2);
 
       // Player is rank 50 (index 49), so rows 48–52 are kept.
-      final shown = slots.whereType<RowSlot>().map((s) => s.entry.rank).toList();
+      final shown =
+          slots.whereType<RowSlot>().map((s) => s.entry.rank).toList();
       expect(shown, [48, 49, 50, 51, 52]);
 
       final gaps = slots.whereType<GapSlot>().toList();
@@ -431,7 +390,8 @@ void main() {
       expect(find.text('Projected · finalised Monday'), findsOneWidget);
     });
 
-    testWidgets('an empty board invites the first entry instead of promising '
+    testWidgets(
+        'an empty board invites the first entry instead of promising '
         'a payout', (tester) async {
       // The CF allocates the floor to a cycle whose `ranked` array is empty, so
       // an empty week pays nobody. "Guaranteed minimum" next to a naira figure
@@ -457,7 +417,8 @@ void main() {
       expect(find.text('Guaranteed minimum · projected'), findsNothing);
     });
 
-    testWidgets('an empty board with no floor avoids quoting ₦0', (tester) async {
+    testWidgets('an empty board with no floor avoids quoting ₦0',
+        (tester) async {
       final projection = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 0,
         guaranteedFloor: 0,
@@ -642,7 +603,7 @@ void main() {
       )));
 
       expect(find.text('#47'), findsOneWidget);
-      expect(find.text('#47 of 240 · top 20% · 320 pts'), findsOneWidget);
+      expect(find.text('240 entrants · top 20% · 320 pts'), findsOneWidget);
       expect(find.text('84 pts to pass Ada'), findsOneWidget);
     });
 
@@ -659,7 +620,7 @@ void main() {
         isEligible: true,
       )));
 
-      expect(find.text('You lead the board. Hold it.'), findsOneWidget);
+      expect(find.text('You lead the board.'), findsOneWidget);
     });
 
     testWidgets('an unranked entrant still sees their points', (tester) async {
@@ -753,8 +714,7 @@ void main() {
       expect(find.text('—'), findsOneWidget);
     });
 
-    testWidgets('the row directly above the player is flagged',
-        (tester) async {
+    testWidgets('the row directly above the player is flagged', (tester) async {
       await tester.pumpWidget(wrap(RankRow(
         entry: row(4, points: 500),
         prize: 3500,
@@ -765,7 +725,7 @@ void main() {
       )));
 
       expect(find.text('PASS ME'), findsOneWidget);
-      expect(find.text('500 weekly pts'), findsOneWidget);
+      expect(find.text('500 pts'), findsOneWidget);
     });
 
     testWidgets('carries a screen-reader label with the real prize',
@@ -818,8 +778,7 @@ void main() {
         onRetry: () {},
       )));
 
-      expect(find.text('Check your connection and try again.'),
-          findsOneWidget);
+      expect(find.text('Check your connection and try again.'), findsOneWidget);
       expect(find.textContaining('composite index'), findsNothing);
     });
   });
@@ -839,7 +798,11 @@ void main() {
 
     testWidgets('renders ordered cards for a real podium', (tester) async {
       await tester.pumpWidget(wrap(LeaderboardPodium(
-        entries: [row(1, points: 900), row(2, points: 700), row(3, points: 500)],
+        entries: [
+          row(1, points: 900),
+          row(2, points: 700),
+          row(3, points: 500)
+        ],
         prizes: const {1: 35000, 2: 22000, 3: 13000},
         rivalUids: const {},
         onRivalTap: (_) {},

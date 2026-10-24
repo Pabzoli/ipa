@@ -80,3 +80,6 @@ proj.txt
 # it cannot be re-committed; purging it from history needs a separate rewrite
 # (filter-repo/BFG), and the working file is intentionally kept on disk.
 /lib/passwords.txt
+# Same rule for the docs copy (untracked, holds secret-manager codes). Never
+# push it: this repo is public.
+/docs/passwords.txt

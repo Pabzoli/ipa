@@ -1,32 +1,20 @@
-import 'dart:async';
-import 'dart:math' as math;
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/constants/share_links.dart';
 import '../../core/services/firestore_service.dart';
+import '../../core/services/share_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_page_route.dart';
 import 'payout_claim_page.dart';
 
-// ─── Private constants ────────────────────────────────────────────────────────
-const int   _kCountdown = 8;
-const Color _kGold      = Color(0xFFFFD700);
-const Color _kBronze    = Color(0xFFCD7F32);
-const Color _kWhatsApp  = Color(0xFF25D366);
-const Color _kBg        = Color(0xFF090913);
-
-const List<Color> _rankColors = [_kGold, AppColors.silver, _kBronze];
-const List<List<Color>> _rankGradients = [
-  [Color(0xFFFFD700), Color(0xFFF5900C)],
-  [Color(0xFFDCDCDC), Color(0xFF9A9A9A)],
-  [Color(0xFFCD7F32), Color(0xFF8B5E3C)],
-];
+const List<Color> _rankColors = [AppColors.gold, AppColors.silver, AppColors.bronze];
 const List<String> _medals = ['🥇', '🥈', '🥉'];
 
-// ─── Naira formatter (file-level, no intl dep needed) ────────────────────────
 String _fmtNaira(double amount) {
   final n = amount.toInt().toString();
   final b = StringBuffer();
@@ -37,144 +25,10 @@ String _fmtNaira(double amount) {
   return b.toString();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PARTICLE SYSTEM
-// ─────────────────────────────────────────────────────────────────────────────
-// Isolated in its own StatefulWidget + CustomPainter so no part of the
-// announcement page widget tree ever rebuilds because of particle ticks.
-// The AnimationController drives a repaint-boundary-scoped canvas redraw;
-// the widget tree itself is never marked dirty by the particle logic.
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _PData {
-  double x, y, vx, vy, life, radius;
-  Color  color;
-
-  _PData(this.x, this.y, this.vx, this.vy, this.life, this.radius, this.color);
-
-  static const _palette = [
-    Color(0xFFFFD700),
-    Color(0xFFFFA500),
-    Color(0xFFFFEC5C),
-    Color(0xFFE63946),
-  ];
-
-  factory _PData.random(math.Random r, {bool spread = false}) => _PData(
-        r.nextDouble(),
-        spread ? r.nextDouble() : 1.05 + r.nextDouble() * 0.15,
-        (r.nextDouble() - 0.5) * 0.022,
-        0.018 + r.nextDouble() * 0.038,
-        spread ? r.nextDouble() : 0.5 + r.nextDouble() * 0.5,
-        1.5 + r.nextDouble() * 3.0,
-        _palette[r.nextInt(_palette.length)],
-      );
-
-  void reset(math.Random r) {
-    x      = r.nextDouble();
-    y      = 1.05 + r.nextDouble() * 0.15;
-    vx     = (r.nextDouble() - 0.5) * 0.022;
-    vy     = 0.018 + r.nextDouble() * 0.038;
-    life   = 0.5 + r.nextDouble() * 0.5;
-    radius = 1.5 + r.nextDouble() * 3.0;
-    color  = _palette[r.nextInt(_palette.length)];
-  }
-}
-
-class _ParticlePainter extends CustomPainter {
-  _ParticlePainter({required this.particles, required Listenable repaint})
-      : super(repaint: repaint);
-
-  final List<_PData> particles;
-  // Reuse a single Paint to avoid per-particle object allocation.
-  final _p = Paint()..style = PaintingStyle.fill;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (final p in particles) {
-      if (p.life <= 0) continue;
-      _p.color = p.color.withValues(alpha: (p.life * 0.65).clamp(0.0, 0.65));
-      canvas.drawCircle(
-        Offset(p.x * size.width, p.y * size.height),
-        (p.radius * p.life).clamp(0.0, 5.0),
-        _p,
-      );
-    }
-  }
-
-  // shouldRepaint is only called on parent-driven rebuilds.
-  // The listenable handles frame-driven repaints independently.
-  @override
-  bool shouldRepaint(_ParticlePainter _) => false;
-}
-
-class _ParticleField extends StatefulWidget {
-  const _ParticleField();
-
-  @override
-  State<_ParticleField> createState() => _ParticleFieldState();
-}
-
-class _ParticleFieldState extends State<_ParticleField>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late List<_PData>        _ps;
-  final _rand = math.Random();
-
-  @override
-  void initState() {
-    super.initState();
-    // Pre-scatter particles so the screen isn't empty for the first second.
-    _ps   = List.generate(30, (i) => _PData.random(_rand, spread: true));
-    _ctrl = AnimationController(
-      vsync:    this,
-      duration: const Duration(seconds: 12),
-    )
-      ..addListener(_tick)
-      ..repeat();
-  }
-
-  void _tick() {
-    // Mutate in place — no setState, the repaint listenable handles the redraw.
-    for (final p in _ps) {
-      p.y    -= p.vy * 0.016;
-      p.x    += p.vx * 0.016;
-      p.life -= 0.016 * 0.075;
-      if (p.life <= 0 || p.y < -0.05) p.reset(_rand);
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl
-      ..removeListener(_tick)
-      ..dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: SizedBox.expand(
-        child: CustomPaint(
-          painter: _ParticlePainter(particles: _ps, repaint: _ctrl),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// WINNER ANNOUNCEMENT PAGE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Full-screen Monday announcement of last week's prize winners.
+/// Monday announcement of last week's prize winners.
 ///
-/// Shown automatically by [_AnnouncementGate] in main.dart.
-/// Auto-dismisses after [_kCountdown] seconds. User can also tap
-/// "Skip" or the CTA button to leave early.
-///
-/// Pops with `'leaderboard'` when the CTA is tapped so the caller
-/// can optionally push the weekly leaderboard route.
+/// Shown automatically by [_AnnouncementGate] in main.dart and reachable from
+/// My Prizes. It stays open until the player closes it or shares the results.
 class WinnerAnnouncementPage extends StatefulWidget {
   const WinnerAnnouncementPage({super.key, required this.result});
 
@@ -185,22 +39,10 @@ class WinnerAnnouncementPage extends StatefulWidget {
 }
 
 class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
-    with TickerProviderStateMixin {
-
-  // ── Animation controllers ─────────────────────────────────────────────────
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entranceCtrl;
-  late final AnimationController _pulseCtrl;
-  late final AnimationController _ctaCtrl;
-
-  // ── Derived animations ────────────────────────────────────────────────────
   late final Animation<double> _fadeIn;
   late final Animation<Offset> _slideUp;
-  late final Animation<double> _trophyPulse;
-  late final Animation<double> _ctaPulse;
-
-  // ── Countdown state ───────────────────────────────────────────────────────
-  int    _countdown = _kCountdown;
-  Timer? _timer;
 
   @override
   void initState() {
@@ -208,68 +50,35 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
 
     _entranceCtrl = AnimationController(
       vsync:    this,
-      duration: const Duration(milliseconds: 1100),
+      duration: const Duration(milliseconds: 900),
     );
-    _pulseCtrl = AnimationController(
-      vsync:    this,
-      duration: const Duration(milliseconds: 2200),
-    )..repeat(reverse: true);
-    _ctaCtrl = AnimationController(
-      vsync:    this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-
     _fadeIn = CurvedAnimation(
       parent: _entranceCtrl,
-      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
+      curve:  const Interval(0.0, 0.45, curve: Curves.easeOut),
     );
     _slideUp = Tween<Offset>(
-      begin: const Offset(0, 0.05),
+      begin: const Offset(0, 0.04),
       end:   Offset.zero,
     ).animate(CurvedAnimation(
       parent: _entranceCtrl,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+      curve:  const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
     ));
-    _trophyPulse = Tween<double>(begin: 0.93, end: 1.07).animate(
-      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
-    );
-    _ctaPulse = Tween<double>(begin: 1.0, end: 1.025).animate(
-      CurvedAnimation(parent: _ctaCtrl, curve: Curves.easeInOut),
-    );
 
     _entranceCtrl.forward();
-    _startCountdown();
   }
 
-  /// Returns a staggered animation for the winner card at [index].
-  /// Cards enter sequentially with a slight overlap between each.
-  Animation<double> _cardAnim(int index) {
-    final s = (0.28 + index * 0.09).clamp(0.0, 0.82);
-    final e = (s + 0.32).clamp(0.15, 1.0);
-    return Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _entranceCtrl,
-        curve: Interval(s, e, curve: Curves.easeOutBack),
-      ),
+  Animation<double> _rowAnim(int index) {
+    final s = (0.25 + index * 0.08).clamp(0.0, 0.8);
+    final e = (s + 0.3).clamp(0.2, 1.0);
+    return CurvedAnimation(
+      parent: _entranceCtrl,
+      curve:  Interval(s, e, curve: Curves.easeOutCubic),
     );
   }
 
-  void _startCountdown() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) { t.cancel(); return; }
-      if (_countdown <= 1) {
-        t.cancel();
-        _dismiss();
-      } else {
-        setState(() => _countdown--);
-      }
-    });
-  }
-
-  void _dismiss({bool goToLeaderboard = false}) {
-    _timer?.cancel();
+  void _dismiss() {
     if (mounted) {
-      Navigator.of(context).pop(goToLeaderboard ? 'leaderboard' : null);
+      Navigator.of(context).pop();
     }
   }
 
@@ -280,9 +89,9 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
       int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]),
     );
     final sun = mon.add(const Duration(days: 6));
-    const mo  = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec',
+    const mo = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
     final s = '${mo[mon.month - 1]} ${mon.day}';
     final e = mon.month == sun.month
@@ -295,35 +104,31 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
     HapticFeedback.lightImpact();
     final winners = widget.result.winners;
     if (winners.isEmpty) return;
-    // Include all top 3 winners in the share text for more social proof.
     final lines = winners.take(3).map((p) {
       final medal = p.rank <= 3 ? _medals[p.rank - 1] : '#${p.rank}';
       return '$medal ${p.username} (${p.university}) — ₦${_fmtNaira(p.prizeAmount)}';
-    }).join('\n');
-    final text = '🎌 AnimeQuiz Champions (${_weekRange()}):\n$lines\n\n'
-        'Think you can top this? Join AnimeQuiz now!';
-    final url = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}');
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    }
+    }).toList();
+    // Native sheet (WhatsApp, Instagram, messages, ...) instead of a hard
+    // WhatsApp-only hand-off: the same text, but the player picks the channel.
+    await ShareService.instance.shareText(
+      context,
+      text: winnersShareMessage(
+        weekRange: _weekRange(),
+        winnerLines: lines,
+      ),
+      subject: 'AnimeQuiz champions — ${_weekRange()}',
+    );
   }
 
   @override
   void dispose() {
     _entranceCtrl.dispose();
-    _pulseCtrl.dispose();
-    _ctaCtrl.dispose();
-    _timer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final winners = widget.result.winners.take(5).toList();
-    // Winner-only payout entry: shown strictly for the signed-in user when
-    // they appear in this week's winners. Payout STATE itself is resolved
-    // inside PayoutClaimPage from leaderboardCycles.ranked[] + own
-    // pendingClaim — never from this page's legacy prize_pool data.
     final myUid = FirebaseAuth.instance.currentUser?.uid;
     PrizeWinner? myWin;
     if (myUid != null) {
@@ -336,671 +141,96 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
     }
 
     return Scaffold(
-      backgroundColor: _kBg,
-      body: Stack(
-        children: [
-          // ── Gold particle field — isolated, never causes tree rebuilds ────
-          const Positioned.fill(child: _ParticleField()),
-
-          // ── Gradient overlay for readability ──────────────────────────────
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF0F0B20).withValues(alpha: 0.97),
-                    const Color(0xFF090913).withValues(alpha: 0.95),
-                    const Color(0xFF13091E).withValues(alpha: 0.97),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
-            ),
-          ),
-
-          // ── Page content ─────────────────────────────────────────────────
-          SafeArea(
-            child: FadeTransition(
-              opacity: _fadeIn,
-              child: SlideTransition(
-                position: _slideUp,
-                child: Column(
-                  children: [
-                    _TopBar(
-                      countdown: _countdown,
-                      total:     _kCountdown,
-                      onSkip: () {
+      backgroundColor: AppColors.surfaceDim,
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeIn,
+          child: SlideTransition(
+            position: _slideUp,
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0,
+                    ),
+                    child: _CloseButton(
+                      onPressed: () {
                         HapticFeedback.lightImpact();
                         _dismiss();
                       },
-                      onShare: _share,
                     ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        padding: EdgeInsets.fromLTRB(20.r, 0.r, 20.r, 0.r),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SizedBox(height: 4.h),
-                            _Header(
-                              pulse:     _trophyPulse,
-                              weekRange: _weekRange(),
-                            ),
-                            SizedBox(height: 22.h),
-                            _PrizePoolBanner(
-                              formatted: _fmtNaira(widget.result.totalNaira),
-                            ),
-                            SizedBox(height: 18.h),
-                            // Staggered winner cards
-                            ...winners.asMap().entries.map(
-                              (e) => _WinnerCard(
-                                key:       ValueKey(e.value.uid),
-                                winner:    e.value,
-                                listIndex: e.key,
-                                formatted: _fmtNaira(e.value.prizeAmount),
-                                animation: _cardAnim(e.key),
-                              ),
-                            ),
-                            SizedBox(height: 26.h),
-                            _CtaButton(
-                              pulse: _ctaPulse,
-                              onTap: () {
-                                HapticFeedback.mediumImpact();
-                                _dismiss(goToLeaderboard: true);
-                              },
-                            ),
-                            // Winner-only: the signed-in user made the list —
-                            // route them to the claim flow for THIS weekId.
-                            // Claim state/amount/paid are resolved there from
-                            // leaderboardCycles + pendingClaim (server-side).
-                            if (myWin != null) ...[
-                              SizedBox(height: 12.h),
-                              _WinnerClaimButton(
-                                weekId: widget.result.weekId,
-                                rank: myWin.rank,
-                              ),
-                            ],
-                            SizedBox(height: 12.h),
-                            _ShareButton(onTap: _share),
-                            SizedBox(height: 40.h),
-                          ],
+                  ),
+                ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.page,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _Header(
+                          weekRange:    _weekRange(),
+                          totalNaira:   widget.result.totalNaira,
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUB-WIDGETS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ─── Top Bar ──────────────────────────────────────────────────────────────────
-class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.countdown,
-    required this.total,
-    required this.onSkip,
-    required this.onShare,
-  });
-
-  final int          countdown;
-  final int          total;
-  final VoidCallback onSkip;
-  final VoidCallback onShare;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16.r, 12.r, 16.r, 8.r),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          _SkipButton(countdown: countdown, total: total, onTap: onSkip),
-          _ShareIconButton(onTap: onShare),
-        ],
-      ),
-    );
-  }
-}
-
-class _SkipButton extends StatelessWidget {
-  const _SkipButton({
-    required this.countdown,
-    required this.total,
-    required this.onTap,
-  });
-
-  final int          countdown;
-  final int          total;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        color:        Colors.white.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(AppRadii.full),
-        border:       Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.full),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 9.r),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Skip',
-                style: TextStyle(
-                  color:      Colors.white.withValues(alpha: 0.7),
-                  fontSize:   13.sp,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: AppTypography.fontFamily,
-                ),
-              ),
-              SizedBox(width: 8.w),
-              SizedBox(
-                width:  24.w,
-                height: 24.h,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      value:           countdown / total,
-                      strokeWidth:     2.5,
-                      backgroundColor: Colors.white.withValues(alpha: 0.12),
-                      valueColor: const AlwaysStoppedAnimation(_kGold),
-                    ),
-                    Text(
-                      '$countdown',
-                      style: TextStyle(
-                        color:      _kGold,
-                        fontSize:   9.sp,
-                        fontWeight: FontWeight.w800,
-                        fontFamily: AppTypography.fontFamily,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ShareIconButton extends StatelessWidget {
-  const _ShareIconButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        color:        _kWhatsApp.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border:       Border.all(color: _kWhatsApp.withValues(alpha: 0.35)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        child: Padding(
-          padding: EdgeInsets.all(10.r),
-          child: Icon(Icons.share_rounded, color: _kWhatsApp, size: 20.r),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Header ───────────────────────────────────────────────────────────────────
-class _Header extends StatelessWidget {
-  const _Header({required this.pulse, required this.weekRange});
-
-  final Animation<double> pulse;
-  final String            weekRange;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Trophy with pulsing glow rings
-        ScaleTransition(
-          scale: pulse,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Outer diffuse glow
-              Container(
-                width:  130.w,
-                height: 130.h,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      _kGold.withValues(alpha: 0.18),
-                      _kGold.withValues(alpha: 0.0),
-                    ],
-                  ),
-                ),
-              ),
-              // Inner ring
-              Container(
-                width:  90.w,
-                height: 90.h,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color:  _kGold.withValues(alpha: 0.07),
-                  border: Border.all(
-                    color: _kGold.withValues(alpha: 0.30),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color:       _kGold.withValues(alpha: 0.35),
-                      blurRadius:  32,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-              ),
-              Text('🏆', style: TextStyle(fontSize: 54.sp)),
-            ],
-          ),
-        ),
-        SizedBox(height: 20.h),
-
-        Text(
-          "Last Week's Champions",
-          style: TextStyle(
-            color:         _kGold,
-            fontSize:      26.sp,
-            fontWeight:    FontWeight.w900,
-            letterSpacing: -0.5,
-            height:        1.1,
-            fontFamily:    AppTypography.fontFamily,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        SizedBox(height: 8.h),
-
-        // Week range pill
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 5.r),
-          decoration: BoxDecoration(
-            color:        Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(20.r),
-            border:       Border.all(color: Colors.white.withValues(alpha: 0.10)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.calendar_today_rounded,
-                         color: AppColors.textMuted, size: 11.r),
-              SizedBox(width: 5.w),
-              Text(
-                weekRange,
-                style: TextStyle(
-                  color:      AppColors.textSecondary,
-                  fontSize:   12.sp,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: AppTypography.fontFamily,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Prize Pool Banner ────────────────────────────────────────────────────────
-class _PrizePoolBanner extends StatelessWidget {
-  const _PrizePoolBanner({required this.formatted});
-
-  final String formatted;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 16.r, horizontal: 20.r),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            _kGold.withValues(alpha: 0.14),
-            AppColors.accent.withValues(alpha: 0.07),
-          ],
-          begin: Alignment.topLeft,
-          end:   Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20.r),
-        border: Border.all(
-          color: _kGold.withValues(alpha: 0.32),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color:      _kGold.withValues(alpha: 0.08),
-            blurRadius: 20,
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('💰', style: TextStyle(fontSize: 28.sp)),
-          SizedBox(width: 14.w),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '₦$formatted',
-                style: TextStyle(
-                  color:         _kGold,
-                  fontSize:      26.sp,
-                  fontWeight:    FontWeight.w900,
-                  letterSpacing: -0.5,
-                  height:        1.0,
-                  fontFamily:    AppTypography.fontFamily,
-                ),
-              ),
-              SizedBox(height: 3.h),
-              Text(
-                'shared with this week\'s champions',
-                style: TextStyle(
-                  color:      AppColors.textMuted,
-                  fontSize:   11.sp,
-                  fontFamily: AppTypography.fontFamily,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Winner Card ──────────────────────────────────────────────────────────────
-/// Each card enters with a staggered slide-up + fade via [animation].
-///
-/// The `child` of [AnimatedBuilder] is built once (static layout) and reused
-/// across animation frames — no redundant rebuilds.
-class _WinnerCard extends StatelessWidget {
-  const _WinnerCard({
-    super.key,
-    required this.winner,
-    required this.listIndex,
-    required this.formatted,
-    required this.animation,
-  });
-
-  final PrizeWinner       winner;
-  final int               listIndex;
-  final String            formatted;
-  final Animation<double> animation;
-
-  bool  get _isTop3    => listIndex < 3;
-  Color get _rankColor => _isTop3 ? _rankColors[listIndex] : AppColors.textMuted;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: animation,
-      // Static child built once, passed into every frame's builder.
-      child: _buildCard(),
-      builder: (context, child) => Opacity(
-        // Clamp to guard against easeOutBack's overshoot going slightly < 0.
-        opacity: animation.value.clamp(0.0, 1.0),
-        child: Transform.translate(
-          // easeOutBack overshoot also moves card slightly above final pos,
-          // creating a satisfying bounce-settle effect.
-          offset: Offset(0, 24.0 * (1.0 - animation.value)),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCard() {
-    return Padding(
-      padding: EdgeInsets.only(bottom: 10.r),
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 14.r),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: _isTop3
-                ? [
-                    _rankColor.withValues(alpha: 0.10),
-                    AppColors.surface.withValues(alpha: 0.98),
-                  ]
-                : const [AppColors.surface, AppColors.surfaceAlt],
-            begin: Alignment.centerLeft,
-            end:   Alignment.centerRight,
-          ),
-          borderRadius: BorderRadius.circular(18.r),
-          border: Border.all(
-            color: _isTop3
-                ? _rankColor.withValues(alpha: 0.38)
-                : AppColors.divider,
-            width: _isTop3 ? 1.5 : 1.0,
-          ),
-          boxShadow: _isTop3
-              ? [
-                  BoxShadow(
-                    color:      _rankColor.withValues(alpha: 0.12),
-                    blurRadius: 16,
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          children: [
-            _RankIndicator(
-              listIndex: listIndex,
-              rank:      winner.rank,
-              isTop3:    _isTop3,
-            ),
-            SizedBox(width: 14.w),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    winner.username,
-                    style: TextStyle(
-                      color:      _isTop3 ? Colors.white : AppColors.textPrimary,
-                      fontSize:   _isTop3 ? 15.sp : 14.sp,
-                      fontWeight: FontWeight.w800,
-                      fontFamily: AppTypography.fontFamily,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  SizedBox(height: 3.h),
-                  Row(
-                    children: [
-                      Icon(Icons.school_rounded,
-                                 color: AppColors.textMuted, size: 11.r),
-                      SizedBox(width: 4.w),
-                      Expanded(
-                        child: Text(
-                          winner.university,
-                          style: TextStyle(
-                            color:      AppColors.textMuted,
-                            fontSize:   11.sp,
-                            fontWeight: FontWeight.w500,
-                            fontFamily: AppTypography.fontFamily,
+                        const SizedBox(height: AppSpacing.xl),
+                        if (myWin != null) ...[
+                          _YourResultCard(
+                            rank:      myWin.rank,
+                            formatted: _fmtNaira(myWin.prizeAmount),
+                            onClaim:   () {
+                              HapticFeedback.mediumImpact();
+                              Navigator.of(context).push(
+                                AppPageRoute(
+                                  builder: (_) => PayoutClaimPage(
+                                    weekId: widget.result.weekId,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                          overflow: TextOverflow.ellipsis,
+                          const SizedBox(height: AppSpacing.xl),
+                        ],
+                        Text(
+                          'WINNERS',
+                          style: AppTypography.labelSmall,
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(width: 10.w),
-            _PrizeBadge(
-              listIndex: listIndex,
-              isTop3:    _isTop3,
-              formatted: formatted,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RankIndicator extends StatelessWidget {
-  const _RankIndicator({
-    required this.listIndex,
-    required this.rank,
-    required this.isTop3,
-  });
-
-  final int  listIndex;
-  final int  rank;
-  final bool isTop3;
-
-  @override
-  Widget build(BuildContext context) {
-    if (isTop3) {
-      return Text(
-        _medals[listIndex],
-        style: TextStyle(fontSize: listIndex == 0 ? 32.sp : 26.sp),
-      );
-    }
-    return Container(
-      width:  36.w,
-      height: 36.h,
-      decoration: BoxDecoration(
-        color:  AppColors.surfaceAlt,
-        shape:  BoxShape.circle,
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Center(
-        child: Text(
-          '$rank',
-          style: TextStyle(
-            color:      AppColors.textSecondary,
-            fontSize:   13.sp,
-            fontWeight: FontWeight.w700,
-            fontFamily: AppTypography.fontFamily,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PrizeBadge extends StatelessWidget {
-  const _PrizeBadge({
-    required this.listIndex,
-    required this.isTop3,
-    required this.formatted,
-  });
-
-  final int    listIndex;
-  final bool   isTop3;
-  final String formatted;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 11.r, vertical: 6.r),
-      decoration: BoxDecoration(
-        gradient: isTop3
-            ? LinearGradient(colors: _rankGradients[listIndex])
-            : null,
-        color:        isTop3 ? null : AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(10.r),
-        border:       isTop3 ? null : Border.all(color: AppColors.divider),
-      ),
-      child: Text(
-        '₦$formatted',
-        style: TextStyle(
-          color:      isTop3 ? Colors.black87 : AppColors.textSecondary,
-          fontSize:   13.sp,
-          fontWeight: FontWeight.w800,
-          fontFamily: AppTypography.fontFamily,
-        ),
-      ),
-    );
-  }
-}
-
-// ─── CTA Button ───────────────────────────────────────────────────────────────
-class _CtaButton extends StatelessWidget {
-  const _CtaButton({required this.pulse, required this.onTap});
-
-  final Animation<double> pulse;
-  final VoidCallback      onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: pulse,
-      child: Ink(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [AppColors.primary, Color(0xFFFF6B6B)],
-            begin:  Alignment.centerLeft,
-            end:    Alignment.centerRight,
-          ),
-          borderRadius: BorderRadius.circular(AppRadii.lg),
-          boxShadow: [
-            BoxShadow(
-              color:      AppColors.primary.withValues(alpha: 0.50),
-              blurRadius: 28,
-              offset:     const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppRadii.lg),
-          child: Container(
-            width:   double.infinity,
-            padding: EdgeInsets.symmetric(vertical: 18.r),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '⚔️  This could be you!',
-                  style: TextStyle(
-                    color:         Colors.white,
-                    fontSize:      17.sp,
-                    fontWeight:    FontWeight.w900,
-                    letterSpacing: -0.3,
-                    fontFamily:    AppTypography.fontFamily,
+                        const SizedBox(height: AppSpacing.sm),
+                        ...winners.asMap().entries.map(
+                          (e) => Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            child: _WinnerRow(
+                              key:       ValueKey(e.value.uid),
+                              winner:    e.value,
+                              isMe:      myUid != null && e.value.uid == myUid,
+                              formatted: _fmtNaira(e.value.prizeAmount),
+                              animation: _rowAnim(e.key),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                      ],
+                    ),
                   ),
                 ),
-                SizedBox(height: 3.h),
-                Text(
-                  'View weekly leaderboard →',
-                  style: TextStyle(
-                    color:      Colors.white70,
-                    fontSize:   12.sp,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: AppTypography.fontFamily,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.page, AppSpacing.sm, AppSpacing.page, AppSpacing.lg,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AppButton(
+                        label:     'Share results',
+                        variant:   AppButtonVariant.text,
+                        color:     AppColors.textSecondary,
+                        icon:      const Icon(Icons.share_rounded),
+                        onPressed: _share,
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1012,64 +242,33 @@ class _CtaButton extends StatelessWidget {
   }
 }
 
-// ─── Winner Claim Button (winner-only) ────────────────────────────────────────
-/// Shown only when the signed-in user is in this week's winners list.
-/// Pushes [PayoutClaimPage] for the announced week; all payout state
-/// (eligibility, amount, approval, paid) is resolved there from
-/// `leaderboardCycles/{weekId}` + own `pendingClaim` — server-authoritative.
-class _WinnerClaimButton extends StatelessWidget {
-  const _WinnerClaimButton({required this.weekId, required this.rank});
+// ─── Close button ─────────────────────────────────────────────────────────────
+class _CloseButton extends StatelessWidget {
+  const _CloseButton({required this.onPressed});
 
-  final String weekId;
-  final int rank;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFD700), Color(0xFFF5900C)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
+    return Semantics(
+      button: true,
+      label: 'Close announcement',
+      child: Material(
+        color: AppColors.surface,
+        shape: const CircleBorder(
+          side: BorderSide(color: AppColors.divider),
         ),
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        boxShadow: [
-          BoxShadow(
-            color: _kGold.withValues(alpha: 0.35),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.mediumImpact();
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => PayoutClaimPage(weekId: weekId),
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width:  36.r,
+            height: 36.r,
+            child: Icon(
+              Icons.close_rounded,
+              size:  19.r,
+              color: AppColors.textSecondary,
             ),
-          );
-        },
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        child: Container(
-          width: double.infinity,
-          padding: EdgeInsets.symmetric(vertical: 16.r),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.account_balance_wallet_rounded,
-                  color: Colors.black87, size: 19.r),
-              SizedBox(width: 8.w),
-              Text(
-                'Claim your Rank #$rank prize →',
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontSize: 15.sp,
-                  fontWeight: FontWeight.w900,
-                  fontFamily: AppTypography.fontFamily,
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -1077,43 +276,240 @@ class _WinnerClaimButton extends StatelessWidget {
   }
 }
 
-// ─── Share Button ─────────────────────────────────────────────────────────────
-class _ShareButton extends StatelessWidget {
-  const _ShareButton({required this.onTap});
+// ─── Header ───────────────────────────────────────────────────────────────────
+class _Header extends StatelessWidget {
+  const _Header({required this.weekRange, required this.totalNaira});
 
-  final VoidCallback onTap;
+  final String weekRange;
+  final double totalNaira;
 
   @override
   Widget build(BuildContext context) {
-    return Ink(
-      decoration: BoxDecoration(
-        color:        _kWhatsApp.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border:       Border.all(color: _kWhatsApp.withValues(alpha: 0.35)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        child: Container(
-          width:   double.infinity,
-          padding: EdgeInsets.symmetric(vertical: 15.r),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.share_rounded, color: _kWhatsApp, size: 18.r),
-              SizedBox(width: 8.w),
-              Text(
-                'Share on WhatsApp',
-                style: TextStyle(
-                  color:      _kWhatsApp,
-                  fontSize:   15.sp,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: AppTypography.fontFamily,
-                ),
-              ),
-            ],
+    return Column(
+      children: [
+        Container(
+          width:  72.r,
+          height: 72.r,
+          decoration: BoxDecoration(
+            shape:  BoxShape.circle,
+            color:  AppColors.gold.withValues(alpha: 0.12),
+            border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
           ),
+          child: Icon(Icons.emoji_events_rounded,
+              color: AppColors.gold, size: 36.r),
         ),
+        const SizedBox(height: AppSpacing.lg),
+        Text(
+          "Last week's champions",
+          style: AppTypography.heading2,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(weekRange, style: AppTypography.bodyMedium),
+        if (totalNaira > 0) ...[
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical:   AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color:        AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadii.full),
+              border:       Border.all(color: AppColors.divider),
+            ),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text:  'Prize pool  ',
+                    style: AppTypography.bodySmall,
+                  ),
+                  TextSpan(
+                    text:  '₦${_fmtNaira(totalNaira)}',
+                    style: AppTypography.labelLarge
+                        .copyWith(color: AppColors.gold),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Your Result (winner-only) ────────────────────────────────────────────────
+class _YourResultCard extends StatelessWidget {
+  const _YourResultCard({
+    required this.rank,
+    required this.formatted,
+    required this.onClaim,
+  });
+
+  final int          rank;
+  final String       formatted;
+  final VoidCallback onClaim;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding:     const EdgeInsets.all(AppSpacing.lg),
+      color:       AppColors.gold.withValues(alpha: 0.08),
+      borderColor: AppColors.gold.withValues(alpha: 0.4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'YOU PLACED #$rank',
+            style: AppTypography.labelSmall.copyWith(color: AppColors.gold),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            '₦$formatted',
+            style: AppTypography.heading1.copyWith(color: AppColors.gold),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            label:     'Claim prize',
+            size:      AppButtonSize.large,
+            onPressed: onClaim,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Winner Row ───────────────────────────────────────────────────────────────
+class _WinnerRow extends StatelessWidget {
+  const _WinnerRow({
+    super.key,
+    required this.winner,
+    required this.isMe,
+    required this.formatted,
+    required this.animation,
+  });
+
+  final PrizeWinner       winner;
+  final bool              isMe;
+  final String            formatted;
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    final isTop3    = winner.rank >= 1 && winner.rank <= 3;
+    final rankColor = isTop3 ? _rankColors[winner.rank - 1] : AppColors.textMuted;
+
+    final row = AppCard(
+      padding:     EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical:   AppSpacing.md,
+      ),
+      accentColor: isTop3 ? rankColor : null,
+      borderColor: isMe ? AppColors.gold.withValues(alpha: 0.4) : null,
+      child: Row(
+        children: [
+          _RankBadge(rank: winner.rank, color: rankColor),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        winner.username,
+                        style: AppTypography.titleMedium,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (isMe) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      const _YouTag(),
+                    ],
+                  ],
+                ),
+                if (winner.university.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    winner.university,
+                    style: AppTypography.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Text(
+            '₦$formatted',
+            style: AppTypography.labelLarge.copyWith(
+              color: isTop3 ? rankColor : AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.12),
+          end:   Offset.zero,
+        ).animate(animation),
+        child: row,
+      ),
+    );
+  }
+}
+
+class _RankBadge extends StatelessWidget {
+  const _RankBadge({required this.rank, required this.color});
+
+  final int   rank;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width:  32.r,
+      height: 32.r,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape:  BoxShape.circle,
+        color:  color.withValues(alpha: 0.12),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        '$rank',
+        style: AppTypography.labelMedium.copyWith(
+          color:      color,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _YouTag extends StatelessWidget {
+  const _YouTag();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color:        AppColors.primarySoft,
+        borderRadius: BorderRadius.circular(AppRadii.xs),
+      ),
+      child: Text(
+        'YOU',
+        style: AppTypography.labelSmall.copyWith(color: AppColors.primary),
       ),
     );
   }

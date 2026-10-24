@@ -194,22 +194,6 @@ class PrizePoolCard extends StatelessWidget {
           // ── Header: cycle tag + live countdown ───────────────────────
           Row(
             children: [
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-                decoration: BoxDecoration(
-                  color: AppColors.secondary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6.r),
-                ),
-                child: Text(
-                  'THIS WEEK',
-                  style: TextStyle(
-                    color: AppColors.secondary,
-                    fontSize: 9.sp,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ),
               const Spacer(),
               const CountdownChip(),
             ],
@@ -261,14 +245,6 @@ class PrizePoolCard extends StatelessWidget {
               color: AppColors.textMuted,
               fontSize: 11.sp,
               fontWeight: FontWeight.w700,
-            ),
-          ),
-          SizedBox(height: 2.h),
-          Text(
-            'Top 5 players share the pool.',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12.sp,
             ),
           ),
 

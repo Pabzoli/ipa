@@ -4,13 +4,13 @@ import 'package:provider/provider.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
+import '../../core/constants/rival_economy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/services/app_update_service.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../quiz/questions_page.dart';
 import '../premium/premium_upsell_screen.dart';
-import 'challenge_model.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STAKE SCREEN
@@ -26,21 +26,11 @@ import 'challenge_model.dart';
 // constants (AC_MIN_STAKE / AC_STAKE_STEP / WP_* / ACTIVE_CHALLENGES_*/DAILY_*).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const kAcMinStake = 20;
-const kAcStakeStep = 10;
-const kAcMaxStakeFree = 2000;
-const kAcMaxStakePremium = 5000;
-const kWpMinStake = 5;
-const kWpMaxStakeFree = 200;
-const kWpMaxStakePremium = 400;
-const kWpDailyCapFree = 300;
-const kWpDailyCapPremium = 500;
-const kActiveChallengesFree = 3;
-const kActiveChallengesPremium = 5;
-const kDailyCreateFree = 5;
-const kDailyCreatePremium = 8;
-const kDailyJoinFree = 5;
-const kDailyJoinPremium = 8;
+// Stake / volume limits live in lib/core/constants/rival_economy.dart, the
+// single Dart mirror of the server constants (short names identical to
+// AC_MIN_STAKE / ACTIVE_CHALLENGES_* / DAILY_CHALLENGE_* etc. in
+// functions/index.js). Imported rather than re-declared so the client can never
+// disagree with the server about a cap.
 
 class StakeScreen extends StatefulWidget {
   final String animeTitle;
@@ -64,7 +54,6 @@ class _StakeScreenState extends State<StakeScreen> {
 
   bool _creating = false;
   String? _inlineError;
-  bool _rulesExpanded = false;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Derived values
@@ -219,7 +208,12 @@ class _StakeScreenState extends State<StakeScreen> {
   String _friendlyError(
     String raw, {
     String? code,
+    bool premiumActive = false,
   }) {
+    final dailyCreateLimit =
+        premiumActive ? kDailyCreatePremium : kDailyCreateFree;
+    final activeLimit =
+        premiumActive ? kActiveChallengesPremium : kActiveChallengesFree;
     final error = raw
         .replaceFirst('Exception: ', '')
         .trim();
@@ -280,20 +274,20 @@ class _StakeScreenState extends State<StakeScreen> {
         'You cannot challenge yourself',
 
       'daily_challenge_limit_reached' =>
-        'Daily limit reached — maximum $kDailyCreatePremium challenges per day',
+        'Daily limit reached — maximum $dailyCreateLimit challenges per day',
 
       'daily_spar_limit_reached' =>
         'Daily spar limit reached — come back tomorrow for friendlies',
 
       'too_many_active_challenges' =>
-        'You already have $kActiveChallengesPremium active challenges',
+        'You already have $activeLimit active challenges',
       'stake_below_minimum' =>
         'Minimum stake is $kAcMinStake AC',
 
       'stake_exceeds_limit' =>
         'This stake exceeds your maximum allowed amount',
 
-      'stake_not_multiple_of_50' =>
+      'stake_invalid_step' =>
         'AC stake must be a multiple of $kAcStakeStep',
 
       'invalid_stake_amount' =>
@@ -528,6 +522,7 @@ ${e.details}
           : _friendlyError(
               e.message ?? '',
               code: e.code,
+              premiumActive: premiumActive,
             );
 
       setState(() {
@@ -547,6 +542,7 @@ ${e.details}
       setState(() {
         _inlineError = _friendlyError(
           e.toString(),
+          premiumActive: premiumActive,
         );
       });
     } finally {
@@ -642,10 +638,7 @@ ${e.details}
                         _BalanceStrip(
                           animeCoins: animeCoins,
                           weeklyPoints: weeklyPoints,
-                          acStake: _acStake,
-                          wpStake: _wpStake,
                           showWP: isRivalChallenge,
-                          premiumActive: premiumActive,
                         ),
                         if (dailyLimitReached) ...[
                           SizedBox(height: 10.h),
@@ -654,16 +647,9 @@ ${e.details}
                             dailyLimit: dailyCreateLimit,
                           ),
                         ],
-                        SizedBox(height: 12.h),
-                        _PremiumStakeBanner(
-                          premiumActive: premiumActive,
-                          maxACStake: maxACStake,
-                          maxWPStake: maxWPStake,
-                        ),
                         SizedBox(height: 14.h),
                         _StakePanel(
                           label: 'Anime Coin stake',
-                          helper: 'Required for every challenge',
                           ctrl: _acCtrl,
                           enabled: !_creating && !dailyLimitReached,
                           inlineError: acError,
@@ -672,7 +658,6 @@ ${e.details}
                               : const [50, 100, 250, 500, 1000, 2000],
                           maxStake: maxACStake,
                           minStake: kAcMinStake,
-                          step: kAcStakeStep,
                           suffix: 'AC',
                           premiumActive: premiumActive,
                           onQuickStake: _setQuickACStake,
@@ -685,23 +670,17 @@ ${e.details}
                           },
                         ),
                         if (isRivalChallenge) ...[
-                          SizedBox(height: 10.h),
-                          _RivalContext(
-                            username: widget.opponentUsername ?? 'Opponent',
-                            acStake: _acStake,
-                            wpStake: _wpStake,
-                          ),
-                          SizedBox(height: 10.h),
+                          SizedBox(height: 12.h),
                           _StakePanel(
                             label: 'Weekly Points stake',
-                            helper: 'Available for rival challenges',
                             ctrl: _wpCtrl,
                             enabled: !_creating && !dailyLimitReached,
                             inlineError: wpError,
-                            quickStakes: premiumActive ? const [25, 50, 100, 200, 400] : const [10, 25, 50, 100, 200],
+                            quickStakes: premiumActive
+                                ? const [25, 50, 100, 200, 400]
+                                : const [10, 25, 50, 100, 200],
                             maxStake: maxWPStake,
                             minStake: kWpMinStake,
-                            step: 5,
                             suffix: 'WP',
                             premiumActive: premiumActive,
                             onQuickStake: _setQuickWPStake,
@@ -715,24 +694,19 @@ ${e.details}
                           ),
                         ],
                         if (_inlineError != null) ...[
-                          SizedBox(height: 10.h),
+                          SizedBox(height: 12.h),
                           _InlineMessage(
                             icon: Icons.error_outline_rounded,
                             message: _inlineError!,
                             isError: true,
                           ),
                         ],
-                        SizedBox(height: 10.h),
-                        _ChallengeRules(
-                          expanded: _rulesExpanded,
-                          onToggle: () {
-                            if (_creating) return;
-                            HapticFeedback.selectionClick();
-                            setState(() {
-                              _rulesExpanded = !_rulesExpanded;
-                            });
-                          },
-                        ),
+                        SizedBox(height: 14.h),
+                        const _StakeNote(),
+                        if (!premiumActive) ...[
+                          SizedBox(height: 12.h),
+                          const _PremiumStakeBanner(),
+                        ],
                       ],
                     ),
                   ),
@@ -845,10 +819,10 @@ class _StakeAppBar extends StatelessWidget {
                 vertical: 5.r,
               ),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.10),
+                color: AppColors.primary.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(9.r),
                 border: Border.all(
-                  color: AppColors.primary.withOpacity(0.22),
+                  color: AppColors.primary.withValues(alpha: 0.22),
                 ),
               ),
               child: Row(
@@ -885,25 +859,16 @@ class _StakeAppBar extends StatelessWidget {
 class _BalanceStrip extends StatelessWidget {
   final int animeCoins;
   final int weeklyPoints;
-  final int acStake;
-  final int wpStake;
   final bool showWP;
-  final bool premiumActive;
 
   const _BalanceStrip({
     required this.animeCoins,
     required this.weeklyPoints,
-    required this.acStake,
-    required this.wpStake,
     required this.showWP,
-    required this.premiumActive,
   });
 
   @override
   Widget build(BuildContext context) {
-    final afterAC = (animeCoins - acStake).clamp(0, animeCoins);
-    final afterWP = (weeklyPoints - wpStake).clamp(0, weeklyPoints);
-
     return Row(
       children: [
         Expanded(
@@ -911,7 +876,6 @@ class _BalanceStrip extends StatelessWidget {
             emoji: '🪙',
             label: 'AC',
             value: animeCoins,
-            after: afterAC,
             accent: AppColors.secondary,
           ),
         ),
@@ -922,31 +886,7 @@ class _BalanceStrip extends StatelessWidget {
               emoji: '⭐',
               label: 'WP',
               value: weeklyPoints,
-              after: afterWP,
               accent: AppColors.primary,
-            ),
-          ),
-        ],
-        if (premiumActive) ...[
-          SizedBox(width: 8.w),
-          Container(
-            height: 42.h,
-            width: 42.w,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12.r),
-              color: const Color(0xFFFFD700).withOpacity(0.10),
-              border: Border.all(
-                color: const Color(0xFFFFD700).withOpacity(0.25),
-              ),
-            ),
-            child: Text(
-              '★',
-              style: TextStyle(
-                color: Color(0xFFFFD700),
-                fontSize: 19.sp,
-                fontWeight: FontWeight.w900,
-              ),
             ),
           ),
         ],
@@ -959,58 +899,40 @@ class _BalanceChip extends StatelessWidget {
   final String emoji;
   final String label;
   final int value;
-  final int after;
   final Color accent;
 
   const _BalanceChip({
     required this.emoji,
     required this.label,
     required this.value,
-    required this.after,
     required this.accent,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasStake = value != after;
-
     return Container(
-      height: 42.h,
-              padding: EdgeInsets.symmetric(horizontal: 11.r),
+      height: 44.h,
+      padding: EdgeInsets.symmetric(horizontal: 12.r),
       decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.88),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(
-          color: accent.withOpacity(0.18),
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.18)),
       ),
       child: Row(
         children: [
-          Text(
-            emoji,
-            style: TextStyle(fontSize: 18.sp),
-          ),
-          SizedBox(width: 7.w),
+          Text(emoji, style: TextStyle(fontSize: 18.sp)),
+          SizedBox(width: 8.w),
           Expanded(
             child: Text(
               '$value $label',
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: AppColors.textPrimary,
-                fontSize: 13.sp,
+                fontSize: 14.sp,
                 fontWeight: FontWeight.w900,
               ),
             ),
           ),
-          if (hasStake)
-            Text(
-              '→ $after',
-              style: TextStyle(
-                color: accent,
-                fontSize: 10.5.sp,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
         ],
       ),
     );
@@ -1032,10 +954,10 @@ class _LimitBanner extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
       decoration: BoxDecoration(
-        color: AppColors.wrong.withOpacity(0.08),
+        color: AppColors.wrong.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12.r),
         border: Border.all(
-          color: AppColors.wrong.withOpacity(0.25),
+          color: AppColors.wrong.withValues(alpha: 0.25),
         ),
       ),
       child: Row(
@@ -1048,7 +970,7 @@ class _LimitBanner extends StatelessWidget {
           SizedBox(width: 8.w),
           Expanded(
             child: Text(
-              'Daily challenge limit reached. You cannot create another challenge today.',
+              'Daily challenge limit reached.',
               style: TextStyle(
                 color: AppColors.wrong,
                 fontSize: 11.5.sp,
@@ -1077,14 +999,12 @@ class _LimitBanner extends StatelessWidget {
 
 class _StakePanel extends StatelessWidget {
   final String label;
-  final String helper;
   final TextEditingController ctrl;
   final bool enabled;
   final String? inlineError;
   final List<int> quickStakes;
   final int maxStake;
   final int minStake;
-  final int step;
   final String suffix;
   final bool premiumActive;
   final ValueChanged<int> onQuickStake;
@@ -1092,14 +1012,12 @@ class _StakePanel extends StatelessWidget {
 
   const _StakePanel({
     required this.label,
-    required this.helper,
     required this.ctrl,
     required this.enabled,
     required this.inlineError,
     required this.quickStakes,
     required this.maxStake,
     required this.minStake,
-    required this.step,
     required this.suffix,
     required this.premiumActive,
     required this.onQuickStake,
@@ -1113,11 +1031,11 @@ class _StakePanel extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(14.r),
       decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.90),
+        color: AppColors.surface.withValues(alpha: 0.90),
         borderRadius: BorderRadius.circular(17.r),
         border: Border.all(
           color: hasError
-              ? AppColors.wrong.withOpacity(0.50)
+              ? AppColors.wrong.withValues(alpha: 0.50)
               : AppColors.divider,
         ),
       ),
@@ -1128,27 +1046,13 @@ class _StakePanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 14.sp,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(height: 2.h),
-                    Text(
-                      helper,
-                      style: TextStyle(
-                        color: AppColors.textMuted,
-                        fontSize: 10.5.sp,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               if (premiumActive)
@@ -1158,10 +1062,10 @@ class _StakePanel extends StatelessWidget {
                     vertical: 4.r,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFD700).withOpacity(0.10),
+                    color: const Color(0xFFFFD700).withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(7.r),
                     border: Border.all(
-                      color: const Color(0xFFFFD700).withOpacity(0.22),
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.22),
                     ),
                   ),
                   child: Text(
@@ -1193,7 +1097,7 @@ class _StakePanel extends StatelessWidget {
             decoration: InputDecoration(
               hintText: '0',
               hintStyle: TextStyle(
-                color: AppColors.textMuted.withOpacity(0.30),
+                color: AppColors.textMuted.withValues(alpha: 0.30),
                 fontSize: 25.sp,
                 fontWeight: FontWeight.w800,
               ),
@@ -1230,7 +1134,7 @@ class _StakePanel extends StatelessWidget {
               disabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13.r),
                 borderSide: BorderSide(
-                  color: AppColors.divider.withOpacity(0.5),
+                  color: AppColors.divider.withValues(alpha: 0.5),
                 ),
               ),
             ),
@@ -1279,9 +1183,9 @@ class _StakePanel extends StatelessWidget {
               },
             ),
           ),
-          SizedBox(height: 7.h),
+          SizedBox(height: 8.h),
           Text(
-            'Min $minStake $suffix  •  Max $maxStake $suffix  •  Step $step',
+            'Min $minStake  •  Max $maxStake $suffix',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 9.5.sp,
@@ -1323,12 +1227,12 @@ class _QuickStakeChip extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: selected
-              ? AppColors.primary.withOpacity(0.13)
+              ? AppColors.primary.withValues(alpha: 0.13)
               : AppColors.surfaceDim,
           borderRadius: BorderRadius.circular(9.r),
           border: Border.all(
             color: selected
-                ? AppColors.primary.withOpacity(0.65)
+                ? AppColors.primary.withValues(alpha: 0.65)
                 : AppColors.divider,
           ),
         ),
@@ -1344,104 +1248,6 @@ class _QuickStakeChip extends StatelessWidget {
             fontSize: 10.5.sp,
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RIVAL CONTEXT STRIP
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _RivalContext extends StatelessWidget {
-  final String username;
-  final int acStake;
-  final int wpStake;
-
-  const _RivalContext({
-    required this.username,
-    required this.acStake,
-    required this.wpStake,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.055),
-        borderRadius: BorderRadius.circular(13.r),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.18),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 30.w,
-            height: 30.h,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.10),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.sports_esports_rounded,
-              color: AppColors.primary,
-              size: 16.r,
-            ),
-          ),
-          SizedBox(width: 9.w),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Challenging $username',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12.5.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                SizedBox(height: 2.h),
-                Text(
-                  'Both stakes are locked when the challenge is created.',
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 9.5.sp,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (acStake > 0 || wpStake > 0)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (acStake > 0)
-                  Text(
-                    '$acStake AC',
-                    style: TextStyle(
-                      color: AppColors.secondary,
-                      fontSize: 10.sp,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                if (wpStake > 0)
-                  Text(
-                    '$wpStake WP',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 10.sp,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-              ],
-            ),
-        ],
       ),
     );
   }
@@ -1469,10 +1275,10 @@ class _InlineMessage extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12.r),
         border: Border.all(
-          color: color.withOpacity(0.24),
+          color: color.withValues(alpha: 0.24),
         ),
       ),
       child: Row(
@@ -1497,159 +1303,31 @@ class _InlineMessage extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CHALLENGE RULES
+// STAKE NOTE
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _ChallengeRules extends StatelessWidget {
-  final bool expanded;
-  final VoidCallback onToggle;
-
-  const _ChallengeRules({
-    required this.expanded,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.78),
-        borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: onToggle,
-            borderRadius: BorderRadius.circular(14.r),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: 12.r,
-                vertical: 11.r,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    color: AppColors.primary,
-                    size: 16.r,
-                  ),
-                  SizedBox(width: 8.w),
-                  Expanded(
-                    child: Text(
-                      'Challenge rules',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 12.sp,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  AnimatedRotation(
-                    turns: expanded ? 0.5 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    child: Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: AppColors.textMuted,
-                      size: 19.r,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeInOut,
-            child: expanded
-                ? Padding(
-                    padding: EdgeInsets.fromLTRB(12.r, 0, 12.r, 12.r),
-                    child: Column(
-                      children: [
-                        Divider(
-                          color: AppColors.divider,
-                          height: 1,
-                        ),
-                        SizedBox(height: 10.h),
-                        _RuleStep(
-                          n: '1',
-                          text:
-                              'Both players stake AC upfront. Rival challenges can also include a WP stake.',
-                        ),
-                        SizedBox(height: 7.h),
-                        _RuleStep(
-                          n: '2',
-                          text:
-                              'The winner receives the challenge rewards according to the challenge payout rules.',
-                        ),
-                        SizedBox(height: 7.h),
-                        _RuleStep(
-                          n: '3',
-                          text:
-                              'If the challenge expires or is cancelled according to the system rules, eligible stakes are refunded.',
-                        ),
-                        SizedBox(height: 7.h),
-                        _RuleStep(
-                          n: '4',
-                          text:
-                              'Up to $kDailyCreateFree challenges created per day '
-                              '($kDailyCreatePremium with Premium) and up to '
-                              '$kActiveChallengesFree active at once '
-                              '($kActiveChallengesPremium with Premium).',
-                          last: true,
-                        ),
-                      ],
-                    ),
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RuleStep extends StatelessWidget {
-  final String n;
-  final String text;
-  final bool last;
-
-  const _RuleStep({
-    required this.n,
-    required this.text,
-    this.last = false,
-  });
+class _StakeNote extends StatelessWidget {
+  const _StakeNote();
 
   @override
   Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 21.w,
-          height: 21.h,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.primary.withOpacity(0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            n,
-            style: TextStyle(
-              color: AppColors.primary,
-              fontSize: 9.5.sp,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
+        Icon(
+          Icons.info_outline_rounded,
+          color: AppColors.textMuted,
+          size: 15.r,
         ),
         SizedBox(width: 8.w),
         Expanded(
           child: Text(
-            text,
+            'Both stakes lock when you create the challenge.',
             style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 10.5.sp,
-              height: 1.35,
+              color: AppColors.textMuted,
+              fontSize: 11.sp,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
             ),
           ),
         ),
@@ -1710,8 +1388,8 @@ class _StakeCta extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            AppColors.surfaceDim.withOpacity(0),
-            AppColors.surfaceDim.withOpacity(0.96),
+            AppColors.surfaceDim.withValues(alpha: 0),
+            AppColors.surfaceDim.withValues(alpha: 0.96),
             AppColors.surfaceDim,
           ],
           stops: const [0.0, 0.35, 1.0],
@@ -1751,7 +1429,7 @@ class _CreatingOverlay extends StatelessWidget {
 
     return Positioned.fill(
       child: Container(
-        color: Colors.black.withOpacity(0.72),
+        color: Colors.black.withValues(alpha: 0.72),
         child: Center(
           child: Container(
             margin: EdgeInsets.symmetric(horizontal: 34.r),
@@ -1760,11 +1438,11 @@ class _CreatingOverlay extends StatelessWidget {
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(20.r),
               border: Border.all(
-                color: AppColors.primary.withOpacity(0.28),
+                color: AppColors.primary.withValues(alpha: 0.28),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primary.withOpacity(0.14),
+                  color: AppColors.primary.withValues(alpha: 0.14),
                   blurRadius: 34,
                   spreadRadius: 3,
                 ),
@@ -1808,7 +1486,7 @@ class _CreatingOverlay extends StatelessWidget {
                 Text(
                   hasRival
                       ? 'Securing your AC and WP stakes…'
-                      : 'Preparing your questions and securing your stake…',
+                      : 'Preparing your questions…',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: AppColors.textMuted,
@@ -1835,43 +1513,17 @@ class _CreatingOverlay extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PREMIUM STAKE BANNER
-// One widget, two faces:
-//   - premiumActive:  gold affirmation with the boosted caps you currently get
-//   - !premiumActive: gold upsell that names the caps Premium would unlock
-// Both navigate to PremiumUpsellScreen so the free user can act on the hint.
+// PREMIUM HINT
+// A single slim line for free users that names the bigger caps and opens the
+// upsell. Premium users already see the PREMIUM tag on each stake panel.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _PremiumStakeBanner extends StatelessWidget {
-  final bool premiumActive;
-  final int  maxACStake;
-  final int  maxWPStake;
-
-  const _PremiumStakeBanner({
-    required this.premiumActive,
-    required this.maxACStake,
-    required this.maxWPStake,
-  });
-
-  static const _gold = Color(0xFFFFB300);
+  const _PremiumStakeBanner();
 
   @override
   Widget build(BuildContext context) {
-    final wpHint = maxWPStake >= 200
-        ? '200 WP / stake (vs 100)'
-        : null;
-
-    final acLine = premiumActive
-        ? 'Premium caps active · '
-            '$maxACStake AC / stake · '
-            '${wpHint ?? '$maxWPStake WP / stake'}'
-        : 'Stakes capped at 2,000 AC · 100 WP · '
-            'Premium unlocks 5,000 AC · 200 WP';
-
-    final headline = premiumActive
-        ? 'PREMIUM BENEFITS ACTIVE'
-        : 'GO PREMIUM · BIGGER STAKES';
-
+    const gold = AppColors.gold;
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
@@ -1880,62 +1532,25 @@ class _PremiumStakeBanner extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
         decoration: BoxDecoration(
-          color: _gold.withOpacity(0.10),
+          color: gold.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(12.r),
-          border: Border.all(color: _gold.withOpacity(0.28)),
+          border: Border.all(color: gold.withValues(alpha: 0.28)),
         ),
         child: Row(
           children: [
-            Container(
-              width: 30.r,
-              height: 30.r,
-              decoration: BoxDecoration(
-                color: _gold.withOpacity(0.18),
-                borderRadius: BorderRadius.circular(8.r),
-              ),
-              child: Center(
-                child: Text(
-                  '👑',
-                  style: TextStyle(fontSize: 15.sp),
+            Text('👑', style: TextStyle(fontSize: 15.sp)),
+            SizedBox(width: 10.w),
+            Expanded(
+              child: Text(
+                'Go Premium — stake up to 5,000 AC / 400 WP.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11.5.sp,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    headline,
-                    style: TextStyle(
-                      color: _gold,
-                      fontSize: 9.sp,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  SizedBox(height: 2.h),
-                  Text(
-                    acLine,
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 11.sp,
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(width: 6.w),
-            Icon(
-              premiumActive
-                  ? Icons.verified_rounded
-                  : Icons.arrow_forward_ios_rounded,
-              color: _gold,
-              size: 14.r,
-            ),
+            Icon(Icons.arrow_forward_ios_rounded, color: gold, size: 14.r),
           ],
         ),
       ),

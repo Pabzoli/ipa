@@ -1,18 +1,30 @@
 // lib/features/multiplayer/my_challenges_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:provider/provider.dart';
 
+import '../../core/constants/rival_economy.dart';
+import '../../core/constants/share_links.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/weekly_points_pill.dart';
+import '../../core/providers/user_data_provider.dart';
 import '../../core/services/app_update_service.dart';
 import '../../core/services/firestore_service.dart';
-import '../quiz/quiz_controller.dart' show QuizMode;
+import '../../core/services/share_service.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_page_route.dart';
+import '../../core/widgets/rival_avatar.dart';
+import '../../core/widgets/share_card.dart';
+import '../friends/friend_nudge_button.dart';
 import '../quiz/questions_page.dart';
 import 'challenge_model.dart';
 import 'challenge_lobby_page.dart';
-import 'challenge_result_page.dart';
 
 class MyChallengesPage extends StatefulWidget {
   const MyChallengesPage({super.key});
@@ -28,7 +40,7 @@ class _MyChallengesPageState extends State<MyChallengesPage>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -49,27 +61,26 @@ class _MyChallengesPageState extends State<MyChallengesPage>
               color: AppColors.textPrimary),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          'My Challenges',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 22.sp,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.5,
+        title: const Text('My Challenges'),
+        actions: [
+          Padding(
+            padding: EdgeInsets.only(right: 12.r),
+            child: const WeeklyPointsPill(),
           ),
-        ),
+        ],
         bottom: TabBar(
           controller: _tabCtrl,
           indicatorColor: AppColors.primary,
+          indicatorWeight: 3,
+          dividerColor: AppColors.divider,
           labelColor: AppColors.textPrimary,
           unselectedLabelColor: AppColors.textMuted,
-          labelStyle: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w700),
-          unselectedLabelStyle:
-              TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
+          labelStyle: AppTypography.labelLarge,
+          unselectedLabelStyle: AppTypography.labelLarge
+              .copyWith(color: AppColors.textMuted, fontWeight: FontWeight.w600),
           tabs: const [
             Tab(text: 'Active'),
             Tab(text: 'Pending'),
-            Tab(text: 'Completed'),
           ],
         ),
       ),
@@ -78,7 +89,6 @@ class _MyChallengesPageState extends State<MyChallengesPage>
         children: const [
           _ActiveTab(),
           _PendingTab(),
-          _CompletedTab(),
         ],
       ),
     );
@@ -109,19 +119,19 @@ class _ActiveTab extends StatelessWidget {
                 c.status == ChallengeStatus.opponentSubmitted)
             .toList();
         if (active.isEmpty) {
-          return const _EmptyState(
-            icon: '⚔️',
+          return const AppEmptyState(
+            icon: Icons.bolt_rounded,
             title: 'No active challenges',
-            subtitle: 'Create a new challenge or join one from the Battle tab.',
+            message: 'Create a new challenge or join one from the Battle tab.',
           );
         }
-        return ListView.builder(
-          padding: EdgeInsets.all(16.r),
+        return ListView.separated(
+          padding: const EdgeInsets.all(AppSpacing.lg),
           itemCount: active.length,
+          separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
           itemBuilder: (_, i) => _ChallengeCard(
             challenge: active[i],
             currentUid: uid ?? '',
-            type: _CardType.active,
           ),
         );
       },
@@ -147,22 +157,24 @@ class _PendingTab extends StatelessWidget {
         final all = snap.data ?? [];
         final pending = all
             .where((c) =>
-                c.status == ChallengeStatus.waiting && c.opponentUid == uid)
+                (c.status == ChallengeStatus.waiting ||
+                    c.status == ChallengeStatus.creatorSubmitted) &&
+                c.opponentUid == uid &&
+                c.opponentScore == null)
             .toList();
         if (pending.isEmpty) {
-          return const _EmptyState(
-            icon: '📬',
+          return const AppEmptyState(
+            icon: Icons.mail_outline_rounded,
             title: 'No pending challenges',
-            subtitle: 'You have no invitations to accept right now.',
           );
         }
-        return ListView.builder(
-          padding: EdgeInsets.all(16.r),
+        return ListView.separated(
+          padding: EdgeInsets.fromLTRB(20.r, 16.r, 20.r, 28.r),
           itemCount: pending.length,
-          itemBuilder: (_, i) => _ChallengeCard(
+          separatorBuilder: (_, __) => SizedBox(height: 16.h),
+          itemBuilder: (_, i) => _InviteTicket(
             challenge: pending[i],
             currentUid: uid ?? '',
-            type: _CardType.pending,
           ),
         );
       },
@@ -170,170 +182,67 @@ class _PendingTab extends StatelessWidget {
   }
 }
 
-// ─── Completed Tab ────────────────────────────────────────────────────────────
-class _CompletedTab extends StatelessWidget {
-  const _CompletedTab();
-
-  @override
-  Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    return StreamBuilder<List<ChallengeModel>>(
-      stream: FirestoreService.instance.getMyChallengesStream(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          );
-        }
-        final all = snap.data ?? [];
-        final completed = all
-            .where((c) =>
-                c.status == ChallengeStatus.completed ||
-                c.status == ChallengeStatus.expired ||
-                c.status == ChallengeStatus.expiredRefunded)
-            .toList();
-        if (completed.isEmpty) {
-          return const _EmptyState(
-            icon: '📜',
-            title: 'No completed challenges',
-            subtitle: 'Your match history will appear here.',
-          );
-        }
-        return ListView.builder(
-          padding: EdgeInsets.all(16.r),
-          itemCount: completed.length,
-          itemBuilder: (_, i) => _ChallengeCard(
-            challenge: completed[i],
-            currentUid: uid ?? '',
-            type: _CardType.completed,
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ─── Challenge Card ──────────────────────────────────────────────────────────
-enum _CardType { active, pending, completed }
-
-class _ChallengeCard extends StatelessWidget {
+// ─── Invite Card ────────────────────────────────────────────────────────────
+// One pending invitation, kept compact to match the Active tab: sender and
+// anime on top, stake / time chips in the middle, accept / decline at the
+// bottom. Tapping the card opens the lobby.
+class _InviteTicket extends StatefulWidget {
   final ChallengeModel challenge;
   final String currentUid;
-  final _CardType type;
 
-  const _ChallengeCard({
+  const _InviteTicket({
     required this.challenge,
     required this.currentUid,
-    required this.type,
   });
 
-  String get _statusText {
-    switch (challenge.status) {
-      case ChallengeStatus.waiting:
-        return 'Waiting';
-      case ChallengeStatus.opponentJoined:
-        return 'Opponent joined';
-      case ChallengeStatus.creatorSubmitted:
-        return 'Creator played';
-      case ChallengeStatus.opponentSubmitted:
-        return 'Opponent played';
-      case ChallengeStatus.completed:
-        return challenge.outcome ?? 'Completed';
-      case ChallengeStatus.expired:
-        return 'Expired';
-      case ChallengeStatus.expiredRefunded:
-        return 'Refunded';
-      default:
-        return 'Unknown';
-    }
+  @override
+  State<_InviteTicket> createState() => _InviteTicketState();
+}
+
+class _InviteTicketState extends State<_InviteTicket> {
+  bool _accepting = false;
+
+  ChallengeModel get c => widget.challenge;
+
+  String _friendlyJoinError(String raw, {bool premiumActive = false}) {
+    final joinLimit = premiumActive ? kDailyJoinPremium : kDailyJoinFree;
+    final activeLimit =
+        premiumActive ? kActiveChallengesPremium : kActiveChallengesFree;
+    final s = raw.replaceFirst('Exception: ', '');
+    return switch (s) {
+      'insufficient_coins' => 'Not enough AC for this stake.',
+      'insufficient_wp' => 'Not enough WP for this stake.',
+      'daily_challenge_limit_reached' =>
+        'Daily limit reached — max $joinLimit challenges joined per day.',
+      'too_many_active_challenges' =>
+        'You already have $activeLimit active challenges running.',
+      'challenge_not_waiting' => 'This challenge is no longer available.',
+      'not_friends' => 'Add them as a friend to spar.',
+      _ => s,
+    };
   }
 
-  Color get _statusColor {
-    if (type == _CardType.completed) {
-      if (challenge.outcome == 'draw') return AppColors.secondary;
-      final winner = challenge.winnerUid(currentUid: currentUid);
-      return winner == currentUid ? AppColors.correct : AppColors.wrong;
-    }
-    if (type == _CardType.pending) return AppColors.accent;
-    return AppColors.textMuted;
-  }
-
-  String get _opponentName {
-    if (currentUid == challenge.creatorUid) {
-      return challenge.opponentUsername ?? 'Opponent';
-    }
-    return challenge.creatorUsername;
-  }
-
-  bool get _isYourTurn {
-    if (currentUid.isEmpty) return false;
-    if (challenge.status == ChallengeStatus.opponentJoined) {
-      return currentUid == challenge.creatorUid &&
-          challenge.creatorScore == null;
-    }
-    if (challenge.status == ChallengeStatus.creatorSubmitted) {
-      return currentUid == challenge.opponentUid &&
-          challenge.opponentScore == null;
-    }
-    if (challenge.status == ChallengeStatus.opponentSubmitted) {
-      return currentUid == challenge.creatorUid &&
-          challenge.creatorScore == null;
-    }
-    return false;
-  }
-
-  bool get _isWaitingForOpponent {
-    if (type == _CardType.completed) return false;
-    if (currentUid.isEmpty) return false;
-    if (currentUid == challenge.creatorUid) {
-      return challenge.creatorScore != null &&
-          challenge.opponentScore == null &&
-          challenge.status != ChallengeStatus.completed;
-    }
-    if (currentUid == challenge.opponentUid) {
-      return challenge.opponentScore != null &&
-          challenge.creatorScore == null &&
-          challenge.status != ChallengeStatus.completed;
-    }
-    return false;
-  }
-
-  void _navigateToChallenge(BuildContext context) {
-    // A settled challenge has no lobby state left to show, so history cards go
-    // straight to the result page rather than bouncing through a screen that
-    // immediately redirects anyway.
-    if (challenge.isSettled) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ChallengeResultPage(
-            challengeId: challenge.challengeId,
-          ),
-        ),
-      );
-      return;
-    }
-
+  void _open() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ChallengeLobbyPage(
-          challengeId: challenge.challengeId,
-        ),
+      AppPageRoute(
+        builder: (_) => ChallengeLobbyPage(challengeId: c.challengeId),
       ),
     );
   }
 
-  Future<void> _acceptAndPlay(BuildContext context) async {
+  Future<void> _accept() async {
+    if (_accepting) return;
+    setState(() => _accepting = true);
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('joinChallenge')
           .call({
-        'challengeId': challenge.challengeId,
+        'challengeId': c.challengeId,
         ...AppUpdateService.instance.clientBuildStamp,
       });
 
-      if (!context.mounted) return;
+      if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -345,18 +254,21 @@ class _ChallengeCard extends StatelessWidget {
       );
 
       await Future.delayed(const Duration(milliseconds: 500));
-      if (!context.mounted) return;
+      if (!mounted) return;
 
-      // Navigate directly to QuestionsPage after accepting
-      _launchQuiz(context);
+      _launchQuizFor(context, c, widget.currentUid);
     } catch (e) {
-      if (!context.mounted) return;
-      final raw = e.toString().replaceFirst('Exception: ', '');
-      final message =
-          raw.contains('not_friends') ? 'Add them as a friend to spar.' : raw;
+      if (!mounted) return;
+      setState(() => _accepting = false);
+      final raw = e is FirebaseFunctionsException
+          ? (e.message ?? e.code)
+          : e.toString();
+      final premiumActive =
+          context.read<UserDataProvider>().premiumActive;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to join: $message'),
+          content: Text(
+              'Failed to join: ${_friendlyJoinError(raw, premiumActive: premiumActive)}'),
           backgroundColor: AppColors.wrong,
           behavior: SnackBarBehavior.floating,
         ),
@@ -364,253 +276,106 @@ class _ChallengeCard extends StatelessWidget {
     }
   }
 
-  void _launchQuiz(BuildContext context) {
-    final isCreator = currentUid == challenge.creatorUid;
-    final isQuickMatch = challenge.isQuickMatch;
-    final opponentName = isCreator
-        ? challenge.opponentUsername ?? 'Opponent'
-        : challenge.creatorUsername;
-
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (_, a, __) => FadeTransition(
-          opacity: a,
-          child: QuestionsPage(
-            mode: QuizMode.asyncChallenge,
-            questionIds: challenge.questionIds,
-            challengeId: challenge.challengeId,
-            isCreator: isCreator,
-            isQuickMatch: isQuickMatch,
-            isGhost: false,
-            opponentName: opponentName,
-          ),
-        ),
-        transitionDuration: const Duration(milliseconds: 400),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isCompleted = type == _CardType.completed;
-    final isPending = type == _CardType.pending;
-    final showAccept = isPending;
-    final showPlay = _isYourTurn;
-    final showWaiting = _isWaitingForOpponent;
+    final accent = c.kind.accentColor;
+    final wp = c.wpStake ?? 0;
+    final isFree = c.stakeAmount <= 0 && wp <= 0;
 
-    return GestureDetector(
-      onTap: () => _navigateToChallenge(context),
-      child: Container(
-        margin: EdgeInsets.only(bottom: 12.r),
-        padding: EdgeInsets.all(14.r),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16.r),
-          border: Border.all(
-            color: (showAccept || showPlay)
-                ? AppColors.primary.withOpacity(0.35)
-                : AppColors.divider,
-            width: (showAccept || showPlay) ? 1.5 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40.w,
-                  height: 40.h,
-                  decoration: BoxDecoration(
-                    color: _statusColor.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      challenge.animeTitle.isNotEmpty
-                          ? challenge.animeTitle[0].toUpperCase()
-                          : '?',
-                      style: TextStyle(
-                        color: _statusColor,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16.sp,
-                      ),
+    final ud = context.watch<UserDataProvider>();
+    final short = c.stakeAmount > ud.animeCoins || wp > ud.weeklyPoints;
+
+    final remaining = c.timeRemaining;
+    final urgent = remaining.inHours < 6;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      onTap: _open,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              RivalAvatar(
+                name: c.creatorUsername,
+                size: 40.r,
+                color: accent,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      c.animeTitle.isEmpty ? 'Anime duel' : c.animeTitle,
+                      style: AppTypography.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        challenge.animeTitle,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15.sp,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 2.h),
-                      Text(
-                        'vs $_opponentName',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 12.sp,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-                  decoration: BoxDecoration(
-                    color: _statusColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(8.r),
-                    border: Border.all(color: _statusColor.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    _statusText,
-                    style: TextStyle(
-                      color: _statusColor,
-                      fontSize: 10.sp,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'from ${c.creatorUsername}',
+                      style: AppTypography.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 10.h),
-            Row(
-              children: [
-                if (challenge.stakeAmount > 0)
-                  _ChipLabel(
-                    icon: '🪙',
-                    label: '${challenge.stakeAmount} AC',
-                  ),
-                if (challenge.wpStake != null && challenge.wpStake! > 0) ...[
-                  SizedBox(width: 8.w),
-                  _ChipLabel(
-                    icon: '⭐',
-                    label: '${challenge.wpStake} WP',
-                  ),
-                ],
-                const Spacer(),
-                if (!isCompleted) ...[
-                  _ChipLabel(
-                    icon: '⏳',
-                    label: _formatTime(challenge.timeRemaining),
-                  ),
-                ],
-              ],
-            ),
-            if (showAccept || showPlay || showWaiting || isCompleted) ...[
-              SizedBox(height: 12.h),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (showAccept) ...[
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _acceptAndPlay(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 18.r, vertical: 10.r),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10.r)),
-                        ),
-                        child: Text(
-                          'Accept & Play',
-                          style: TextStyle(
-                              fontSize: 13.sp, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 10.w),
-                    _PendingDeclineButton(challengeId: challenge.challengeId),
                   ],
-                  if (showPlay)
-                    ElevatedButton(
-                      onPressed: () => _launchQuiz(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(
-                            horizontal: 18.r, vertical: 10.r),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10.r)),
-                      ),
-                      child: Text(
-                        'Play Now',
-                        style: TextStyle(
-                            fontSize: 13.sp, fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  if (showWaiting)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 12.r, vertical: 8.r),
-                            decoration: BoxDecoration(
-                              color: AppColors.textMuted.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(8.r),
-                            ),
-                            child: Text(
-                              '⏳ Waiting for opponent…',
-                              style: TextStyle(
-                                color: AppColors.textMuted,
-                                fontSize: 12.sp,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: 8.w),
-                        _CardNudgeButton(
-                          challengeId: challenge.challengeId,
-                          otherUid: currentUid == challenge.creatorUid
-                              ? (challenge.opponentUid ?? '')
-                              : challenge.creatorUid,
-                        ),
-                      ],
-                    ),
-                  if (isCompleted)
-                    TextButton(
-                      onPressed: () => _navigateToChallenge(context),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: Text(
-                        'View →',
-                        style: TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              _KindChip(kind: c.kind),
+              const SizedBox(width: AppSpacing.sm),
+              if (isFree)
+                const _ChipLabel(icon: '🎁', label: 'Free')
+              else ...[
+                if (c.stakeAmount > 0)
+                  _ChipLabel(
+                    icon: '🪙',
+                    label: '${c.stakeAmount} AC',
+                    color: short ? AppColors.wrong : null,
+                  ),
+                if (wp > 0) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  _ChipLabel(
+                    icon: '⭐',
+                    label: '$wp WP',
+                    color: short ? AppColors.wrong : null,
+                  ),
+                ],
+              ],
+              const Spacer(),
+              _ChipLabel(
+                icon: '⏳',
+                label: _formatTimeLeft(remaining),
+                color: urgent ? AppColors.wrong : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: _PendingDeclineButton(challengeId: c.challengeId),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                flex: 2,
+                child: AppButton(
+                  label: _accepting ? 'Accepting…' : 'Accept',
+                  size: AppButtonSize.small,
+                  loading: _accepting,
+                  onPressed: _accepting ? null : _accept,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
-  }
-
-  String _formatTime(Duration d) {
-    if (d == Duration.zero) return 'Expired';
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    return h > 0 ? '${h}h ${m}m' : '${m}m';
   }
 }
 
@@ -645,21 +410,23 @@ class _PendingDeclineButtonState extends State<_PendingDeclineButton> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Decline challenge?',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-        content: const Text(
+        title: Text('Decline challenge?', style: AppTypography.titleLarge),
+        content: Text(
           'Their stake will be refunded to them. This can\'t be undone.',
+          style: AppTypography.bodyMedium,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text('Cancel',
+                style: AppTypography.labelLarge
+                    .copyWith(color: AppColors.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text('Decline',
-                style: TextStyle(
-                    color: AppColors.wrong, fontWeight: FontWeight.w700)),
+                style: AppTypography.labelLarge
+                    .copyWith(color: AppColors.wrong)),
           ),
         ],
       ),
@@ -669,7 +436,10 @@ class _PendingDeclineButtonState extends State<_PendingDeclineButton> {
     try {
       await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('declineChallenge')
-          .call({'challengeId': widget.challengeId});
+          .call({
+        'challengeId': widget.challengeId,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -696,118 +466,257 @@ class _PendingDeclineButtonState extends State<_PendingDeclineButton> {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
+    return AppButton(
+      label: 'Decline',
+      size: AppButtonSize.small,
+      variant: AppButtonVariant.outline,
+      color: AppColors.wrong,
+      loading: _busy,
       onPressed: _busy ? null : _onDecline,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.wrong,
-        side: BorderSide(color: AppColors.wrong.withOpacity(0.45)),
-        padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 10.r),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10.r),
-        ),
-      ),
-      child: _busy
-          ? SizedBox(
-              width: 16.w,
-              height: 16.h,
-              child: const CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Text(
-              'Decline',
-              style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w800),
-            ),
     );
   }
 }
 
-// ─── Card Nudge Button ──────────────────────────────────────────────────────
-// Preset "Your turn!" ping for a challenge waiting on the other side.
-// Server verifies it really is their turn + the daily gate.
-class _CardNudgeButton extends StatefulWidget {
-  final String challengeId;
-  final String otherUid;
-  const _CardNudgeButton(
-      {required this.challengeId, required this.otherUid});
+// ─── Active Challenge Card ──────────────────────────────────────────────────
+class _ChallengeCard extends StatelessWidget {
+  final ChallengeModel challenge;
+  final String currentUid;
 
-  @override
-  State<_CardNudgeButton> createState() => _CardNudgeButtonState();
-}
+  const _ChallengeCard({
+    required this.challenge,
+    required this.currentUid,
+  });
 
-class _CardNudgeButtonState extends State<_CardNudgeButton> {
-  bool _busy = false;
-  bool _done = false;
-
-  Future<void> _nudge() async {
-    if (_busy || _done || widget.otherUid.isEmpty) return;
-    setState(() => _busy = true);
-    try {
-      await FirestoreService.instance.nudgeFriend(
-        friendUid: widget.otherUid,
-        challengeId: widget.challengeId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _done = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _busy = false);
+  String get _statusText {
+    switch (challenge.status) {
+      case ChallengeStatus.waiting:
+        return 'Waiting';
+      case ChallengeStatus.opponentJoined:
+        return 'Opponent joined';
+      case ChallengeStatus.creatorSubmitted:
+        return 'Creator played';
+      case ChallengeStatus.opponentSubmitted:
+        return 'Opponent played';
+      case ChallengeStatus.completed:
+        return challenge.outcome ?? 'Completed';
+      case ChallengeStatus.expired:
+        return 'Expired';
+      case ChallengeStatus.expiredRefunded:
+        return 'Refunded';
+      default:
+        return 'Unknown';
     }
+  }
+
+  String get _opponentName {
+    if (currentUid == challenge.creatorUid) {
+      return challenge.opponentUsername ?? 'Opponent';
+    }
+    return challenge.creatorUsername;
+  }
+
+  bool get _isYourTurn {
+    if (currentUid.isEmpty) return false;
+    if (challenge.status == ChallengeStatus.opponentJoined) {
+      return currentUid == challenge.creatorUid &&
+          challenge.creatorScore == null;
+    }
+    if (challenge.status == ChallengeStatus.creatorSubmitted) {
+      return currentUid == challenge.opponentUid &&
+          challenge.opponentScore == null;
+    }
+    if (challenge.status == ChallengeStatus.opponentSubmitted) {
+      return currentUid == challenge.creatorUid &&
+          challenge.creatorScore == null;
+    }
+    return false;
+  }
+
+  bool get _isWaitingForOpponent {
+    if (currentUid.isEmpty) return false;
+    if (currentUid == challenge.creatorUid) {
+      return challenge.creatorScore != null &&
+          challenge.opponentScore == null &&
+          challenge.status != ChallengeStatus.completed;
+    }
+    if (currentUid == challenge.opponentUid) {
+      return challenge.opponentScore != null &&
+          challenge.creatorScore == null &&
+          challenge.status != ChallengeStatus.completed;
+    }
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed:
-          (_busy || _done || widget.otherUid.isEmpty) ? null : _nudge,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.secondary,
-        side: BorderSide(
-            color: AppColors.secondary.withOpacity(0.45)),
-        padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.r),
-        ),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      child: Text(
-        _done
-            ? 'Nudged ✓'
-            : _busy
-                ? '…'
-                : 'Nudge',
-        style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w800),
+    final showPlay = _isYourTurn;
+    final showWaiting = _isWaitingForOpponent;
+    final showCopyCode = challenge.kind == ChallengeKind.code &&
+        challenge.status == ChallengeStatus.waiting &&
+        currentUid == challenge.creatorUid;
+
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      accentColor: showPlay ? AppColors.primary : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40.r,
+                height: 40.r,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.textMuted.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  challenge.animeTitle.isNotEmpty
+                      ? challenge.animeTitle[0].toUpperCase()
+                      : '?',
+                  style: AppTypography.titleLarge
+                      .copyWith(color: AppColors.textMuted),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      challenge.animeTitle,
+                      style: AppTypography.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'vs $_opponentName',
+                      style: AppTypography.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm,
+                  vertical: AppSpacing.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.textMuted.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  border: Border.all(
+                    color: AppColors.textMuted.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Text(
+                  _statusText,
+                  style: AppTypography.labelMedium
+                      .copyWith(color: AppColors.textMuted),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              _KindChip(kind: challenge.kind),
+              const SizedBox(width: AppSpacing.sm),
+              if (challenge.stakeAmount > 0)
+                _ChipLabel(
+                  icon: '🪙',
+                  label: '${challenge.stakeAmount} AC',
+                ),
+              if (challenge.wpStake != null && challenge.wpStake! > 0) ...[
+                const SizedBox(width: AppSpacing.sm),
+                _ChipLabel(
+                  icon: '⭐',
+                  label: '${challenge.wpStake} WP',
+                ),
+              ],
+              const Spacer(),
+              _ChipLabel(
+                icon: '⏳',
+                label: _formatTimeLeft(challenge.timeRemaining),
+              ),
+            ],
+          ),
+          if (showCopyCode) ...[
+            const SizedBox(height: AppSpacing.md),
+            _CodeCopyRow(code: challenge.challengeId),
+          ],
+          if (showPlay || showWaiting) ...[
+            const SizedBox(height: AppSpacing.md),
+            if (showPlay)
+              AppButton(
+                label: 'Play Now',
+                size: AppButtonSize.small,
+                onPressed: () => _launchQuizFor(context, challenge, currentUid),
+              ),
+            if (showWaiting)
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                        vertical: AppSpacing.sm,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                      ),
+                      child: Text(
+                        '⏳ Waiting for $_opponentName…',
+                        style: AppTypography.bodySmall
+                            .copyWith(color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  FriendNudgeButton(
+                    friendUid: currentUid == challenge.creatorUid
+                        ? (challenge.opponentUid ?? '')
+                        : challenge.creatorUid,
+                    challengeId: challenge.challengeId,
+                    variant: AppButtonVariant.outline,
+                  ),
+                ],
+              ),
+          ],
+        ],
       ),
     );
   }
 }
 
-class _ChipLabel extends StatelessWidget {
-  final String icon;
-  final String label;
-  const _ChipLabel({required this.icon, required this.label});
+class _KindChip extends StatelessWidget {
+  final ChallengeKind kind;
+  const _KindChip({required this.kind});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(8.r),
+        color: kind.accentColor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(color: kind.accentColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: TextStyle(fontSize: 12.sp)),
-          SizedBox(width: 4.w),
+          Icon(kind.icon, size: 12.r, color: kind.accentColor),
+          const SizedBox(width: AppSpacing.xs),
           Text(
-            label,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 11.sp,
-              fontWeight: FontWeight.w600,
+            kind.shortLabel.toUpperCase(),
+            style: AppTypography.labelSmall.copyWith(
+              color: kind.accentColor,
+              letterSpacing: 0.5,
             ),
           ),
         ],
@@ -816,49 +725,162 @@ class _ChipLabel extends StatelessWidget {
   }
 }
 
-// ─── Empty State ──────────────────────────────────────────────────────────────
-class _EmptyState extends StatelessWidget {
-  final String icon;
-  final String title;
-  final String subtitle;
-
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
+class _CodeCopyRow extends StatelessWidget {
+  final String code;
+  const _CodeCopyRow({required this.code});
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.all(32.r),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(icon, style: TextStyle(fontSize: 48.sp)),
-            SizedBox(height: 16.h),
-            Text(
-              title,
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 20.sp,
-                fontWeight: FontWeight.w800,
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        onTap: () {
+          Clipboard.setData(ClipboardData(text: code));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Challenge code copied!'),
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 2),
             ),
-            SizedBox(height: 8.h),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: AppColors.textMuted,
-                fontSize: 14.sp,
-                height: 1.4,
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.secondarySoft,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(color: AppColors.secondaryBorder),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.copy_rounded, size: 16.r, color: AppColors.secondary),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                'Code',
+                style: AppTypography.labelMedium
+                    .copyWith(color: AppColors.textMuted),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  code,
+                  style: AppTypography.titleMedium.copyWith(
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                'Tap to copy',
+                style: AppTypography.labelMedium
+                    .copyWith(color: AppColors.secondary),
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              IconButton(
+                tooltip: 'Share challenge',
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(
+                  minWidth: 40,
+                  minHeight: 40,
+                ),
+                onPressed: () => ShareService.instance.shareCard(
+                  context,
+                  card: ShareCard.forChallenge(code),
+                  logicalSize: kShareCardSize,
+                  fileName: 'animequiz-challenge-card',
+                  text: challengeShareMessage(code),
+                  subject: 'AnimeQuiz challenge',
+                ),
+                icon: Icon(
+                  Icons.share_rounded,
+                  color: AppColors.secondary,
+                  size: 16.r,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
+class _ChipLabel extends StatelessWidget {
+  final String icon;
+  final String label;
+  final Color? color;
+  const _ChipLabel({required this.icon, required this.label, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: AppTypography.labelMedium),
+          const SizedBox(width: AppSpacing.xs),
+          Text(
+            label,
+            style: AppTypography.labelMedium
+                .copyWith(color: color ?? AppColors.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+void _launchQuizFor(
+  BuildContext context,
+  ChallengeModel challenge,
+  String currentUid,
+) {
+  final isCreator = currentUid == challenge.creatorUid;
+  final isQuickMatch = challenge.isQuickMatch;
+  final opponentName = isCreator
+      ? challenge.opponentUsername ?? 'Opponent'
+      : challenge.creatorUsername;
+
+  Navigator.pushReplacement(
+    context,
+    PageRouteBuilder(
+      pageBuilder: (_, a, __) => FadeTransition(
+        opacity: a,
+        child: QuestionsPage(
+          mode: QuizMode.asyncChallenge,
+          questionIds: challenge.questionIds,
+          challengeId: challenge.challengeId,
+          isCreator: isCreator,
+          isQuickMatch: isQuickMatch,
+          isGhost: false,
+          opponentName: opponentName,
+        ),
+      ),
+      transitionDuration: const Duration(milliseconds: 400),
+    ),
+  );
+}
+
+String _formatTimeLeft(Duration d) {
+  if (d == Duration.zero) return 'Expired';
+  final h = d.inHours;
+  final m = d.inMinutes.remainder(60);
+  return h > 0 ? '${h}h ${m}m' : '${m}m';
+}
+

@@ -39,9 +39,13 @@ const fns = require('../index.js');
 
 const FLW_PAYMENTS = 'https://api.flutterwave.com/v3/payments';
 const FLW_TRANSACTIONS = 'https://api.flutterwave.com/v3/transactions';
+const FLW_VERIFY_BY_REF = 'https://api.flutterwave.com/v3/transactions/verify_by_reference';
 
 // ── Stubbed Flutterwave HTTP surface ────────────────────────────────────────
 let flwCheckoutCalls = [];
+// Documented verify-by-reference endpoint: resolves to one transaction object.
+let verifyRefHandler = async () => ({ status: 'success', data: null });
+// Transaction-list search fallback.
 let verifyHandler = async () => [];
 function flwJson(obj, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => obj };
@@ -50,6 +54,9 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url === FLW_PAYMENTS) {
     flwCheckoutCalls.push({ url, body: JSON.parse(opts.body || '{}') });
     return flwJson({ status: 'success', data: { link: 'https://checkout.flutterwave.com/v3/hosted/pay/testlink' } });
+  }
+  if (String(url).startsWith(FLW_VERIFY_BY_REF)) {
+    return flwJson(await verifyRefHandler(String(url)));
   }
   if (String(url).startsWith(FLW_TRANSACTIONS)) {
     return flwJson({ status: 'success', data: await verifyHandler(String(url)) });
@@ -188,6 +195,7 @@ describe('website purchase pipeline', () => {
   beforeEach(() => {
     H.clearDb(db);
     flwCheckoutCalls = [];
+    verifyRefHandler = async () => ({ status: 'success', data: null });
     verifyHandler = async () => [];
     ipSeq = 0;
   });
@@ -447,6 +455,63 @@ describe('website purchase pipeline', () => {
     assert.equal(allCodes().length, 0);
   });
 
+  it('self-heal works from verify_by_reference alone (customer.email, no intent)', async () => {
+    // The documented endpoint returns ONE transaction with the buyer nested
+    // under customer.email. This is the shape that must still deliver even if
+    // the checkout paymentIntent write was lost.
+    const txRef = newTxRef('AQ_AC_300');
+    verifyRefHandler = async () => ({
+      status: 'success',
+      message: 'Transaction fetched successfully',
+      data: {
+        id: 2108477993, tx_ref: txRef, amount: 500, currency: 'NGN',
+        status: 'successful', customer: { email: 'buyer@example.com' },
+      },
+    });
+
+    const out = await fetchCode(txRef, 'buyer@example.com');
+    assert.equal(out.status, 200);
+    assert.match(out.body.code, CODE_RE);
+    assert.equal(allCodes().length, 1);
+    assert.equal(allCodes()[0].buyerEmail, 'buyer@example.com');
+  });
+
+  it('self-heal falls back to the transaction list when verify-by-reference is down', async () => {
+    const txRef = newTxRef('AQ_AC_1100');
+    await createIntent(txRef, { productId: 'AQ_AC_1100', email: 'buyer@example.com' });
+    verifyRefHandler = async () => { throw new Error('flutterwave 503'); };
+    // The list endpoint returns a flat customer_email and no customer object.
+    verifyHandler = async () => [{
+      id: 2108477994, tx_ref: txRef, amount: 1500, currency: 'NGN',
+      status: 'successful', customer_email: 'buyer@example.com',
+    }];
+
+    const out = await fetchCode(txRef, 'buyer@example.com');
+    assert.equal(out.status, 200);
+    assert.match(out.body.code, CODE_RE);
+  });
+
+  it('re-verifies a not-yet-successful charge instead of caching the miss', async () => {
+    // The success page polls every 3s while a charge settles. A first poll that
+    // finds nothing must not poison the rest of the window.
+    const txRef = newTxRef('AQ_AC_300');
+    await createIntent(txRef, { productId: 'AQ_AC_300', email: 'buyer@example.com' });
+    let calls = 0;
+    verifyRefHandler = async () => {
+      calls++;
+      return calls === 1
+        ? { status: 'success', data: { id: 42, tx_ref: txRef, amount: 500, currency: 'NGN', status: 'pending' } }
+        : { status: 'success', data: { id: 42, tx_ref: txRef, amount: 500, currency: 'NGN', status: 'successful', customer: { email: 'buyer@example.com' } } };
+    };
+
+    const first = await fetchCode(txRef, 'buyer@example.com');
+    assert.equal(first.status, 404);
+    const second = await fetchCode(txRef, 'buyer@example.com');
+    assert.equal(second.status, 200);
+    assert.match(second.body.code, CODE_RE);
+    assert.equal(calls, 2, 'the second poll must hit Flutterwave again');
+  });
+
   it('validates tx_ref/email and answers CORS preflight', async () => {
     const noRef = await fetchCode('', 'buyer@example.com');
     assert.equal(noRef.status, 400);
@@ -482,6 +547,7 @@ describe('in-app redemption (redeemCode)', () => {
     H.clearDb(db);
     await H.mkUser(db, 'buyer');
     flwCheckoutCalls = [];
+    verifyRefHandler = async () => ({ status: 'success', data: null });
     verifyHandler = async () => [];
     ipSeq = 0;
   });

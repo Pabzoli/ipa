@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class AppPageRoute<T> extends PageRouteBuilder<T> {
   AppPageRoute({
