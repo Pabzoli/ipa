@@ -29,9 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned to the SDK this app is developed on. `stable` drifts: Flutter
+      # 3.47 declares `FlutterError: Error` itself, which makes
+      # cloud_functions 6.3.6's compatibility extension a redundant-conformance
+      # compile error on iOS. Bump this deliberately, with a plugin bump.
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.44.9'
           cache: true
 
       - name: Toolchain versions
