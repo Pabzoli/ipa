@@ -52,6 +52,24 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # cloud_functions 6.3.x ships `extension FlutterError: Error {}` for old
+      # SDKs. Current Flutter already declares that conformance, so it is a
+      # hard "Redundant conformance" compile error on iOS (cloud_functions 7.x
+      # deletes the line upstream). Strip it from the pub cache rather than
+      # upgrading the whole Firebase stack — firebase_core 5 + minSdk 24 would
+      # ripple into the shipped Android app.
+      - name: Patch cloud_functions redundant FlutterError conformance
+        run: |
+          set -euo pipefail
+          find "$HOME/.pub-cache/hosted/pub.dev" \
+            -path '*cloud_functions-6.3.*/ios/*/FirebaseFunctionsPlugin.swift' -print0 \
+            | xargs -0 -r sed -i '' '/^extension FlutterError: Error {}$/d'
+          if grep -rq 'extension FlutterError' "$HOME/.pub-cache/hosted/pub.dev"/cloud_functions-6.3.*/ios; then
+            echo "::error::extension still present"
+            exit 1
+          fi
+          echo "redundant conformance removed"
+
       # firebase_core 4.x / firebase_auth 6.x require iOS 15, and the checked-in
       # project still says 11.0 — pod install fails outright below 15.
       - name: Pin iOS deployment target to 15.0
