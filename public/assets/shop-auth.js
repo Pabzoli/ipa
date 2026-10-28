@@ -88,6 +88,21 @@
 
     email: function () { return (currentUser && currentUser.email) || ''; },
 
+    isVerified: function () { return !!(currentUser && currentUser.emailVerified); },
+
+    reload: function () {
+      return currentUser
+        ? currentUser.reload().then(function () {
+            currentUser = auth.currentUser;
+            return currentUser;
+          })
+        : Promise.resolve(null);
+    },
+
+    sendVerification: function () {
+      return currentUser ? currentUser.sendEmailVerification() : Promise.reject(new Error('not_signed_in'));
+    },
+
     // Always ask the SDK: it returns the cached token until it is about to
     // expire, then refreshes. A stale token is the main source of 401s here.
     getIdToken: function () {

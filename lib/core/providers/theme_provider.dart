@@ -1,18 +1,15 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/app_system_ui.dart';
 import '../theme/app_theme.dart';
 
-/// Hidden flag for the Appearance control.
+/// Visibility flag for the Appearance control.
 ///
-/// Off in release builds until every screen has been audited in light mode
-/// (Phase 3), so the switch can never reach users half-finished. It defaults to
-/// visible in debug builds; `--dart-define=THEME_CONTROL=false` hides it there
-/// too.
+/// Visible in all builds by default. `--dart-define=THEME_CONTROL=false` hides
+/// it.
 const bool kThemeControlEnabled =
-    kDebugMode && bool.fromEnvironment('THEME_CONTROL', defaultValue: true);
+    bool.fromEnvironment('THEME_CONTROL', defaultValue: true);
 
 /// Device-local appearance preference (System / Light / Dark).
 ///

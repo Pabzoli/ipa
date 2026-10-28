@@ -38,6 +38,7 @@ Responsive sizing: this repo uses flutter_screenutil (.w/.h/.sp/.r) — keep it 
 
 ## Guardrails
 - Don't commit, push, tag, or deploy unless asked. Deploy is `firebase deploy --only <functions|firestore:rules|hosting>`; state rollback in one line (`rollback/firestore.rules.bak` exists for rules).
+- NEVER bulk-deploy functions (`firebase deploy --only functions` fails during source analysis on this single-file 16k-line codebase — observed 2026-10-29). Deploy only the named changed function(s), e.g. `firebase deploy --only functions:verifyIAPPurchase`.
 - No destructive commands without explicit confirmation. `scripts/purge_users.js` and `scripts/purge_leaderboard_payouts.js` delete live data — dry run first, main agent only.
 - Honesty: never claim a build/test/deploy passed unless you ran it and saw it; label claims Confirmed / Likely / Unsure.
 - Flutter tests only when the user explicitly asks; a confirmed bug fix gets a regression test.

@@ -12059,9 +12059,9 @@ exports.saveGhostSession = onSecureCall(
 // their original names because they are external identifiers (Play Store SKUs
 // / Flutterwave tx_ref tokens) and must not change.
 const IAP_CATALOG = {
-  animequiz_coins_300:  { acAmount: 500,  grantChampionBadge: false },
-  animequiz_coins_1100: { acAmount: 1650, grantChampionBadge: false },
-  animequiz_coins_3600: { acAmount: 4800, grantChampionBadge: true  },
+  animequiz_coins_300:  { acAmount: 500  },
+  animequiz_coins_1100: { acAmount: 1650 },
+  animequiz_coins_3600: { acAmount: 4800 },
 };
 
 exports.verifyIAPPurchase = onSecureCall(
@@ -12102,10 +12102,6 @@ exports.verifyIAPPurchase = onSecureCall(
 
       tx.update(userRef, {
         animeCoins: FieldValue.increment(product.acAmount),
-        ...(product.grantChampionBadge ? {
-          hasChampionBadge: true,
-          ownedCosmetics: FieldValue.arrayUnion('frame_champion'),
-        } : {}),
       });
 
       const txLogRef = userRef.collection('coinTransactions').doc();
@@ -12127,7 +12123,6 @@ exports.verifyIAPPurchase = onSecureCall(
         success:              true,
         coinsAwarded:         product.acAmount,
         newBalance,
-        championBadgeGranted: !!product.grantChampionBadge,
       };
     });
 
@@ -12281,7 +12276,7 @@ async function _generateAndWriteCode(
 const FLUTTERWAVE_PRODUCTS = {
   'AQ_AC_300':  { txToken: 'AC300',  type: 'ac',      value: 500,  amount: 500,  currency: 'NGN', title: 'Add 500 Anime Coins' },
   'AQ_AC_1100': { txToken: 'AC1100', type: 'ac',      value: 1650, amount: 1500, currency: 'NGN', title: 'Add 1650 Anime Coins' },
-  'AQ_AC_3600': { txToken: 'AC3600', type: 'ac',      value: 4800, amount: 4000, currency: 'NGN', title: 'Add 4800 Anime Coins (+ Champion badge)' },
+  'AQ_AC_3600': { txToken: 'AC3600', type: 'ac',      value: 4800, amount: 4000, currency: 'NGN', title: 'Add 4800 Anime Coins' },
   'AQ_PREM_31': { txToken: 'PREM31', type: 'premium', value: 28,   amount: 2000, currency: 'NGN', title: 'Premium Pass (28 days)' },
   // Leaderboard entry: the week ID is injected at mint time (currentWeekId()),
   // so `value` here is a placeholder. txToken LBWK cannot prefix-collide with

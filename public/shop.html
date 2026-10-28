@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0C0C14" />
+<title>Shop — AnimeQuiz</title>
+<meta name="description" content="Buy Anime Coins, Premium Pass, or a Weekly Leaderboard Entry. Codes are delivered instantly and redeemed in-app." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css" />
+<script src="/assets/site.js"></script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/" aria-label="AnimeQuiz home"><span class="brand-mark" aria-hidden="true">✦</span><span>AnimeQuiz</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/shop.html" aria-current="page">Shop</a>
+      <a href="/download.html">Download</a>
+      <a href="/#faq">FAQ</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch theme"></button>
+      <a class="btn btn-primary btn-sm btn-hide-sm" href="/download.html">Get the app</a>
+      <details class="menu">
+        <summary class="icon-btn" aria-label="Open menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></summary>
+        <nav class="menu-panel" aria-label="Mobile">
+          <a href="/">Home</a>
+          <a href="/shop.html">Shop</a>
+          <a href="/download.html">Download</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="page-head container">
+    <div class="eyebrow">Coins · Premium · Leaderboard</div>
+    <h1>Power <span class="accent">up.</span></h1>
+    <p>Buy Anime Coins, unlock Premium, or claim your spot on the weekly board. Your code appears on the next screen the moment payment clears.</p>
+  </section>
+
+  <div class="container shop-grid">
+
+    <aside class="account" id="authSection" aria-labelledby="accountTitle">
+      <div class="account-head">
+        <h2 id="accountTitle">1 · Sign in</h2>
+        <span id="authHint">Same account as the app</span>
+      </div>
+      <p class="fine">Purchases are tied to the account you sign in with here.</p>
+
+      <div class="account-stack">
+        <div id="signInCard">
+          <label class="field-label" for="email">Email</label>
+          <input type="email" id="email" class="input" placeholder="you@example.com" autocomplete="email" inputmode="email" spellcheck="false" />
+          <label class="field-label" for="password">Password</label>
+          <input type="password" id="password" class="input" placeholder="Your password" autocomplete="current-password" />
+          <div class="cta-row" style="margin-top:18px;">
+            <button class="btn btn-primary btn-block" id="signInBtn" type="button">Sign in</button>
+          </div>
+          <div class="cta-row" style="margin-top:10px;">
+            <button class="btn btn-ghost btn-sm" id="resetBtn" type="button">Forgot password?</button>
+          </div>
+          <div class="msg" id="authMsg" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="signed-in hidden" id="signedInCard">
+          <div class="ico" id="signedInAvatar" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div>
+          <div class="meta">
+            <strong id="signedInEmail"></strong>
+            <span id="verifyState"></span>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="signOutBtn" type="button">Sign out</button>
+        </div>
+
+        <div class="verify-banner hidden" id="verifyBanner">
+          <div>
+            <strong>Verify your email to buy.</strong>
+            <p>We sent a link when you created your account. Verify in the app or your inbox, then refresh.</p>
+            <div class="verify-actions">
+              <button class="btn btn-primary btn-sm" id="resendBtn" type="button">Resend link</button>
+              <button class="btn btn-ghost btn-sm" id="refreshBtn" type="button">I've verified — refresh</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="catalog">
+      <div class="catalog-head">
+        <h2>2 · Pick your pack</h2>
+        <span>Single-use codes · Redeemed in-app</span>
+      </div>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
+
+      <article class="feature">
+        <span class="ribbon">★ Most popular</span>
+        <h3>4800 Anime Coins</h3>
+        <p>Our best value pack — includes a 20% bonus. Enough for weeks of play.</p>
+        <div class="feature-foot">
+          <div>
+            <div class="price">₦4,000</div>
+            <span class="fine">One-time · Code shown on next screen</span>
+          </div>
+          <button class="btn btn-gold btn-lg" data-id="AQ_AC_3600" type="button">Get this pack →</button>
+        </div>
+      </article>
+
+      <div class="product-grid" id="rows"></div>
+    </div>
+
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="container foot-grid">
+    <div class="foot-brand">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span><span>AnimeQuiz</span></a>
+      <p>Head-to-head anime quizzes for Android. Free to install, 18+, Nigeria.</p>
+    </div>
+    <div class="foot-col">
+      <h4>Product</h4>
+      <a href="/">Home</a>
+      <a href="/shop.html">Shop</a>
+      <a href="/download.html">Download</a>
+      <a href="/#faq">FAQ</a>
+    </div>
+    <div class="foot-col">
+      <h4>Legal</h4>
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms of Service</a>
+      <a href="/refund.html">Refund Policy</a>
+    </div>
+    <div class="foot-col">
+      <h4>Contact</h4>
+      <a href="mailto:animequizzm@gmail.com">animequizzm@gmail.com</a>
+    </div>
+  </div>
+  <div class="container foot-bottom">
+    <span>© 2026 Anime Quiz · One-time codes, redeemable in-app</span>
+    <span>Payments secured by Flutterwave</span>
+  </div>
+</footer>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="/assets/shop-auth.js"></script>
+<script>
+  // Matches FLUTTERWAVE_PRODUCTS in functions/index.js.
+  const ROWS = [
+    { id: 'AQ_AC_300', icon: '🪙', title: '500 Anime Coins', desc: 'Starter pack — instant AC for hints and cooldown skips.', price: '₦500' },
+    { id: 'AQ_AC_1100', icon: '🪙', title: '1650 Anime Coins', desc: 'Includes a 10% bonus — a few solid matches of play.', price: '₦1,500' },
+    { id: 'AQ_PREM_31', icon: '👑', title: 'Premium Pass', desc: '28 days — no ads, higher stakes, faster rematches.', price: '₦2,000', cta: 'Get Premium', perks: ['1.20× WP', 'Free gauntlet retry', '8 Quick Match/day'] },
+    { id: 'AQ_LB_WEEK', icon: '🏆', title: 'Weekly Leaderboard Entry', desc: 'Unlocks your points for this week’s cash-prize board. You still play to rank.', price: '₦500', cta: 'Buy entry' },
+  ];
+  const REQUEST_PAYMENT_URL = 'https://us-central1-anime-quiz-1ab1b.cloudfunctions.net/requestPaymentLink';
+  const rowsEl = document.getElementById('rows');
+  const msgEl = document.getElementById('msg');
+  const signInCard = document.getElementById('signInCard');
+  const signedInCard = document.getElementById('signedInCard');
+  const authHint = document.getElementById('authHint');
+  const signedInEmail = document.getElementById('signedInEmail');
+  const verifyState = document.getElementById('verifyState');
+  const verifyBanner = document.getElementById('verifyBanner');
+  const authMsgEl = document.getElementById('authMsg');
+  const emailEl = document.getElementById('email');
+  const passwordEl = document.getElementById('password');
+  const signInBtn = document.getElementById('signInBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const signOutBtn = document.getElementById('signOutBtn');
+  const resendBtn = document.getElementById('resendBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  let lastResend = 0;
+
+  function msg(t, isErr) {
+    if (!t) { msgEl.className = 'msg'; msgEl.textContent = ''; return; }
+    msgEl.textContent = t; msgEl.className = 'msg show ' + (isErr ? 'error' : 'info');
+  }
+  function authMessage(t, isErr) {
+    if (!t) { authMsgEl.className = 'msg'; authMsgEl.textContent = ''; return; }
+    authMsgEl.textContent = t; authMsgEl.className = 'msg show ' + (isErr ? 'error' : 'info');
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function renderRows() {
+    rowsEl.innerHTML = '';
+    ROWS.forEach(function (p) {
+      var row = document.createElement('article');
+      row.className = 'product';
+      row.innerHTML =
+        '<div class="product-top"><div class="p-icon" aria-hidden="true">' + esc(p.icon) + '</div>' +
+        '<div><h3 class="p-title">' + esc(p.title) + '</h3>' +
+        '<p class="p-desc">' + esc(p.desc) + '</p>' +
+        (p.perks ? '<div class="perks">' + p.perks.map(function (x) { return '<span class="perk">' + esc(x) + '</span>'; }).join('') + '</div>' : '') +
+        '</div></div>' +
+        '<div class="p-foot"><span class="price">' + esc(p.price) + '</span>' +
+        '<button class="btn btn-primary btn-sm" data-id="' + esc(p.id) + '">' + esc(p.cta || 'Buy now') + '</button></div>';
+      rowsEl.appendChild(row);
+    });
+  }
+  function shopAuth() { return window.ShopAuth || null; }
+  function setBuyEnabled(enabled, reason) {
+    document.querySelectorAll('button[data-id]').forEach(function (b) {
+      b.disabled = !enabled;
+      b.title = enabled ? '' : (reason || 'Sign in with your AnimeQuiz account to buy');
+    });
+  }
+  function renderAuth() {
+    var auth = shopAuth();
+    if (!auth) {
+      signInCard.classList.remove('hidden'); signedInCard.classList.add('hidden');
+      verifyBanner.classList.add('hidden');
+      authHint.textContent = 'Sign-in unavailable';
+      authMessage('Sign-in is unavailable right now. Refresh the page to try again.', true);
+      setBuyEnabled(false); return;
+    }
+    var user = auth.user();
+    var signedIn = !!user;
+    var verified = auth.isVerified && auth.isVerified();
+    signInCard.classList.toggle('hidden', signedIn);
+    signedInCard.classList.toggle('hidden', !signedIn);
+    verifyBanner.classList.toggle('hidden', !(signedIn && !verified));
+    authHint.textContent = !signedIn ? 'Same account as the app' : (verified ? 'Ready to buy' : 'Verify your email');
+    if (signedIn) {
+      signedInEmail.textContent = user.email || 'Signed in';
+      verifyState.textContent = verified ? 'Email verified ✓' : 'Email not verified';
+    }
+    setBuyEnabled(signedIn && verified,
+      !signedIn ? 'Sign in with your AnimeQuiz account to buy' : 'Verify your email address to continue');
+  }
+  async function onSignIn() {
+    var auth = shopAuth();
+    if (!auth) return;
+    var email = emailEl.value.trim();
+    if (!EMAIL_RE.test(email)) { authMessage('Enter the email you use in the app.', true); emailEl.focus(); return; }
+    if (!passwordEl.value) { authMessage('Enter your password.', true); passwordEl.focus(); return; }
+    authMessage(''); signInBtn.disabled = true; signInBtn.textContent = 'Signing in…';
+    try {
+      await auth.signIn(email, passwordEl.value);
+      passwordEl.value = '';
+      authMessage(auth.isVerified() ? 'Signed in.' : 'Signed in. Verify your email to buy.', false);
+      setTimeout(function () { authMessage(''); }, 2500);
+    } catch (err) { authMessage(auth.errorMessage(err), true); }
+    finally { signInBtn.disabled = false; signInBtn.textContent = 'Sign in'; }
+  }
+  async function onReset() {
+    var auth = shopAuth(); if (!auth) return;
+    var email = emailEl.value.trim();
+    if (!EMAIL_RE.test(email)) { authMessage('Enter your email first, then tap “Forgot password?”.', true); emailEl.focus(); return; }
+    try { await auth.sendReset(email); authMessage('Password reset email sent. Check your inbox.', false); }
+    catch (err) { authMessage(auth.errorMessage(err), true); }
+  }
+  async function onResend() {
+    var auth = shopAuth(); if (!auth) return;
+    if (Date.now() - lastResend < 60000) { authMessage('Link just sent — check your inbox, then wait a minute to resend.', true); return; }
+    try {
+      await auth.sendVerification(); lastResend = Date.now();
+      authMessage('Verification link sent. Check your inbox (and spam).', false);
+    } catch (err) { authMessage('Could not send the link. Try again in a minute.', true); }
+  }
+  async function onRefresh() {
+    var auth = shopAuth(); if (!auth) return;
+    refreshBtn.disabled = true; refreshBtn.textContent = 'Checking…';
+    try { await auth.reload(); } catch (_) {}
+    refreshBtn.disabled = false; refreshBtn.textContent = 'I’ve verified — refresh';
+    renderAuth();
+    if (auth.isVerified()) msg('Email verified — you can buy now.', false);
+    else authMessage('Still unverified. Click the link in your inbox, then refresh.', true);
+  }
+  async function onPay(ev) {
+    var btn = ev.target.closest('button[data-id]');
+    if (!btn || btn.disabled) return;
+    var auth = shopAuth();
+    if (!auth || !auth.user()) { msg('Sign in first — purchases are tied to your account.', true); return; }
+    if (auth.isVerified && !auth.isVerified()) { msg('Verify your email address to continue.', true); return; }
+    var original = btn.textContent; btn.disabled = true; btn.textContent = 'Opening…';
+    msg('Creating your secure checkout link…');
+    try {
+      var token = await auth.getIdToken();
+      if (!token) { msg('Your session expired. Sign in again.', true); renderAuth(); return; }
+      var resp = await fetch(REQUEST_PAYMENT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ productId: btn.dataset.id }),
+      });
+      var json = await resp.json();
+      if (resp.status === 401) { msg('Your session expired. Sign in again.', true); renderAuth(); return; }
+      if (resp.status === 403 && json.reason === 'email_not_verified') {
+        msg('Verify your email address to continue.', true); renderAuth(); return;
+      }
+      if (!resp.ok || !json.link) throw new Error(json.error || 'Unable to create checkout');
+      msg(''); window.location.href = json.link;
+    } catch (err) { msg(err.message, true); }
+    finally { btn.disabled = false; btn.textContent = original; renderAuth(); }
+  }
+  document.addEventListener('click', onPay);
+  signInBtn.addEventListener('click', onSignIn);
+  resetBtn.addEventListener('click', onReset);
+  resendBtn.addEventListener('click', onResend);
+  refreshBtn.addEventListener('click', onRefresh);
+  signOutBtn.addEventListener('click', function () { var a = shopAuth(); if (a) a.signOut(); msg(''); });
+  passwordEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); onSignIn(); } });
+  renderRows();
+  if (shopAuth()) shopAuth().onChange(renderAuth); else renderAuth();
+</script>
+</body>
+</html>

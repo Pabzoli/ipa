@@ -1,1186 +1,283 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="theme-color" content="#0d0e14" />
-<title>AnimeQuiz — Power up</title>
+<meta name="theme-color" content="#0C0C14" />
+<title>AnimeQuiz — Head-to-head anime quizzes for cash prizes</title>
+<meta name="description" content="AnimeQuiz is a head-to-head anime quiz game. Answer questions, stake Anime Coins, and climb the weekly leaderboard for cash prizes. Free on Android." />
+<meta property="og:title" content="AnimeQuiz — Prove you know more" />
+<meta property="og:description" content="Head-to-head anime quizzes for Android. Stake Anime Coins against rivals and climb the weekly leaderboard." />
+<meta property="og:type" content="website" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg:          #0d0e14;
-    --surface:     #16181f;
-    --surface-2:   #1c1f27;
-    --surface-3:   #23262f;
-    --divider:     rgba(255, 255, 255, 0.06);
-    --divider-2:   rgba(255, 255, 255, 0.10);
-
-    --primary:     #E63946;
-    --primary-hi:  #FF4D5E;
-    --primary-dim: rgba(230, 57, 70, 0.14);
-    --primary-ring:rgba(230, 57, 70, 0.22);
-
-    --sky:         #4EA8DE;
-    --accent:      #FFB300;
-    --accent-hi:   #FFD166;
-    --accent-dim:  rgba(255, 179, 0, 0.12);
-
-    --correct:     #38EF7D;
-    --correct-dim: rgba(56, 239, 125, 0.10);
-    --wrong:       #FF5252;
-
-    --ink:         #FFFFFF;
-    --muted:       #A8AEC2;
-    --muted-2:     #767B92;
-    --muted-3:     #4D5265;
-
-    --radius-xl:   24px;
-    --radius-lg:   18px;
-    --radius-md:   14px;
-    --radius-sm:   10px;
-
-    --font: "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  }
-
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
-  body {
-    margin: 0;
-    font-family: var(--font);
-    color: var(--ink);
-    background: var(--bg);
-    line-height: 1.5;
-    min-height: 100vh;
-    overflow-x: hidden;
-    font-weight: 600;
-    letter-spacing: -0.1px;
-  }
-
-  /* ── Ambient background ─────────────────────────────────────────── */
-  .ambient {
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    overflow: hidden;
-    background: var(--bg);
-  }
-  .ambient::before,
-  .ambient::after {
-    content: "";
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(140px);
-    opacity: 0.28;
-    will-change: transform;
-  }
-  .ambient::before {
-    width: 640px; height: 640px;
-    top: -240px; left: -180px;
-    background: radial-gradient(circle, #E63946 0%, transparent 65%);
-    animation: drift-a 28s ease-in-out infinite;
-  }
-  .ambient::after {
-    width: 720px; height: 720px;
-    top: -160px; right: -240px;
-    background: radial-gradient(circle, #4EA8DE 0%, transparent 65%);
-    animation: drift-b 34s ease-in-out infinite;
-  }
-  @keyframes drift-a {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    50% { transform: translate(120px, 80px) scale(1.08); }
-  }
-  @keyframes drift-b {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    50% { transform: translate(-140px, 100px) scale(1.05); }
-  }
-
-  /* ── Shell ─────────────────────────────────────────────────────── */
-  .wrap {
-    max-width: 1040px;
-    margin: 0 auto;
-    padding: 36px 24px 80px;
-  }
-
-  /* ── Top bar ───────────────────────────────────────────────────── */
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding-bottom: 28px;
-    margin-bottom: 56px;
-    border-bottom: 1px solid var(--divider);
-  }
-  .brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 15px;
-    font-weight: 900;
-    letter-spacing: -0.3px;
-    color: var(--ink);
-    text-decoration: none;
-  }
-  .brand-mark {
-    width: 34px; height: 34px;
-    border-radius: 10px;
-    display: grid; place-items: center;
-    background: linear-gradient(135deg, #E63946, #FF4D5E);
-    color: #fff;
-    font-size: 15px;
-    font-weight: 900;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.22) inset,
-      0 8px 20px rgba(230, 57, 70, 0.4);
-  }
-  .trust-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11.5px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--muted);
-    padding: 8px 14px;
-    border-radius: 100px;
-    background: var(--surface);
-    border: 1px solid var(--divider-2);
-    white-space: nowrap;
-  }
-  .topbar-links {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-  .topbar-links a {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 11.5px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: var(--muted);
-    padding: 8px 14px;
-    border-radius: 100px;
-    background: var(--surface);
-    border: 1px solid var(--divider-2);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color .15s ease, border-color .15s ease;
-  }
-  .topbar-links a:hover {
-    color: var(--primary-hi);
-    border-color: var(--primary-ring);
-  }
-  .topbar-links svg { flex-shrink: 0; }
-  .trust-pill .dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--correct);
-    box-shadow: 0 0 10px var(--correct);
-    animation: pulse 2.4s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-  }
-
-  /* ── Hero ──────────────────────────────────────────────────────── */
-  .hero { margin-bottom: 64px; }
-  .hero-eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--muted-2);
-    margin-bottom: 22px;
-  }
-  .hero-eyebrow::before {
-    content: "";
-    width: 24px;
-    height: 1px;
-    background: var(--muted-3);
-  }
-  .hero h1 {
-    margin: 0 0 22px;
-    font-size: clamp(40px, 8vw, 76px);
-    font-weight: 900;
-    letter-spacing: -2.5px;
-    line-height: 0.98;
-    color: var(--ink);
-  }
-  .hero h1 .accent {
-    background: linear-gradient(135deg, #E63946 0%, #FF4D5E 60%, #FFB300 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-  .hero-lede {
-    font-size: clamp(15px, 1.7vw, 17px);
-    color: var(--muted);
-    max-width: 560px;
-    margin: 0;
-    line-height: 1.6;
-    font-weight: 600;
-  }
-  .hero-lede strong {
-    color: var(--ink);
-    font-weight: 800;
-  }
-
-  /* ── Section ───────────────────────────────────────────────────── */
-  .section { margin-bottom: 56px; }
-  .section-head {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 24px;
-  }
-  .step-num {
-    width: 28px; height: 28px;
-    border-radius: 9px;
-    display: grid; place-items: center;
-    background: var(--primary-dim);
-    color: var(--primary-hi);
-    font-size: 12px;
-    font-weight: 900;
-    border: 1px solid rgba(230, 57, 70, 0.3);
-  }
-  .section-title {
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .section-hint {
-    margin-left: auto;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--muted-2);
-  }
-
-  /* ── Email field ───────────────────────────────────────────────── */
-  .email-card {
-    padding: 22px 24px 24px;
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    border: 1px solid var(--divider-2);
-  }
-  .email-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted-2);
-    margin-bottom: 12px;
-  }
-  .email-label svg { color: var(--muted-3); }
-
-  .email-input {
-    width: 100%;
-    padding: 16px 18px;
-    border-radius: var(--radius-md);
-    background: var(--bg);
-    border: 1.5px solid var(--divider-2);
-    color: var(--ink);
-    font-family: var(--font);
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: -0.1px;
-    outline: none;
-    transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
-  }
-  .email-input::placeholder { color: var(--muted-3); font-weight: 600; }
-  .email-input:focus {
-    border-color: var(--primary);
-    background: var(--surface-2);
-    box-shadow: 0 0 0 4px var(--primary-ring);
-  }
-  .email-input.invalid {
-    border-color: var(--wrong);
-    box-shadow: 0 0 0 4px rgba(255, 82, 82, 0.15);
-  }
-
-  .email-note {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--muted-2);
-    line-height: 1.5;
-  }
-  .email-note svg { flex-shrink: 0; color: var(--correct); }
-
-  /* ── Sign in / signed in ───────────────────────────────────────── */
-  .hidden { display: none !important; }
-  .auth-actions {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-    margin-top: 16px;
-  }
-  .auth-actions .btn { flex: 1 1 160px; }
-  .btn-ghost {
-    background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--divider-2);
-    box-shadow: none;
-    padding: 11px 16px;
-    font-size: 12.5px;
-  }
-  .btn-ghost:hover { color: var(--ink); border-color: var(--primary-ring); filter: none; }
-  .btn-link {
-    background: none;
-    border: 0;
-    box-shadow: none;
-    color: var(--muted);
-    font-family: var(--font);
-    font-size: 12.5px;
-    font-weight: 800;
-    cursor: pointer;
-    padding: 0;
-    text-decoration: underline;
-  }
-  .btn-link:hover { color: var(--primary-hi); }
-  .signed-in {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 18px 20px;
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    border: 1px solid rgba(56, 239, 125, 0.28);
-  }
-  .signed-in-avatar {
-    width: 42px; height: 42px;
-    flex-shrink: 0;
-    display: grid; place-items: center;
-    border-radius: 13px;
-    background: var(--correct-dim);
-    border: 1px solid rgba(56, 239, 125, 0.32);
-    color: var(--correct);
-    font-size: 18px;
-    font-weight: 900;
-  }
-  .signed-in-body { min-width: 0; }
-  .signed-in-email {
-    font-size: 14.5px;
-    font-weight: 900;
-    letter-spacing: -0.2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .signed-in .btn-ghost { margin-left: auto; }
-
-  /* ── Featured product ──────────────────────────────────────────── */
-  .featured {
-    position: relative;
-    padding: 32px 30px 30px;
-    border-radius: var(--radius-xl);
-    background:
-      radial-gradient(ellipse at 90% 10%, rgba(255, 179, 0, 0.10), transparent 55%),
-      linear-gradient(180deg, #1a1c24, #16181f);
-    border: 1.5px solid rgba(255, 179, 0, 0.35);
-    overflow: hidden;
-    margin-bottom: 16px;
-  }
-  /* Giant watermark number */
-  .featured::before {
-    content: "4800";
-    position: absolute;
-    right: -20px;
-    bottom: -60px;
-    font-size: 240px;
-    font-weight: 900;
-    letter-spacing: -14px;
-    line-height: 1;
-    color: rgba(255, 179, 0, 0.035);
-    pointer-events: none;
-    user-select: none;
-    z-index: 0;
-  }
-  .featured > * { position: relative; z-index: 1; }
-
-  .featured-ribbon {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 5px 12px;
-    border-radius: 100px;
-    background: linear-gradient(135deg, #FFB300, #FFD166);
-    color: #2a1f00;
-    font-size: 10.5px;
-    font-weight: 900;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    box-shadow: 0 6px 18px rgba(255, 179, 0, 0.32);
-    margin-bottom: 20px;
-  }
-  .featured-title {
-    font-size: clamp(24px, 3.5vw, 32px);
-    font-weight: 900;
-    letter-spacing: -0.6px;
-    line-height: 1.1;
-    margin: 0 0 8px;
-  }
-  .featured-desc {
-    color: var(--muted);
-    font-size: 14.5px;
-    margin: 0 0 26px;
-    max-width: 420px;
-    line-height: 1.55;
-  }
-  .featured-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding-top: 22px;
-    border-top: 1px solid var(--divider);
-  }
-  .featured-price {
-    font-size: 32px;
-    font-weight: 900;
-    letter-spacing: -1px;
-    line-height: 1;
-    color: var(--accent);
-  }
-  .featured-price-note {
-    display: block;
-    font-size: 11.5px;
-    font-weight: 700;
-    color: var(--muted-2);
-    margin-top: 6px;
-    letter-spacing: 0;
-  }
-
-  /* ── Product rows ──────────────────────────────────────────────── */
-  .rows {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    padding: 18px 20px;
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    border: 1px solid var(--divider-2);
-    transition: transform .2s cubic-bezier(.2, .8, .2, 1),
-                border-color .18s ease,
-                background .18s ease;
-  }
-  .row:hover {
-    transform: translateY(-2px);
-    border-color: var(--row-edge, rgba(255, 255, 255, 0.14));
-    background: var(--surface-2);
-  }
-  .row-icon {
-    width: 46px; height: 46px;
-    flex-shrink: 0;
-    display: grid; place-items: center;
-    border-radius: 13px;
-    font-size: 22px;
-    background: var(--row-bg, var(--primary-dim));
-    border: 1px solid var(--row-edge, rgba(230, 57, 70, 0.28));
-  }
-  .row-body {
-    flex: 1;
-    min-width: 0;
-  }
-  .row-title {
-    font-size: 16px;
-    font-weight: 900;
-    letter-spacing: -0.3px;
-    margin: 0 0 3px;
-    line-height: 1.15;
-  }
-  .row-desc {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--muted);
-    margin: 0;
-    line-height: 1.45;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .row-perks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-  }
-  .row-perk {
-    font-size: 10.5px;
-    font-weight: 800;
-    letter-spacing: 0.01em;
-    color: var(--muted);
-    padding: 4px 9px;
-    border-radius: 100px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--divider-2);
-    white-space: nowrap;
-  }
-  .row-price {
-    font-size: 20px;
-    font-weight: 900;
-    letter-spacing: -0.4px;
-    color: var(--ink);
-    flex-shrink: 0;
-    min-width: 80px;
-    text-align: right;
-  }
-
-  /* ── Buy buttons ───────────────────────────────────────────────── */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 14px 22px;
-    font-family: var(--font);
-    font-size: 14px;
-    font-weight: 900;
-    letter-spacing: -0.1px;
-    border: 0;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    color: #fff;
-    background: linear-gradient(135deg, #E63946, #FF4D5E);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.18) inset,
-      0 10px 22px -10px rgba(230, 57, 70, 0.7);
-    transition: transform .12s ease, filter .18s ease, box-shadow .18s ease;
-    position: relative;
-    overflow: hidden;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .btn::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(120deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
-    transform: translateX(-160%);
-    transition: transform .8s ease;
-    pointer-events: none;
-  }
-  .btn:hover { filter: brightness(1.08); }
-  .btn:hover::before { transform: translateX(160%); }
-  .btn:active { transform: translateY(1px); }
-  .btn:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
-  .btn:disabled::before { display: none; }
-
-  .btn-gold {
-    background: linear-gradient(135deg, #FFB300, #FFD166);
-    color: #2a1f00;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.35) inset,
-      0 12px 26px -10px rgba(255, 179, 0, 0.6);
-    padding: 16px 28px;
-    font-size: 15px;
-  }
-
-  .btn-sm {
-    padding: 11px 18px;
-    font-size: 13px;
-    border-radius: 11px;
-  }
-
-  /* ── Message ───────────────────────────────────────────────────── */
-  .msg {
-    margin-top: 24px;
-    padding: 15px 20px;
-    border-radius: var(--radius-md);
-    font-size: 14px;
-    font-weight: 800;
-    text-align: center;
-    opacity: 0;
-    transform: translateY(-6px);
-    transition: opacity .22s ease, transform .22s ease;
-    pointer-events: none;
-    letter-spacing: -0.1px;
-  }
-  .msg.show { opacity: 1; transform: translateY(0); }
-  .msg.error {
-    color: var(--wrong);
-    background: rgba(255, 82, 82, 0.08);
-    border: 1px solid rgba(255, 82, 82, 0.24);
-  }
-  .msg.info {
-    color: var(--correct);
-    background: var(--correct-dim);
-    border: 1px solid rgba(56, 239, 125, 0.24);
-  }
-
-  /* ── Footer ────────────────────────────────────────────────────── */
-  .footer {
-    margin-top: 64px;
-    padding-top: 28px;
-    border-top: 1px solid var(--divider);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    flex-wrap: wrap;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--muted-2);
-  }
-  .footer-badges {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    flex-wrap: wrap;
-  }
-  .footer-badges span {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-  }
-  .footer-badges svg { color: var(--correct); }
-
-  /* ── Footer legal links ────────────────────────────────────────── */
-  .footer-links {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-  }
-  .footer-links a {
-    color: var(--muted);
-    font-size: 12.5px;
-    font-weight: 800;
-    text-decoration: none;
-    transition: color .15s ease;
-  }
-  .footer-links a:hover { color: var(--primary-hi); }
-  .footer-copyright { font-size: 12px; color: var(--muted-2); }
-
-  /* ── Responsive ────────────────────────────────────────────────── */
-  @media (max-width: 720px) {
-    .wrap { padding: 24px 18px 60px; }
-    .topbar { margin-bottom: 36px; }
-    .topbar-links { flex-wrap: wrap; justify-content: flex-end; }
-    .trust-pill { display: none; }
-    .hero { margin-bottom: 40px; }
-    .section { margin-bottom: 40px; }
-    .featured { padding: 26px 22px 24px; }
-    .featured::before { font-size: 160px; right: -10px; bottom: -40px; }
-    .featured-row {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 16px;
-    }
-    .btn-gold { width: 100%; }
-    .row {
-      flex-wrap: wrap;
-      gap: 12px;
-      padding: 16px;
-    }
-    .row-price {
-      min-width: auto;
-      text-align: left;
-      order: 3;
-      flex-basis: auto;
-      margin-left: auto;
-    }
-    .row .btn { order: 4; flex-basis: 100%; padding: 14px; }
-    .footer {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 14px;
-    }
-  }
-
-  button:focus-visible,
-  input:focus-visible,
-  a:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-</style>
+<link rel="stylesheet" href="/assets/site.css" />
+<script src="/assets/site.js"></script>
 </head>
 <body>
 
-<div class="ambient"></div>
+<a class="skip-link" href="#main">Skip to content</a>
 
-<div class="wrap">
-
-  <!-- ── Top bar ── -->
-  <div class="topbar">
-    <a class="brand" href="/">
-      <span class="brand-mark">✦</span>
-      <span>AnimeQuiz</span>
-    </a>
-    <div class="topbar-links">
-      <a href="/download.html">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/>
-        </svg>
-        Get the app
-      </a>
-      <span class="trust-pill">
-        <span class="dot"></span>
-        Secured by Flutterwave
-      </span>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/" aria-label="AnimeQuiz home"><span class="brand-mark" aria-hidden="true">✦</span><span>AnimeQuiz</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/" aria-current="page">Home</a>
+      <a href="/shop.html">Shop</a>
+      <a href="/download.html">Download</a>
+      <a href="/#faq">FAQ</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-btn" type="button" data-theme-toggle aria-label="Switch theme"></button>
+      <a class="btn btn-primary btn-sm btn-hide-sm" href="/download.html">Get the app</a>
+      <details class="menu">
+        <summary class="icon-btn" aria-label="Open menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></summary>
+        <nav class="menu-panel" aria-label="Mobile">
+          <a href="/">Home</a>
+          <a href="/shop.html">Shop</a>
+          <a href="/download.html">Download</a>
+          <a href="/#faq">FAQ</a>
+        </nav>
+      </details>
     </div>
   </div>
+</header>
 
-  <!-- ── Hero ── -->
+<main id="main">
+
   <section class="hero">
-    <div class="hero-eyebrow">Coins · Premium · Leaderboard</div>
-    <h1>Power <span class="accent">up.</span></h1>
-    <p class="hero-lede">
-      Buy Anime Coins, unlock Premium, or claim your spot on the weekly board.
-      <strong>Your code is shown on the next screen the moment payment clears — no inbox hunting.</strong>
-    </p>
-  </section>
-
-  <!-- ── Step 1: Sign in ── -->
-  <section class="section" id="authSection">
-    <div class="section-head">
-      <span class="step-num">1</span>
-      <span class="section-title">Sign in to buy</span>
-      <span class="section-hint" id="authHint">Same account as the app</span>
-    </div>
-
-    <!-- Signed out -->
-    <div class="email-card" id="signInCard">
-      <label class="email-label" for="email">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="5" width="18" height="14" rx="3"/>
-          <path d="M3.5 7.5l8.5 6 8.5-6"/>
-        </svg>
-        Email
-      </label>
-      <input
-        type="email"
-        id="email"
-        class="email-input"
-        placeholder="you@example.com"
-        autocomplete="email"
-        inputmode="email"
-        spellcheck="false"
-      />
-
-      <label class="email-label" for="password" style="margin-top: 14px; display: flex;">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="11" width="18" height="11" rx="2.5"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
-        Password
-      </label>
-      <input
-        type="password"
-        id="password"
-        class="email-input"
-        placeholder="Your password"
-        autocomplete="current-password"
-      />
-
-      <div class="auth-actions">
-        <button class="btn" id="signInBtn" type="button">Sign in</button>
-        <button class="btn-link" id="resetBtn" type="button">Forgot password?</button>
-      </div>
-
-      <div class="email-note">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 6L9 17l-5-5"/>
-        </svg>
-        Accounts are created in the app. Every purchase is tied to the account
-        you sign in with here.
-      </div>
-
-      <div class="msg" id="authMsg" role="status" aria-live="polite"></div>
-    </div>
-
-    <!-- Signed in -->
-    <div class="signed-in hidden" id="signedInCard">
-      <div class="signed-in-avatar" id="signedInAvatar">✓</div>
-      <div class="signed-in-body">
-        <div class="signed-in-email" id="signedInEmail"></div>
-      </div>
-      <button class="btn btn-ghost" id="signOutBtn" type="button">Sign out</button>
-    </div>
-  </section>
-
-  <!-- ── Step 2: Pack ── -->
-  <section class="section">
-    <div class="section-head">
-      <span class="step-num">2</span>
-      <span class="section-title">Pick your pack</span>
-    </div>
-
-    <!-- Featured card -->
-    <div class="featured">
-      <span class="featured-ribbon">★ Most popular</span>
-      <h2 class="featured-title">4800 Anime Coins</h2>
-      <p class="featured-desc">
-        Our best value pack — includes a 20% bonus and the Champion badge. Enough for weeks of play.
-      </p>
-      <div class="featured-row">
-        <div>
-          <div class="featured-price">₦4,000</div>
-          <span class="featured-price-note">One-time · Code shown on next screen</span>
+    <div class="container hero-grid">
+      <div>
+        <div class="eyebrow">Android · Head-to-head · Weekly prizes</div>
+        <h1>Prove you know <span class="accent">more.</span></h1>
+        <p class="lede">AnimeQuiz is a head-to-head anime quiz game for Android. Answer questions from the series you watch, stake Anime Coins against rivals, and climb the weekly leaderboard for cash prizes.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary btn-lg" href="/download.html">Download for Android</a>
+          <a class="btn btn-ghost btn-lg" href="/shop.html">Top up coins</a>
         </div>
-        <button class="btn btn-gold" data-id="AQ_AC_3600">Get this pack →</button>
+        <div class="trust">
+          <span>Free to install</span>
+          <span>18+ only</span>
+          <span>Payments secured by Flutterwave</span>
+        </div>
+      </div>
+
+      <div class="match" aria-hidden="true">
+        <div class="match-top"><span class="live"></span> Head-to-head · Round 4 of 10</div>
+        <div class="match-players">
+          <div class="player you"><span class="avatar">You</span><span class="score">7</span></div>
+          <span class="vs">VS</span>
+          <div class="player"><span class="avatar">Rival</span><span class="score">5</span></div>
+        </div>
+        <div class="q">
+          <p class="q-label">Name the series from this opening theme.</p>
+          <div class="opts">
+            <span class="opt">Naruto</span>
+            <span class="opt correct">Cowboy Bebop</span>
+            <span class="opt">Death Note</span>
+            <span class="opt">One Piece</span>
+          </div>
+        </div>
+        <div class="pot"><span>Stake pot</span><strong>1,000 AC</strong></div>
+        <p class="mock-note">Illustrative preview</p>
       </div>
     </div>
-
-    <!-- Other packs -->
-    <div class="rows" id="rows"></div>
   </section>
 
-  <!-- ── Message ── -->
-  <div class="msg" id="msg" role="status" aria-live="polite"></div>
-
-  <!-- ── Footer ── -->
-  <div class="footer">
-    <div>
-      <div class="footer-links">
-        <a href="/download.html">Get the app</a>
-        <a href="/privacy.html">Privacy Policy</a>
-        <a href="/terms.html">Terms of Service</a>
-        <a href="/refund.html">Refund Policy</a>
-      </div>
-      <div class="footer-copyright">© AnimeQuiz · One-time codes, redeemable in-app</div>
-    </div>
-    <div class="footer-badges">
-      <span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        256-bit TLS encryption
-      </span>
-      <span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-        Payments secured by Flutterwave
-      </span>
+  <div class="container">
+    <div class="stats">
+      <div class="stat"><strong>Free</strong><span>to install on Android</span></div>
+      <div class="stat"><strong>70%</strong><span>of weekly entry revenue goes to the pool</span></div>
+      <div class="stat"><strong>50 · 30 · 20</strong><span>split across the top three</span></div>
+      <div class="stat"><strong>28 days</strong><span>Premium Pass for ₦2,000</span></div>
     </div>
   </div>
 
-</div>
+  <section class="section" id="play">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">Play</p>
+        <h2>Test yourself, then test your rivals.</h2>
+        <p>Start solo to warm up, then take a challenge to someone who knows the same series.</p>
+      </div>
+      <div class="grid-4">
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></div>
+          <h3>Quiz rounds that test you</h3>
+          <p>Solo runs, Quick Match, and a daily gauntlet for bigger rewards.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+          <h3>Stake Anime Coins</h3>
+          <p>Challenge friends or rivals head-to-head and wager AC on who knows more.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3"/></svg></div>
+          <h3>Weekly cash leaderboard</h3>
+          <p>Activate an entry, earn weekly points, and the top ranks split that week's pool.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.5A6.5 6.5 0 0 1 21.5 20"/></svg></div>
+          <h3>Friends and spars</h3>
+          <p>Add friends by code, nudge them, and spar any time with no cooldown.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-<!-- Firebase Auth (compat build) + the shared shop identity helper.
-     Classic scripts, so load order is guaranteed; see public/assets/shop-auth.js. -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="/assets/shop-auth.js"></script>
+  <section class="section band" id="how">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">How it works</p>
+        <h2>From download to the weekly board in three steps.</h2>
+      </div>
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">1</span>
+          <div>
+            <h3>Get the app and verify your email</h3>
+            <p>Install the APK, create your account in the app, and verify your email. Verification unlocks multiplayer, purchases and payouts.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">2</span>
+          <div>
+            <h3>Play and earn points</h3>
+            <p>Answer quizzes, stake coins in challenges, and collect weekly points.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num">3</span>
+          <div>
+            <h3>Enter the weekly board</h3>
+            <p>Buy a leaderboard entry in the shop, redeem the code in-app, and rank for that week's cash pool.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
 
-<script>
-  // Matches FLUTTERWAVE_PRODUCTS in functions/index.js.
-  // Featured (AQ_AC_3600) is rendered as a hero banner above; the rest are rows.
-  const FEATURED = { id: 'AQ_AC_3600' };
+  <section class="section" id="prizes">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">Weekly prizes</p>
+        <h2>Entry revenue becomes the prize pool.</h2>
+        <p>Each week's pool is 70% of that week's entry revenue, split 50/30/20 across the top three. Claim within 3 days of the week closing.</p>
+      </div>
+      <div class="pool" role="img" aria-label="70 percent of entry revenue goes to the prize pool, 30 percent is the platform share">
+        <div class="pool-bar"><span class="pool-pool" style="width:70%"></span><span class="pool-fee" style="width:30%"></span></div>
+        <div class="pool-legend">
+          <span><i class="pool-pool"></i>Prize pool · 70%</span>
+          <span><i class="pool-fee"></i>Platform share · 30%</span>
+        </div>
+      </div>
+      <div class="split">
+        <div class="split-item first"><strong>50%</strong><span>1st place of the pool</span></div>
+        <div class="split-item"><strong>30%</strong><span>2nd place of the pool</span></div>
+        <div class="split-item"><strong>20%</strong><span>3rd place of the pool</span></div>
+      </div>
+      <p class="prize-note">Ranking is by weekly points earned by answering correctly. Buying an entry does not buy points. See the <a href="/terms.html">Terms of Service</a> for eligibility and the claim window.</p>
+    </div>
+  </section>
 
-  const ROWS = [
-    {
-      id: 'AQ_AC_300',
-      icon: '🪙',
-      title: '500 Anime Coins',
-      desc: 'Starter pack — instant AC for hints and cooldown skips.',
-      price: '₦500',
-      color: '#4EA8DE',
-    },
-    {
-      id: 'AQ_AC_1100',
-      icon: '🪙',
-      title: '1650 Anime Coins',
-      desc: 'Includes a 10% bonus — a few solid matches of play.',
-      price: '₦1,500',
-      color: '#7A8FFF',
-    },
-    {
-      id: 'AQ_PREM_31',
-      icon: '👑',
-      title: 'Premium Pass',
-      desc: '28 days — no ads, higher stakes, faster rematches.',
-      price: '₦2,000',
-      color: '#A78BFA',
-      cta: 'Get Premium',
-      perks: ['1.20× WP', 'Free gauntlet retry', '8 Quick Match/day'],
-    },
-    {
-      id: 'AQ_LB_WEEK',
-      icon: '🏆',
-      title: 'Weekly Leaderboard Entry',
-      desc: 'Unlocks your points for this week’s cash-prize board. You still play to rank.',
-      price: '₦500',
-      color: '#38EF7D',
-      cta: 'Buy entry',
-    },
-  ];
+  <section class="section band" id="shop">
+    <div class="container">
+      <div class="section-head">
+        <p class="kicker">Shop</p>
+        <h2>Pick a pack. Get a code.</h2>
+        <p>Every purchase is a single-use code, shown the moment payment clears and redeemed in the app.</p>
+      </div>
+      <div class="grid-3 shop-preview">
+        <div class="card">
+          <span class="tag">Coins</span>
+          <div class="ico" style="margin-bottom:14px;">🪙</div>
+          <h3>Anime Coins</h3>
+          <p>Packs from ₦500. Instant codes, redeemable in-app.</p>
+          <div class="price">from ₦500</div>
+        </div>
+        <div class="card">
+          <span class="tag">Premium</span>
+          <div class="ico" style="margin-bottom:14px;">👑</div>
+          <h3>Premium Pass</h3>
+          <p>28 days · ₦2,000. No ads, higher stakes, faster rematches.</p>
+          <div class="price">₦2,000</div>
+        </div>
+        <div class="card">
+          <span class="tag">Leaderboard</span>
+          <div class="ico" style="margin-bottom:14px;">🏆</div>
+          <h3>Leaderboard entry</h3>
+          <p>₦500 per week. Activates your points for that week's board.</p>
+          <div class="price">₦500</div>
+        </div>
+      </div>
+      <p style="margin-top:28px;"><a class="btn btn-primary" href="/shop.html">Open the shop</a></p>
+    </div>
+  </section>
 
-  const REQUEST_PAYMENT_URL =
-    'https://us-central1-anime-quiz-1ab1b.cloudfunctions.net/requestPaymentLink';
+  <section class="section" id="faq">
+    <div class="container">
+      <div class="section-head center">
+        <p class="kicker">Questions</p>
+        <h2>Good to know before you play.</h2>
+      </div>
+      <div class="faq">
+        <details open><summary>Is it free?</summary><p>Yes. Installing and playing is free. Coins, Premium and leaderboard entries are optional paid extras.</p></details>
+        <details><summary>How do I get my code after paying?</summary><p>Your code appears on the success page the moment payment clears, and you can recover it there any time by signing in.</p></details>
+        <details><summary>Why verify my email?</summary><p>Verification protects your account and is required for purchases, leaderboard prizes and payouts. It takes under a minute from the app.</p></details>
+        <details><summary>How do weekly prizes work?</summary><p>Each week's pool is 70% of that week's entry revenue, split 50/30/20 across the top 3. Claim within 3 days of the week closing.</p></details>
+        <details><summary>Refunds?</summary><p>All purchases are final except where the law requires otherwise — e.g. paid but no code delivered, duplicate or unauthorised charges. See the <a href="/refund.html">Refund Policy</a>.</p></details>
+        <details><summary>Is it 18+?</summary><p>Yes. The service involves cash prizes, so you must be 18 or older.</p></details>
+      </div>
+    </div>
+  </section>
 
-  const rowsEl = document.getElementById('rows');
-  const msgEl = document.getElementById('msg');
-  const authSection = document.getElementById('authSection');
-  const signInCard = document.getElementById('signInCard');
-  const signedInCard = document.getElementById('signedInCard');
-  const authHint = document.getElementById('authHint');
-  const signedInEmail = document.getElementById('signedInEmail');
-  const authMsgEl = document.getElementById('authMsg');
-  const emailEl = document.getElementById('email');
-  const passwordEl = document.getElementById('password');
-  const signInBtn = document.getElementById('signInBtn');
-  const resetBtn = document.getElementById('resetBtn');
-  const signOutBtn = document.getElementById('signOutBtn');
+  <section class="section" style="padding-top:0;">
+    <div class="container">
+      <div class="cta">
+        <div>
+          <h2>Ready to prove it?</h2>
+          <p>Install free on Android, verify your email in under a minute, then take on your first rival.</p>
+        </div>
+        <div class="cta-row">
+          <a class="btn btn-gold btn-lg" href="/download.html">Download for Android</a>
+          <a class="btn btn-ghost btn-lg" href="/shop.html">Visit the shop</a>
+        </div>
+      </div>
+    </div>
+  </section>
 
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+</main>
 
-  function msg(text, isError) {
-    if (!text) {
-      msgEl.classList.remove('show', 'error', 'info');
-      msgEl.textContent = '';
-      return;
-    }
-    msgEl.textContent = text;
-    msgEl.className = 'msg show ' + (isError ? 'error' : 'info');
-  }
+<footer class="site-footer">
+  <div class="container foot-grid">
+    <div class="foot-brand">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✦</span><span>AnimeQuiz</span></a>
+      <p>Head-to-head anime quizzes for Android. Free to install, 18+, Nigeria.</p>
+    </div>
+    <div class="foot-col">
+      <h4>Product</h4>
+      <a href="/">Home</a>
+      <a href="/shop.html">Shop</a>
+      <a href="/download.html">Download</a>
+      <a href="/#faq">FAQ</a>
+    </div>
+    <div class="foot-col">
+      <h4>Legal</h4>
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms of Service</a>
+      <a href="/refund.html">Refund Policy</a>
+    </div>
+    <div class="foot-col">
+      <h4>Contact</h4>
+      <a href="mailto:animequizzm@gmail.com">animequizzm@gmail.com</a>
+    </div>
+  </div>
+  <div class="container foot-bottom">
+    <span>© 2026 Anime Quiz · 18+ · Nigeria</span>
+    <span>Payments secured by Flutterwave</span>
+  </div>
+</footer>
 
-  // Auth errors live in the sign-in card, next to the fields they refer to,
-  // instead of at the bottom of the page.
-  function authMessage(text, isError) {
-    if (!text) {
-      authMsgEl.classList.remove('show', 'error', 'info');
-      authMsgEl.textContent = '';
-      return;
-    }
-    authMsgEl.textContent = text;
-    authMsgEl.className = 'msg show ' + (isError ? 'error' : 'info');
-  }
-
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
-  }
-
-  function renderRows() {
-    rowsEl.innerHTML = '';
-    for (const p of ROWS) {
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.style.setProperty('--row-bg', p.color + '22');
-      row.style.setProperty('--row-edge', p.color + '55');
-
-      row.innerHTML =
-        '<div class="row-icon">' + esc(p.icon) + '</div>' +
-        '<div class="row-body">' +
-          '<h3 class="row-title">' + esc(p.title) + '</h3>' +
-          '<p class="row-desc">' + esc(p.desc) + '</p>' +
-          (p.perks && p.perks.length
-            ? '<div class="row-perks">' +
-                p.perks.map(function (perk) {
-                  return '<span class="row-perk">' + esc(perk) + '</span>';
-                }).join('') +
-              '</div>'
-            : '') +
-        '</div>' +
-        '<div class="row-price">' + esc(p.price) + '</div>' +
-        '<button class="btn btn-sm" data-id="' + esc(p.id) + '">' +
-          esc(p.cta || 'Buy now') +
-        '</button>';
-
-      rowsEl.appendChild(row);
-    }
-  }
-
-  function shopAuth() { return window.ShopAuth || null; }
-
-  // Buy buttons are enabled only for a signed-in account. The server enforces
-  // this independently; this is purely so the page never invites a click that
-  // cannot succeed.
-  function setBuyEnabled(enabled) {
-    document.querySelectorAll('button[data-id]').forEach(function (b) {
-      b.disabled = !enabled;
-      b.title = enabled ? '' : 'Sign in with your AnimeQuiz account to buy';
-    });
-  }
-
-  function renderAuth() {
-    const auth = shopAuth();
-    if (!auth) {
-      signInCard.classList.remove('hidden');
-      signedInCard.classList.add('hidden');
-      authHint.textContent = 'Sign-in unavailable';
-      authMessage('Sign-in is unavailable right now. Refresh the page to try again.', true);
-      setBuyEnabled(false);
-      return;
-    }
-
-    const user = auth.user();
-    const signedIn = !!user;
-
-    signInCard.classList.toggle('hidden', signedIn);
-    signedInCard.classList.toggle('hidden', !signedIn);
-    authHint.textContent = signedIn ? 'Ready to buy' : 'Same account as the app';
-
-    if (signedIn) {
-      signedInEmail.textContent = user.email || 'Signed in';
-    }
-
-    setBuyEnabled(signedIn);
-  }
-
-  async function onSignIn() {
-    const auth = shopAuth();
-    if (!auth) {
-      authMessage('Sign-in is unavailable right now. Refresh the page.', true);
-      return;
-    }
-
-    const email = emailEl.value.trim();
-    if (!EMAIL_RE.test(email)) {
-      authMessage('Enter the email you use in the app.', true);
-      emailEl.focus();
-      return;
-    }
-    if (!passwordEl.value) {
-      authMessage('Enter your password.', true);
-      passwordEl.focus();
-      return;
-    }
-
-    authMessage('');
-    const original = signInBtn.textContent;
-    signInBtn.disabled = true;
-    signInBtn.textContent = 'Signing in…';
-    try {
-      await auth.signIn(email, passwordEl.value);
-      passwordEl.value = '';
-      authMessage('Signed in.', false);
-      setTimeout(function () { authMessage(''); }, 2000);
-    } catch (err) {
-      authMessage(auth.errorMessage(err), true);
-    } finally {
-      signInBtn.disabled = false;
-      signInBtn.textContent = original;
-    }
-  }
-
-  async function onReset() {
-    const auth = shopAuth();
-    if (!auth) return;
-    const email = emailEl.value.trim();
-    if (!EMAIL_RE.test(email)) {
-      authMessage('Enter your email first, then tap “Forgot password?”.', true);
-      emailEl.focus();
-      return;
-    }
-    try {
-      await auth.sendReset(email);
-      authMessage('Password reset email sent. Check your inbox.', false);
-    } catch (err) {
-      authMessage(auth.errorMessage(err), true);
-    }
-  }
-
-  async function onSignOut() {
-    const auth = shopAuth();
-    if (!auth) return;
-    await auth.signOut();
-    msg('');
-  }
-
-  async function onPay(ev) {
-    const btn = ev.target.closest('button[data-id]');
-    if (!btn || btn.disabled) return;
-
-    const auth = shopAuth();
-    if (!auth || !auth.user()) {
-      msg('Sign in first — purchases are tied to your account.', true);
-      authSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      emailEl.focus();
-      return;
-    }
-
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Opening…';
-    msg('Creating your secure checkout link…');
-
-    try {
-      // Fresh token every time: the SDK refreshes it when it is near expiry,
-      // and a stale one is the usual cause of a 401 here.
-      const token = await auth.getIdToken();
-      if (!token) {
-        msg('Your session expired. Sign in again.', true);
-        renderAuth();
-        return;
-      }
-
-      const resp = await fetch(REQUEST_PAYMENT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + token,
-        },
-        // Only the product id. The buyer's email, amount and currency are all
-        // server-derived so a tampered body cannot change who pays or how much.
-        body: JSON.stringify({ productId: btn.dataset.id }),
-      });
-      const json = await resp.json();
-
-      if (resp.status === 401) {
-        msg('Your session expired. Sign in again.', true);
-        renderAuth();
-        return;
-      }
-      if (!resp.ok || !json.link) {
-        throw new Error(json.error || 'Unable to create checkout');
-      }
-      msg('');
-      window.location.href = json.link;
-    } catch (err) {
-      msg(err.message, true);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = original;
-      renderAuth();
-    }
-  }
-
-  document.addEventListener('click', onPay);
-  signInBtn.addEventListener('click', onSignIn);
-  resetBtn.addEventListener('click', onReset);
-  signOutBtn.addEventListener('click', onSignOut);
-  passwordEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      onSignIn();
-    }
-  });
-  emailEl.addEventListener('input', function () {
-    if (authMsgEl.classList.contains('show')) authMessage('');
-  });
-
-  renderRows();
-  if (shopAuth()) {
-    // Fires immediately with the restored session, then on every change.
-    shopAuth().onChange(renderAuth);
-  } else {
-    renderAuth();
-  }
-</script>
 </body>
 </html>
