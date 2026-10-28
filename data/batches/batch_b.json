@@ -1,0 +1,4322 @@
+[
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Solo Leveling?",
+    "options": [
+      "Sung Jinwoo",
+      "Sung Il-Hwan",
+      "Cha Hae-In",
+      "Go Gun-Hee"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What is the name of Sung Jinwoo's younger sister?",
+    "options": [
+      "Cha Hae-In",
+      "Sung Jinah",
+      "Lee Joohee",
+      "Esil Radiru"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What was Sung Jinwoo's infamous nickname at the start?",
+    "options": [
+      "Humanity's Strongest Weapon",
+      "The Ultimate Hunter",
+      "World's Weakest Hunter",
+      "Beast-Slaying Hero"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What was Sung Jinwoo's starting hunter rank?",
+    "options": [
+      "D-rank",
+      "C-rank",
+      "B-rank",
+      "E-rank"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What mysterious interface grants Sung Jinwoo quests and levels?",
+    "options": [
+      "The System",
+      "The Gate",
+      "The Altar",
+      "The Cube"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "In which temple did Jinwoo earn his second awakening in the double dungeon?",
+    "options": [
+      "Demon Temple",
+      "Cartenon Temple",
+      "Frost Temple",
+      "Shadow Temple"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which guild does Sung Jinwoo found?",
+    "options": [
+      "Hunters Guild",
+      "Fame Guild",
+      "Ahjin Guild",
+      "Knights Guild"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Who is the chairman of the Korean Hunter Association?",
+    "options": [
+      "Choi Jong-In",
+      "Woo Jinchul",
+      "Park Jongsoo",
+      "Go Gun-Hee"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which female S-rank hunter fights with a sword?",
+    "options": [
+      "Cha Hae-In",
+      "Lee Joohee",
+      "Sung Jinah",
+      "Norma Selner"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which shadow was once the Blood-Red Commander?",
+    "options": [
+      "Beru",
+      "Igris",
+      "Bellion",
+      "Kaisel"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which ant monster becomes one of Jinwoo's strongest shadows?",
+    "options": [
+      "Igris",
+      "Tank",
+      "Beru",
+      "Iron"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What monarch title does Sung Jinwoo inherit?",
+    "options": [
+      "Frost Monarch",
+      "Beast Monarch",
+      "Plague Monarch",
+      "Shadow Monarch"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What are the soldiers of Jinwoo's army called?",
+    "options": [
+      "Shadows",
+      "Demons",
+      "Orcs",
+      "Golems"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What are the portals to monster-filled dungeons called?",
+    "options": [
+      "Rifts",
+      "Gates",
+      "Towers",
+      "Mazes"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What is the highest standard hunter rank?",
+    "options": [
+      "A-rank",
+      "SS-rank",
+      "S-rank",
+      "Z-rank"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which guild is led by Choi Jong-In?",
+    "options": [
+      "Ahjin Guild",
+      "Fame Guild",
+      "Draw Sword Guild",
+      "Hunters Guild"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What type of weapon does Sung Jinwoo favor most?",
+    "options": [
+      "Daggers",
+      "Greatswords",
+      "Bows",
+      "Staffs"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which island is infamous for the failed ant raids?",
+    "options": [
+      "Ulleung Island",
+      "Jeju Island",
+      "Tsushima Island",
+      "Ganghwa Island"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Who becomes Jinwoo's best friend and vice-master of Ahjin?",
+    "options": [
+      "Song Chi-Yul",
+      "Lee Joohee",
+      "Yoo Jinho",
+      "Park Heejin"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What word does Jinwoo speak to raise shadows?",
+    "options": [
+      "Awaken",
+      "Obey",
+      "Return",
+      "Arise"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which country is Sung Jinwoo from?",
+    "options": [
+      "South Korea",
+      "Japan",
+      "China",
+      "The United States"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which organization oversees hunter ranks and gate raids in Korea?",
+    "options": [
+      "Shadow Bureau",
+      "Hunter Association",
+      "Monarch Council",
+      "Dungeon Ministry"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What is the name of Sung Jinwoo's father?",
+    "options": [
+      "Choi Jong-In",
+      "Kim Chul",
+      "Sung Il-Hwan",
+      "Park Kyung-Ho"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What rank was the gate hiding the double dungeon?",
+    "options": [
+      "S-rank",
+      "A-rank",
+      "E-rank",
+      "D-rank"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which flying shadow wyvern does Jinwoo ride?",
+    "options": [
+      "Kaisel",
+      "Beru",
+      "Igris",
+      "Tank"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which healer survived the double dungeon with Jinwoo?",
+    "options": [
+      "Cha Hae-In",
+      "Lee Joohee",
+      "Sung Jinah",
+      "Esil Radiru"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What was the name of the first S-rank boss slain in America?",
+    "options": [
+      "Baran",
+      "Beru",
+      "Kamish",
+      "Igris"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What does Jinwoo drink to recover health?",
+    "options": [
+      "Gate Key",
+      "Demon Soul",
+      "Mana Crystal",
+      "HP Potion"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "Which monster race invades Jeju Island?",
+    "options": [
+      "Ants",
+      "Demons",
+      "Orcs",
+      "Elves"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "easy",
+    "question": "What color is the System's quest window?",
+    "options": [
+      "Red",
+      "Blue",
+      "Green",
+      "Gold"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which island arc centers on the fourth raid against the Ant King?",
+    "options": [
+      "Jeju Island arc",
+      "Demon Castle arc",
+      "Red Gate arc",
+      "Double Dungeon arc"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "How many standard hunter ranks run from E to S?",
+    "options": [
+      "Five",
+      "Six",
+      "Four",
+      "Seven"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "What title is given to hunters with power beyond S-rank?",
+    "options": [
+      "Monarch Vessel",
+      "Guild Master",
+      "National Level Hunter",
+      "System Player"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which technique lets Jinwoo telekinetically grip objects?",
+    "options": [
+      "Mutilation",
+      "Dagger Rush",
+      "Bloodlust",
+      "Ruler's Authority"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which skill lets Jinwoo swap places with a shadow soldier?",
+    "options": [
+      "Shadow Exchange",
+      "Shadow Storage",
+      "Monarch's Domain",
+      "Stealth"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which boss guards the job-change quest as Blood-Red Commander?",
+    "options": [
+      "Baruka",
+      "Igris",
+      "Baran",
+      "Kamish"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Who leads the ice elves in the Red Gate?",
+    "options": [
+      "Baran",
+      "Bellion",
+      "Baruka",
+      "Sillad"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Who is the Demon King of the Demon Castle?",
+    "options": [
+      "Rakan",
+      "Sillad",
+      "Kandiaru",
+      "Baran"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Who slaughters most of the Korean elite team on Jeju before Jinwoo arrives?",
+    "options": [
+      "The Ant King",
+      "Baran",
+      "Igris",
+      "Kamish"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which dungeon arc traps Jinwoo and Jinho with ice elves?",
+    "options": [
+      "Demon Castle arc",
+      "Red Gate arc",
+      "Jeju Island arc",
+      "Hunters Guild Gate arc"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Why does Jinwoo clear the Demon Castle alone?",
+    "options": [
+      "To rescue Cha Hae-In",
+      "To capture Baruka",
+      "To brew the Holy Water of Life",
+      "To close an S-rank gate"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which monster race does Jinwoo help the Hunters Guild subdue?",
+    "options": [
+      "Ice Elves",
+      "Demons",
+      "Giant Ants",
+      "High Orcs"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "What stones do miners collect inside gates for energy?",
+    "options": [
+      "Essence Stones",
+      "Shadow Shards",
+      "Demon Fangs",
+      "Gate Keys"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which S-rank hunter wields fire as master of the Hunters Guild?",
+    "options": [
+      "Baek Yoonho",
+      "Choi Jong-In",
+      "Ma Dongwook",
+      "Cha Hae-In"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which S-rank hunter can transform into a beast?",
+    "options": [
+      "Choi Jong-In",
+      "Ma Dongwook",
+      "Baek Yoonho",
+      "Min Byung-Gu"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which Japanese S-rank leads Japan's team in the fourth Jeju raid?",
+    "options": [
+      "Hoshino Mamoru",
+      "Tawata Kenzo",
+      "Izawa Atsushi",
+      "Goto Ryuji"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Who is the Architect behind the System?",
+    "options": [
+      "Kandiaru",
+      "Ashborn",
+      "Rakan",
+      "Sillad"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Who was the original Shadow Monarch?",
+    "options": [
+      "Rakan",
+      "Ashborn",
+      "Sillad",
+      "Antares"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which shadow was once the Red Gate's giant ice bear?",
+    "options": [
+      "Iron",
+      "Kaisel",
+      "Tank",
+      "Jima"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which shadow was once the A-rank hunter Kim Chul?",
+    "options": [
+      "Tank",
+      "Kaisel",
+      "Jima",
+      "Iron"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "From which monster does Jinwoo loot Kasaka's venom gland?",
+    "options": [
+      "The blue-fanged snake Kasaka",
+      "Igris the Blood-Red",
+      "Baruka the elf",
+      "Cerberus the hound"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which three-headed hound guards the Demon Castle gate?",
+    "options": [
+      "Kaisel",
+      "Cerberus",
+      "Kamish",
+      "Baruka"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which American guild is led by Thomas Andre?",
+    "options": [
+      "Hunters Guild",
+      "Ahjin Guild",
+      "Scavenger Guild",
+      "Draw Sword Guild"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which National Level hunter is nicknamed Goliath?",
+    "options": [
+      "Liu Zhigang",
+      "Siddharth Bachchan",
+      "Christopher Reed",
+      "Thomas Andre"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "What cures Jinwoo's mother of Eternal Slumber?",
+    "options": [
+      "Holy Water of Life",
+      "Demon King's Blood",
+      "Ant King's Venom",
+      "Elixir of Shadows"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "What is the illness afflicting Jinwoo's mother?",
+    "options": [
+      "Demon Fever",
+      "Eternal Slumber",
+      "Mana Poisoning",
+      "Shadow Curse"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "What rank is the Jeju Island gate?",
+    "options": [
+      "A-rank",
+      "B-rank",
+      "S-rank",
+      "C-rank"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which C-rank gate turns into a deadly Red Gate for Jinwoo's party?",
+    "options": [
+      "The Ahjin founding gate",
+      "The Hunters Guild gate",
+      "The Demon Castle gate",
+      "The gate with Park Heejin"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which healer supports the third Jeju raid team?",
+    "options": [
+      "Min Byung-Gu",
+      "Lee Joohee",
+      "Cha Hae-In",
+      "Norma Selner"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "medium",
+    "question": "Which guild does Ma Dongwook lead?",
+    "options": [
+      "Hunters Guild",
+      "Fame Guild",
+      "Ahjin Guild",
+      "Knights Guild"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Who was the first Shadow Monarch before Jinwoo?",
+    "options": [
+      "Ashborn",
+      "Rakan",
+      "Sillad",
+      "Antares"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Who built the System as the Architect?",
+    "options": [
+      "Ashborn",
+      "Kandiaru",
+      "Rakan",
+      "Bellion"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Who is the Grand Marshal of Jinwoo's Shadow Army?",
+    "options": [
+      "Igris",
+      "Beru",
+      "Bellion",
+      "Kaisel"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "How many Monarchs opposed the Rulers including Ashborn originally?",
+    "options": [
+      "Seven",
+      "Eight",
+      "Ten",
+      "Nine"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which Monarch is the King of Beasts?",
+    "options": [
+      "Rakan",
+      "Sillad",
+      "Querehsha",
+      "Antares"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which Monarch rules frost and snow?",
+    "options": [
+      "Rakan",
+      "Sillad",
+      "Querehsha",
+      "Yogumunt"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which Monarch rules plague and insects?",
+    "options": [
+      "Sillad",
+      "Rakan",
+      "Querehsha",
+      "Antares"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which Monarch leads as the King of Dragons?",
+    "options": [
+      "Ashborn",
+      "Rakan",
+      "Sillad",
+      "Antares"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Whose vessel was Sung Il-Hwan serving?",
+    "options": [
+      "The Rulers",
+      "The Monarchs",
+      "The System",
+      "The Demons"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which artifact did the Rulers use to turn back time?",
+    "options": [
+      "Chalice of Shadows",
+      "Cup of Reincarnation",
+      "Cartenon Bell",
+      "Holy Grail of Dawn"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which dragon was the first S-rank boss killed by National Level hunters?",
+    "options": [
+      "Baran",
+      "Antares",
+      "Kamish",
+      "Kandiaru"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "How many National Level hunters exist at the story's start?",
+    "options": [
+      "Three",
+      "Seven",
+      "Nine",
+      "Five"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which studio animates the Solo Leveling anime?",
+    "options": [
+      "A-1 Pictures",
+      "MAPPA",
+      "Wit Studio",
+      "Madhouse"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Who wrote the original Solo Leveling web novel?",
+    "options": [
+      "Fuse",
+      "Chugong",
+      "Rifujin na Magonote",
+      "Tadatoshi Fujimaki"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "What was Beru before becoming a shadow?",
+    "options": [
+      "The Demon King",
+      "An ice elf",
+      "The Ant King",
+      "A blood-red knight"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which American upgrader fails to measure Jinwoo's power?",
+    "options": [
+      "Laura Reed",
+      "Esil Radiru",
+      "Atsushi Izawa",
+      "Norma Selner"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which shadow evolves from the high orc shaman Kargalgan?",
+    "options": [
+      "Tusk",
+      "Iron",
+      "Tank",
+      "Jima"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which demon noble girl aids Jinwoo in the Demon Castle?",
+    "options": [
+      "Cha Hae-In",
+      "Esil Radiru",
+      "Lee Joohee",
+      "Sung Jinah"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "What rank do Igris and Beru hold as the army's top elites?",
+    "options": [
+      "Soldier grade",
+      "General grade",
+      "Elite Knight grade",
+      "Scout grade"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which wyvern does Jinwoo extract as a shadow mount?",
+    "options": [
+      "Kamish",
+      "Baran",
+      "Jima",
+      "Kaisel"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which ingredient for the Holy Water comes from Demon Castle?",
+    "options": [
+      "Demon King's blood",
+      "Ant King's venom",
+      "Frost elf core",
+      "Cerberus fang"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which fragment is also needed for the Holy Water of Life?",
+    "options": [
+      "Cartenon keystone",
+      "World Tree fragment",
+      "Monarch heart",
+      "Gate anchor"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which hunter betrays the Koreans to side with the monsters on Jeju?",
+    "options": [
+      "Song Chi-Yul",
+      "Park Heejin",
+      "Hwang Dongsoo",
+      "Lee Joohee"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which weapon does Jinwoo craft from the Demon King's essence?",
+    "options": [
+      "Baruka's Frost Dagger",
+      "Kasaka's Fang Bow",
+      "Kamish's Wrath Staff",
+      "Demon King's Longsword"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which guild master is killed when Monarchs possess vessels?",
+    "options": [
+      "Christopher Reed",
+      "Thomas Andre",
+      "Goto Ryuji",
+      "Ma Dongwook"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which S-rank hunter guards Korea's Chairman Go Gun-Hee?",
+    "options": [
+      "Yoo Jinho",
+      "Woo Jinchul",
+      "Park Jongsoo",
+      "Song Chi-Yul"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "What keeps Sung Il-Hwan trapped between worlds for years?",
+    "options": [
+      "A Red Gate curse",
+      "Eternal Slumber",
+      "A collapsing gate rift",
+      "The System penalty"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which penalty monster disciplines Jinwoo for skipping dailies?",
+    "options": [
+      "Cerberus",
+      "Kamish",
+      "Baruka",
+      "The giant desert centipedes"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "What is Jinwoo's hidden class after the job-change quest?",
+    "options": [
+      "Necromancer",
+      "Berserker",
+      "Assassin",
+      "Paladin"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "solo leveling",
+    "difficulty": "hard",
+    "question": "Which title does Jinwoo earn after clearing the Demon Castle?",
+    "options": [
+      "Wolf Slayer",
+      "Demon King",
+      "Ant Exterminator",
+      "Gate Keeper"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Who is the phantom sixth man of the Generation of Miracles?",
+    "options": [
+      "Kuroko Tetsuya",
+      "Kagami Taiga",
+      "Hyuga Junpei",
+      "Kiyoshi Teppei"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Who is Kuroko's light and Seirin's ace?",
+    "options": [
+      "Kise Ryota",
+      "Kagami Taiga",
+      "Aomine Daiki",
+      "Midorima Shintaro"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which high school do Kuroko and Kagami play for?",
+    "options": [
+      "Kaijo High",
+      "Shutoku High",
+      "Seirin High",
+      "Touo Academy"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What is the legendary middle-school team called?",
+    "options": [
+      "Crown of Juniors",
+      "Uncrowned Kings",
+      "Vorpal Swords",
+      "Generation of Miracles"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What is Kuroko's signature style of play?",
+    "options": [
+      "Misdirection",
+      "Emperor Eye",
+      "Perfect Copy",
+      "Power Dunk"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which school does Kise Ryota play for?",
+    "options": [
+      "Seirin High",
+      "Kaijo High",
+      "Shutoku High",
+      "Yosen High"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which school does Midorima Shintaro play for?",
+    "options": [
+      "Kaijo High",
+      "Touo Academy",
+      "Shutoku High",
+      "Rakuzan High"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which school does Aomine Daiki play for?",
+    "options": [
+      "Seirin High",
+      "Yosen High",
+      "Kaijo High",
+      "Touo Academy"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which school does Murasakibara Atsushi play for?",
+    "options": [
+      "Yosen High",
+      "Touo Academy",
+      "Rakuzan High",
+      "Shutoku High"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which school does Akashi Seijuro captain?",
+    "options": [
+      "Seirin High",
+      "Rakuzan High",
+      "Kaijo High",
+      "Yosen High"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Who is the captain of Seirin?",
+    "options": [
+      "Kagami Taiga",
+      "Kuroko Tetsuya",
+      "Hyuga Junpei",
+      "Kiyoshi Teppei"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Who is the coach of Seirin?",
+    "options": [
+      "Masako Araki",
+      "Yoshitaka Moriyama",
+      "Shuzo Nijimura",
+      "Riko Aida"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What position does the tiny Kuroko mainly play?",
+    "options": [
+      "Point guard support",
+      "Center",
+      "Power forward",
+      "Shooting ace"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which pass of Kuroko spins violently and is hard to catch?",
+    "options": [
+      "Cyclone Pass",
+      "Ignite Pass",
+      "Meteor Pass",
+      "Phantom Pass"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What is Kagami's super jumping ability often called?",
+    "options": [
+      "Sky Dunk",
+      "Comet Dunk",
+      "Meteor Jam",
+      "Aerial Ace"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Miracle is a genius copier of moves?",
+    "options": [
+      "Midorima Shintaro",
+      "Murasakibara Atsushi",
+      "Akashi Seijuro",
+      "Kise Ryota"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Miracle is famous for full-court three-pointers?",
+    "options": [
+      "Midorima Shintaro",
+      "Aomine Daiki",
+      "Kise Ryota",
+      "Kagami Taiga"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Miracle is famous for overwhelming power and defense?",
+    "options": [
+      "Kuroko Tetsuya",
+      "Murasakibara Atsushi",
+      "Kise Ryota",
+      "Hyuga Junpei"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Miracle captained Teiko and leads Rakuzan?",
+    "options": [
+      "Aomine Daiki",
+      "Midorima Shintaro",
+      "Akashi Seijuro",
+      "Nijimura Shuzo"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Miracle is an unstoppable one-on-one scorer?",
+    "options": [
+      "Kuroko Tetsuya",
+      "Kiyoshi Teppei",
+      "Hyuga Junpei",
+      "Aomine Daiki"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What is Seirin's team color?",
+    "options": [
+      "White and red",
+      "Blue and white",
+      "Green and yellow",
+      "Purple and black"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Who founded Seirin's basketball club?",
+    "options": [
+      "Hyuga Junpei",
+      "Kiyoshi Teppei",
+      "Riko Aida",
+      "Kagami Taiga"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What injury keeps Kiyoshi Teppei sidelined before the Winter Cup?",
+    "options": [
+      "A wrist fracture",
+      "An ankle sprain",
+      "A knee injury",
+      "A shoulder tear"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Seirin shooter is famous for clutch three-pointers?",
+    "options": [
+      "Izuki Shun",
+      "Mitobe Rinnosuke",
+      "Tsuchida Satoshi",
+      "Hyuga Junpei"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which Seirin player is known for the Eagle Eye?",
+    "options": [
+      "Izuki Shun",
+      "Hyuga Junpei",
+      "Koganei Shinji",
+      "Mitobe Rinnosuke"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What is Midorima's favorite routine before games?",
+    "options": [
+      "Listening to rock",
+      "Carrying a lucky item",
+      "Eating candy",
+      "Meditating alone"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which team beats Seirin in the Interhigh preliminaries?",
+    "options": [
+      "Kaijo High",
+      "Shutoku High",
+      "Touo Academy",
+      "Yosen High"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "What tournament does Seirin aim to win in the second season?",
+    "options": [
+      "The Interhigh",
+      "The Nationals Qualifier",
+      "The Street Jam",
+      "The Winter Cup"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Which duo do commentators call light and shadow?",
+    "options": [
+      "Kagami and Kuroko",
+      "Kise and Kasamatsu",
+      "Aomine and Momoi",
+      "Akashi and Mibuchi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "easy",
+    "question": "Who manages data and scouting for Touo Academy?",
+    "options": [
+      "Riko Aida",
+      "Satsuki Momoi",
+      "Alex Garcia",
+      "Masako Araki"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which arc features Seirin's revenge run through a national tournament?",
+    "options": [
+      "The Winter Cup arc",
+      "The Interhigh arc",
+      "The Teiko arc",
+      "The Streetball arc"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which power lets a player enter a heightened focused state?",
+    "options": [
+      "Emperor Eye",
+      "The Zone",
+      "Perfect Copy",
+      "Misdirection Overflow"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Whose ability lets him see the future of opponents?",
+    "options": [
+      "Kuroko Tetsuya",
+      "Kiyoshi Teppei",
+      "Akashi Seijuro",
+      "Hyuga Junpei"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Whose skill lets him copy any move he sees?",
+    "options": [
+      "Midorima Shintaro",
+      "Murasakibara Atsushi",
+      "Kagami Taiga",
+      "Kise Ryota"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which duo unlocks the Direct Drive Zone together?",
+    "options": [
+      "Kagami and Kuroko",
+      "Kise and Kasamatsu",
+      "Midorima and Takao",
+      "Akashi and Mibuchi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which team does Seirin face in the Winter Cup final?",
+    "options": [
+      "Kaijo High",
+      "Rakuzan High",
+      "Shutoku High",
+      "Touo Academy"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which team eliminates Seirin from the Interhigh?",
+    "options": [
+      "Yosen High",
+      "Kaijo High",
+      "Touo Academy",
+      "Rakuzan High"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Who coaches Yosen High?",
+    "options": [
+      "Riko Aida",
+      "Tetsuya Nakatani",
+      "Yoshitaka Moriyama",
+      "Masako Araki"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Who coaches Kaijo High?",
+    "options": [
+      "Tetsuya Nakatani",
+      "Masako Araki",
+      "Riko Aida",
+      "Shuzo Nijimura"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What is Aomine's signature unstoppable shot?",
+    "options": [
+      "Meteor Jam",
+      "Formless Shot",
+      "Phantom Shot",
+      "Emperor Pass"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What is Kuroko's vanishing shot called?",
+    "options": [
+      "Meteor Jam",
+      "Formless Shot",
+      "Phantom Shot",
+      "Cyclone Dunk"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What is Kuroko's upgraded passing aura called?",
+    "options": [
+      "Vanishing Drive",
+      "Ignite Pass Kai",
+      "Cyclone Pass",
+      "Misdirection Overflow"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What is Kuroko's drive technique using blinding speed?",
+    "options": [
+      "Vanishing Drive",
+      "Meteor Jam",
+      "Emperor Eye",
+      "Thor's Hammer"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Shutoku player forms the light-speed pass duo with Midorima?",
+    "options": [
+      "Miyaji Kiyoshi",
+      "Takao Kazunari",
+      "Otsubo Taisuke",
+      "Kimura Shinsuke"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Who captains Kaijo High?",
+    "options": [
+      "Kise Ryota",
+      "Hayakawa Mitsuhiro",
+      "Kasamatsu Yukio",
+      "Moriyama Yoshitaka"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Yosen transfer played streetball in America with Kagami?",
+    "options": [
+      "Liu Wei",
+      "Okamura Kensuke",
+      "Fukui Kensuke",
+      "Himuro Tatsuya"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Seirin center is one of the Uncrowned Kings?",
+    "options": [
+      "Kiyoshi Teppei",
+      "Kagami Taiga",
+      "Mitobe Rinnosuke",
+      "Tsuchida Satoshi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which player is known as the Bad Boy of the Uncrowned Kings?",
+    "options": [
+      "Kiyoshi Teppei",
+      "Hanmiya Makoto",
+      "Himuro Tatsuya",
+      "Kasamatsu Yukio"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Rakuzan general is famous for shooting threes?",
+    "options": [
+      "Hayama Kotaro",
+      "Nebuya Eikichi",
+      "Mibuchi Reo",
+      "Akashi Seijuro"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Rakuzan player uses lightning-fast dribbles?",
+    "options": [
+      "Mibuchi Reo",
+      "Nebuya Eikichi",
+      "Okamura Kensuke",
+      "Hayama Kotaro"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Rakuzan center relies on pure muscle power?",
+    "options": [
+      "Nebuya Eikichi",
+      "Hayama Kotaro",
+      "Mibuchi Reo",
+      "Kasamatsu Yukio"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What is Kagami's jumping dunk from the free-throw line called?",
+    "options": [
+      "Phantom Shot",
+      "Meteor Jam",
+      "Formless Shot",
+      "Ignite Dunk"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which American street players face Seirin's generation?",
+    "options": [
+      "Vorpal Swords",
+      "Touo Alumni",
+      "Jabberwock",
+      "Kaijo Reserves"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What team combines Miracles and Seirin to face Jabberwock?",
+    "options": [
+      "Generation of Miracles",
+      "Uncrowned Kings",
+      "Seirin Plus Kaijo",
+      "Vorpal Swords"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Who is Himuro Tatsuya's younger brother figure?",
+    "options": [
+      "Murasakibara Atsushi",
+      "Kagami Taiga",
+      "Kuroko Tetsuya",
+      "Aomine Daiki"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which duo were childhood rivals in America?",
+    "options": [
+      "Kuroko and Kise",
+      "Kagami and Himuro",
+      "Aomine and Momoi",
+      "Akashi and Midorima"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "What is Midorima's high-arc shot called?",
+    "options": [
+      "Meteor Jam",
+      "Phantom Shot",
+      "Sky-Direct three-pointer",
+      "Formless Shot"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which ability lets Kise combine Miracles' moves?",
+    "options": [
+      "Emperor Eye",
+      "Zone Burst",
+      "Misdirection",
+      "Perfect Copy"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which Seirin player uses a hook shot?",
+    "options": [
+      "Mitobe Rinnosuke",
+      "Izuki Shun",
+      "Koganei Shinji",
+      "Tsuchida Satoshi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "medium",
+    "question": "Which school hosts the Winter Cup final?",
+    "options": [
+      "Osaka Arena",
+      "Tokyo Metropolitan Gymnasium",
+      "Sendai Dome",
+      "Nagoya Court"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which street team humiliates Japan in the Last Game film?",
+    "options": [
+      "Jabberwock",
+      "Vorpal Swords",
+      "Touo Alumni",
+      "Rakuzan Reserves"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which combined team faces Jabberwock?",
+    "options": [
+      "Jabberwock",
+      "Vorpal Swords",
+      "Touo Academy",
+      "Yosen High"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Who leads Jabberwock with the Emperor Eye?",
+    "options": [
+      "Jason Silver",
+      "Nick Kay",
+      "Nash Gold Jr",
+      "Zack Monroe"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Who is Jabberwock's giant power center?",
+    "options": [
+      "Nash Gold Jr",
+      "Nick Kay",
+      "Zack Monroe",
+      "Jason Silver"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What is Akashi's second personality often called?",
+    "options": [
+      "Bokushi Akashi",
+      "Oreshi Akashi",
+      "Kamish Akashi",
+      "Zenshi Akashi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which eye power does Akashi use to predict moves?",
+    "options": [
+      "Eagle Eye",
+      "Emperor Eye",
+      "Demon Eye",
+      "Heaven Eye"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which author created Kuroko's Basketball?",
+    "options": [
+      "Chugong",
+      "Fuse",
+      "Tadatoshi Fujimaki",
+      "Rifujin na Magonote"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which studio animated Kuroko's Basketball?",
+    "options": [
+      "A-1 Pictures",
+      "MAPPA",
+      "Studio Bind",
+      "Production I.G"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What number does Kuroko wear for Seirin?",
+    "options": [
+      "11",
+      "10",
+      "4",
+      "7"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What number does Kagami wear for Seirin?",
+    "options": [
+      "11",
+      "10",
+      "5",
+      "6"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What number does Akashi wear for Rakuzan?",
+    "options": [
+      "5",
+      "6",
+      "4",
+      "7"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Midorima habit involves horoscopes?",
+    "options": [
+      "Wearing two watches",
+      "Taping fingers left-handed",
+      "Drinking soda courtside",
+      "Carrying the daily lucky item"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which snack does Murasakibara love?",
+    "options": [
+      "Maiubo candy",
+      "Potato chips",
+      "Chocolate bars",
+      "Rice cakes"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which position did Teiko's Shuzo Nijimura play as captain?",
+    "options": [
+      "Point guard ace",
+      "Small forward captain",
+      "Center giant",
+      "Shooting guard"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Who succeeds Nijimura as Teiko's captain?",
+    "options": [
+      "Aomine Daiki",
+      "Midorima Shintaro",
+      "Akashi Seijuro",
+      "Murasakibara Atsushi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Teiko coach built the Generation of Miracles?",
+    "options": [
+      "Riko Aida",
+      "Masako Araki",
+      "Tetsuya Nakatani",
+      "Sanada Yukio with Shirogane"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What is Aomine's motto about winning?",
+    "options": [
+      "The only one who can beat me is me",
+      "Defense wins titles",
+      "Teamwork conquers all",
+      "Practice makes miracles"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which copy upgrade lets Kise use Zone-like power briefly?",
+    "options": [
+      "Emperor Copy",
+      "Perfect Copy with Zone",
+      "Meteor Copy",
+      "Shadow Copy"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What injury limits Kise in the Winter Cup?",
+    "options": [
+      "A wrist fracture",
+      "A concussion",
+      "A leg injury",
+      "A shoulder tear"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Kaijo player is a sharp-tongued shooter?",
+    "options": [
+      "Hayakawa Mitsuhiro",
+      "Kasamatsu Yukio",
+      "Kobori Hiroshi",
+      "Moriyama Yoshitaka"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Yosen point guard runs the team?",
+    "options": [
+      "Fukui Kensuke",
+      "Himuro Tatsuya",
+      "Liu Wei",
+      "Okamura Kensuke"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Touo power forward taunts opponents?",
+    "options": [
+      "Susa Yoshinori",
+      "Wakamatsu Kosuke",
+      "Imayoshi Shoichi",
+      "Sakurai Ryo"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Who captains Touo Academy?",
+    "options": [
+      "Aomine Daiki",
+      "Sakurai Ryo",
+      "Imayoshi Shoichi",
+      "Wakamatsu Kosuke"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Seirin reserve is an all-rounder?",
+    "options": [
+      "Mitobe Rinnosuke",
+      "Tsuchida Satoshi",
+      "Kiyoshi Teppei",
+      "Koganei Shinji"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What is Izuki's stealing trick called?",
+    "options": [
+      "Eagle Spear",
+      "Eagle Eye",
+      "Condor Pass",
+      "Hawk Dive"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which Rakuzan move combines three generals' rhythm?",
+    "options": [
+      "Perfect Copy",
+      "Team play of the Uncrowned Kings trio",
+      "Direct Drive",
+      "Meteor Chain"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "What does Akashi pass with his Emperor Eye control?",
+    "options": [
+      "Ignite passes",
+      "Sky-direct passes",
+      "Perfect rhythm passes",
+      "Phantom passes"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which film concludes the Kuroko story against Jabberwock?",
+    "options": [
+      "Winter Cup Highlights",
+      "Teiko Days",
+      "Seirin Rising",
+      "Kuroko's Basketball: Last Game"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Which manager tracks Miracles' data for Touo?",
+    "options": [
+      "Satsuki Momoi",
+      "Riko Aida",
+      "Alex Garcia",
+      "Masako Araki"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "kuroko's basketball",
+    "difficulty": "hard",
+    "question": "Who trained Kagami in America?",
+    "options": [
+      "Satsuki Momoi",
+      "Alex Garcia",
+      "Riko Aida",
+      "Tetsuya Nakatani"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Mushoku Tensei?",
+    "options": [
+      "Rudeus Greyrat",
+      "Paul Greyrat",
+      "Ruijerd Superd",
+      "Orsted"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What was Rudeus in his past life?",
+    "options": [
+      "A knight",
+      "A reclusive NEET",
+      "A teacher",
+      "A merchant"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's first magic tutor?",
+    "options": [
+      "Sylphiette",
+      "Eris Boreas",
+      "Roxy Migurdia",
+      "Zenith Greyrat"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which demon race does Roxy belong to?",
+    "options": [
+      "Superd",
+      "Human",
+      "Elf",
+      "Migurd"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's childhood elf-eared friend?",
+    "options": [
+      "Sylphiette",
+      "Eris Boreas",
+      "Roxy Migurdia",
+      "Hilda Boreas"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is the fiery red-haired noble girl Rudeus tutors?",
+    "options": [
+      "Sylphiette",
+      "Eris Boreas Greyrat",
+      "Roxy Migurdia",
+      "Lilia Greyrat"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's father?",
+    "options": [
+      "Orsted",
+      "Ruijerd Superd",
+      "Paul Greyrat",
+      "Philip Boreas"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's mother?",
+    "options": [
+      "Lilia Greyrat",
+      "Eris Boreas",
+      "Roxy Migurdia",
+      "Zenith Greyrat"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's maid and Norn's mother?",
+    "options": [
+      "Lilia Greyrat",
+      "Zenith Greyrat",
+      "Roxy Migurdia",
+      "Hilda Boreas"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What affinity lets Rudeus cast without chanting?",
+    "options": [
+      "Demon Eye",
+      "Voiceless incantation",
+      "Dragon Aura",
+      "Magic Armor"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which element is Rudeus's favorite attack?",
+    "options": [
+      "Fireball",
+      "Icicle",
+      "Stone Cannon",
+      "Wind Blade"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which warrior escorts Rudeus across the Demon Continent?",
+    "options": [
+      "Paul Greyrat",
+      "Orsted",
+      "Ghislaine Dedoldia",
+      "Ruijerd Superd"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which swordswoman guards Eris?",
+    "options": [
+      "Ghislaine Dedoldia",
+      "Roxy Migurdia",
+      "Sylphiette",
+      "Zenith Greyrat"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What disaster teleports Rudeus far from home?",
+    "options": [
+      "The Winter Cup",
+      "The Teleport Incident",
+      "The Jeju Raid",
+      "The Walpurgis"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which continent is Rudeus stranded on after the teleport?",
+    "options": [
+      "The Central Continent",
+      "The Heaven Continent",
+      "The Demon Continent",
+      "The Beast Continent"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What is Ruijerd's cursed distinguishing feature?",
+    "options": [
+      "Green hair",
+      "Pointed ears",
+      "A tail",
+      "A red gem on his forehead"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which race is discriminated as devils?",
+    "options": [
+      "The Superd",
+      "The Migurd",
+      "The Elves",
+      "The Humans"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is the Man-God whispering in dreams?",
+    "options": [
+      "Orsted",
+      "Hitogami",
+      "Laplace",
+      "Ruijerd"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which school does Rudeus later attend?",
+    "options": [
+      "Seirin High",
+      "Shutoku Academy",
+      "Ranoa Magic University",
+      "Jura Academy"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who becomes Rudeus's first wife?",
+    "options": [
+      "Roxy Migurdia",
+      "Eris Boreas",
+      "Lilia Greyrat",
+      "Sylphiette"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which princess does Rudeus protect at school?",
+    "options": [
+      "Ariel Anemoi Asura",
+      "Eris Boreas",
+      "Sylphiette",
+      "Norn Greyrat"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's younger sister?",
+    "options": [
+      "Aisha Greyrat",
+      "Norn Greyrat",
+      "Eris Boreas",
+      "Sylphiette"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who is Rudeus's younger half-sister?",
+    "options": [
+      "Norn Greyrat",
+      "Eris Boreas",
+      "Aisha Greyrat",
+      "Sylphiette"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What is Rudeus's famous perverted treasure?",
+    "options": [
+      "A demon sword",
+      "A dragon scale",
+      "A lucky item",
+      "Roxy's panties"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which totem does Rudeus worship?",
+    "options": [
+      "Roxy as a goddess",
+      "Hitogami",
+      "Orsted",
+      "Laplace"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Which magic rank can Rudeus already use as a child?",
+    "options": [
+      "Beginner-only",
+      "Saint-level",
+      "Intermediate-only",
+      "No rank"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "Who teaches Rudeus sword basics alongside magic?",
+    "options": [
+      "Orsted",
+      "Ruijerd Superd",
+      "Paul Greyrat",
+      "Ghislaine Dedoldia"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What color is Roxy's hair?",
+    "options": [
+      "Red",
+      "Green",
+      "Blonde",
+      "Blue"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What color is Sylphiette's hair after healing?",
+    "options": [
+      "White",
+      "Red",
+      "Blue",
+      "Black"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "easy",
+    "question": "What color is Eris's hair?",
+    "options": [
+      "Blue",
+      "Red",
+      "Green",
+      "Silver"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which arc strands Rudeus on the Demon Continent?",
+    "options": [
+      "The Teleport Incident arc",
+      "The School arc",
+      "The Shirone arc",
+      "The Final Battle arc"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which kingdom enslaves Roxy's party in the Shirone arc?",
+    "options": [
+      "The Asura Kingdom",
+      "The Shirone Kingdom",
+      "The Demon Empire",
+      "The Beast Lands"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which magic tiers rank from Beginner to Divine?",
+    "options": [
+      "Four tiers",
+      "Five tiers",
+      "Seven tiers",
+      "Ten tiers"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which eye power does Rudeus gain from Kishirika?",
+    "options": [
+      "The Emperor Eye",
+      "The Eagle Eye",
+      "The Mystic Eye of Binding",
+      "The Demon Eye of Foresight"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which demon empress grants Rudeus the Demon Eye?",
+    "options": [
+      "Kishirika Kishirisu",
+      "Atofe Ataraka",
+      "Elinalise Dragonroad",
+      "Hilda Boreas"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which technique fires super-compressed rock bullets?",
+    "options": [
+      "Fireball",
+      "Stone Cannon",
+      "Ice Lance",
+      "Wind Cutter"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which overpowered spell summons a storm cloud?",
+    "options": [
+      "Meteor Swarm",
+      "Blizzard",
+      "Cumulonimbus",
+      "Earthquake"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which Dragon God defeats Rudeus effortlessly?",
+    "options": [
+      "Laplace",
+      "Ruijerd",
+      "Hitogami",
+      "Orsted"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which cursed spear does Ruijerd wield?",
+    "options": [
+      "A trident-like spear",
+      "A flaming sword",
+      "A stone cannon",
+      "A magic bow"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which title does Rudeus earn as a mage?",
+    "options": [
+      "Firelord",
+      "Quagmire",
+      "Sword God",
+      "Water Saint"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Why is Rudeus called Quagmire?",
+    "options": [
+      "His fire burns cities",
+      "His sword never misses",
+      "His swamp magic traps foes",
+      "His healing revives dead"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which university does Rudeus enroll in?",
+    "options": [
+      "Asura Royal Academy",
+      "Demon Grand School",
+      "Beast Magic College",
+      "Ranoa Magic University"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Who is Rudeus's elf teacher at the university?",
+    "options": [
+      "Elinalise Dragonroad",
+      "Roxy Migurdia",
+      "Sylphiette",
+      "Ariel Asura"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which prince opposes Ariel's claim to the Asura throne?",
+    "options": [
+      "Luke Notos Greyrat",
+      "Grabell Zaold Asura",
+      "Derrick Redbat",
+      "Pilemon Jerul Asura"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Who is Ariel's loyal knight guard?",
+    "options": [
+      "Derrick Redbat",
+      "Grabell Asura",
+      "Luke Notos Greyrat",
+      "Pilemon Asura"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which power ranks Orsted among legends?",
+    "options": [
+      "An S-rank hunter",
+      "A Demon Lord",
+      "A National Level mage",
+      "One of the Seven Great Powers"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which group includes Dragon God and Technique God?",
+    "options": [
+      "The Seven Great Powers",
+      "The Generation of Miracles",
+      "The Octagram",
+      "The Ten Masters"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which swordsman is the Sword God?",
+    "options": [
+      "Ghislaine Dedoldia",
+      "Jino Britts",
+      "Paul Greyrat",
+      "Ruijerd Superd"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which North God masters trick blades?",
+    "options": [
+      "Jino Britts",
+      "Ghislaine Dedoldia",
+      "Kalman III",
+      "Paul Greyrat"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which Water God masters defense?",
+    "options": [
+      "Jino Britts",
+      "Kalman III",
+      "Ghislaine Dedoldia",
+      "Reida Reia"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which boss captures Rudeus's mother Zenith?",
+    "options": [
+      "A hydra in a labyrinth",
+      "Orsted",
+      "Atofe",
+      "Laplace"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which labyrinth holds Zenith?",
+    "options": [
+      "The Demon Cave",
+      "The Teleport Labyrinth",
+      "The Shirone Dungeon",
+      "The Sky Tower"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which magic armor does Rudeus build to fight gods?",
+    "options": [
+      "Demon Armor",
+      "Stone Armor",
+      "Magic Armor",
+      "Wind Armor"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which wife is a master of water magic?",
+    "options": [
+      "Sylphiette",
+      "Eris Boreas",
+      "Norn Greyrat",
+      "Roxy Migurdia"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which wife masters the sword?",
+    "options": [
+      "Eris Boreas Greyrat",
+      "Roxy Migurdia",
+      "Sylphiette",
+      "Zenith Greyrat"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which wife masters wind and healing support?",
+    "options": [
+      "Roxy Migurdia",
+      "Sylphiette",
+      "Eris Boreas",
+      "Lilia Greyrat"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which adventurer rivals Rudeus as a swordsman?",
+    "options": [
+      "Orsted",
+      "Laplace",
+      "Soldat Heckler",
+      "Hitogami"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which adventurer party does Rudeus form with Elinalise and Talhand?",
+    "options": [
+      "Ahjin Guild",
+      "Vorpal Swords",
+      "The Fangs",
+      "Dead End"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Why is the party named Dead End?",
+    "options": [
+      "After Ruijerd's feared Superd infamy",
+      "After a dungeon",
+      "After a tavern",
+      "After a spell"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "medium",
+    "question": "Which continent is home to beastfolk?",
+    "options": [
+      "The Demon Continent",
+      "The Millis Continent's Great Forest region",
+      "The Central Continent",
+      "The Floating Continent"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Who is the Man-God scheming against Rudeus?",
+    "options": [
+      "Hitogami",
+      "Orsted",
+      "Laplace",
+      "Ruijerd"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Who is the Dragon God cursed to be hated?",
+    "options": [
+      "Laplace",
+      "Orsted",
+      "Ruijerd",
+      "Hitogami"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Who is the Technique God sealed for the future?",
+    "options": [
+      "Orsted",
+      "Hitogami",
+      "Laplace",
+      "Ruijerd"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which factor in Rudeus lets him defy fate?",
+    "options": [
+      "The Demon Eye",
+      "The Dragon Aura",
+      "The Holy Sword",
+      "The Laplace factor"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "How many wives does Rudeus marry?",
+    "options": [
+      "Three",
+      "One",
+      "Two",
+      "Four"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which three women marry Rudeus?",
+    "options": [
+      "Zenith Lilia and Hilda",
+      "Sylphiette Roxy and Eris",
+      "Ariel Elinalise and Norn",
+      "Ghislaine Soldat and Talhand"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which daughter of Rudeus has a mysterious power?",
+    "options": [
+      "Lucy Greyrat",
+      "Norn Greyrat",
+      "Lara Greyrat",
+      "Aisha Greyrat"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Who wrote the original Mushoku Tensei web novel?",
+    "options": [
+      "Chugong",
+      "Fuse",
+      "Tadatoshi Fujimaki",
+      "Rifujin na Magonote"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which studio animates the Mushoku Tensei anime?",
+    "options": [
+      "Studio Bind",
+      "A-1 Pictures",
+      "Production I.G",
+      "MAPPA"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Demon King rules the Sky Fortress?",
+    "options": [
+      "Kishirika Kishirisu",
+      "Atofe Ataraka",
+      "Badigadi",
+      "Laplace"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Demon Emperor is split into halves?",
+    "options": [
+      "Kishirika Kishirisu",
+      "Atofe Ataraka",
+      "Badigadi",
+      "Laplace"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which follower serves Orsted as a loyal mage?",
+    "options": [
+      "Elinalise Dragonroad",
+      "Ariel Asura",
+      "Rudeus Greyrat",
+      "Nanahoshi Shizuka is a summon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which summoner from another world aids Orsted's research?",
+    "options": [
+      "Nanahoshi Shizuka",
+      "Roxy Migurdia",
+      "Eris Boreas",
+      "Sylphiette"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "What is Nanahoshi's goal?",
+    "options": [
+      "To become Demon God",
+      "To return to her world",
+      "To kill Ruijerd",
+      "To marry Paul"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which magic circle teleports victims across continents?",
+    "options": [
+      "The Summoning Rift",
+      "The Demon Gate",
+      "The Teleport Incident circle",
+      "The Heaven Portal"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which rank sits above Kingly in magic?",
+    "options": [
+      "Advanced",
+      "Saintly",
+      "Intermediate",
+      "Imperial"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which rank tops all magic?",
+    "options": [
+      "Divine",
+      "Imperial",
+      "Kingly",
+      "Saintly"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which sword style focuses on a single lethal draw?",
+    "options": [
+      "Water God style",
+      "Sword God style",
+      "North God style",
+      "Demon God style"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which sword style focuses on defense and counters?",
+    "options": [
+      "Sword God style",
+      "North God style",
+      "Water God style",
+      "Demon God style"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which North God style uses trickery and terrain?",
+    "options": [
+      "Sword God style",
+      "Water God style",
+      "Demon God style",
+      "North God style"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Superd warrior travels with Rudeus?",
+    "options": [
+      "Ruijerd Superd",
+      "Badigadi",
+      "Laplace",
+      "Atofe"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Migurd mage tutors Rudeus?",
+    "options": [
+      "Elinalise Dragonroad",
+      "Roxy Migurdia",
+      "Kishirika Kishirisu",
+      "Ariel Asura"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Boreas girl marries Rudeus?",
+    "options": [
+      "Hilda Boreas",
+      "Aisha Greyrat",
+      "Eris Boreas Greyrat",
+      "Norn Greyrat"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Greyrat sibling is Paul's son with Lilia?",
+    "options": [
+      "Norn Greyrat",
+      "Rudeus Greyrat",
+      "Lucy Greyrat",
+      "Aisha Greyrat"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which Greyrat sibling is Paul's daughter with Zenith?",
+    "options": [
+      "Norn Greyrat",
+      "Aisha Greyrat",
+      "Lara Greyrat",
+      "Lucy Greyrat"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which kingdom does Ariel seek to rule?",
+    "options": [
+      "The Shirone Kingdom",
+      "The Asura Kingdom",
+      "The Demon Empire",
+      "The Holy Land"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which church dominates the Millis Continent?",
+    "options": [
+      "The Asura Temple",
+      "The Demon Cult",
+      "The Millis Church",
+      "The Dragon Faith"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which dragon-race ruins hide teleport circles?",
+    "options": [
+      "Superd shrines",
+      "Migurd vaults",
+      "Asura tombs",
+      "Ancient dragon ruins"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "Which cursed child bears the Laplace factor?",
+    "options": [
+      "Rudeus Greyrat",
+      "Paul Greyrat",
+      "Zenith Greyrat",
+      "Philip Boreas"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "mushoku tensei",
+    "difficulty": "hard",
+    "question": "What does Orsted repeat across loops?",
+    "options": [
+      "A ten-year journey",
+      "A hundred-year time loop",
+      "A single duel",
+      "A endless dream"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of That Time I Got Reincarnated as a Slime?",
+    "options": [
+      "Rimuru Tempest",
+      "Veldora Tempest",
+      "Shizu Izawa",
+      "Benimaru"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What creature is Rimuru reborn as?",
+    "options": [
+      "A dragon",
+      "A slime",
+      "A goblin",
+      "A wolf"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What was Rimuru's past life?",
+    "options": [
+      "A knight",
+      "A mage",
+      "A Japanese office worker",
+      "A hunter"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which forest becomes Rimuru's nation?",
+    "options": [
+      "The Demon Forest",
+      "The Beast Woods",
+      "The Frost Vale",
+      "The Great Jura Forest"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What is the name of Rimuru's nation?",
+    "options": [
+      "Jura Tempest Federation",
+      "Demon Castle City",
+      "Ahjin Guild",
+      "Shirone Kingdom"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which Storm Dragon befriends Rimuru?",
+    "options": [
+      "Velzard White Ice",
+      "Veldora Tempest",
+      "Velgrynd Scorch",
+      "Baran"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Who gives Rimuru a human form?",
+    "options": [
+      "Veldora Tempest",
+      "Milim Nava",
+      "Shizu Izawa",
+      "Shuna"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What skill lets Rimuru devour foes?",
+    "options": [
+      "Gluttony",
+      "Merciless",
+      "Mutilation",
+      "Predator"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What is Rimuru's wise inner advisor skill?",
+    "options": [
+      "Great Sage",
+      "Shadow Storage",
+      "Emperor Eye",
+      "Demon Eye"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which direwolf becomes Rimuru's mount?",
+    "options": [
+      "Gobta",
+      "Ranga",
+      "Benimaru",
+      "Souei"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which goblin rider serves Rimuru comically?",
+    "options": [
+      "Ranga",
+      "Geld",
+      "Gobta",
+      "Gabiru"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which ogre general becomes Rimuru's commander?",
+    "options": [
+      "Shion",
+      "Shuna",
+      "Hakuro",
+      "Benimaru"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which ogre princess becomes Rimuru's secretary?",
+    "options": [
+      "Shion",
+      "Shuna",
+      "Gobta",
+      "Milim"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which ogre princess weaves clothes?",
+    "options": [
+      "Shion",
+      "Shuna",
+      "Milim",
+      "Eris"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which ogre spy masters shadows?",
+    "options": [
+      "Benimaru",
+      "Hakuro",
+      "Souei",
+      "Geld"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which old ogre teaches swordsmanship?",
+    "options": [
+      "Souei",
+      "Benimaru",
+      "Geld",
+      "Hakuro"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which orc lord becomes Rimuru's builder?",
+    "options": [
+      "Geld",
+      "Gabiru",
+      "Souei",
+      "Hakuro"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which lizardman evolves to aid Rimuru?",
+    "options": [
+      "Geld",
+      "Gabiru",
+      "Ranga",
+      "Gobta"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which dwarf blacksmith forges for Rimuru?",
+    "options": [
+      "Garm",
+      "Dordo",
+      "Kaijin",
+      "Myrd"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which Demon Lord befriends Rimuru as a bestie?",
+    "options": [
+      "Clayman",
+      "Frey",
+      "Carrion",
+      "Milim Nava"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What does Rimuru name the Storm Dragon?",
+    "options": [
+      "Veldora Tempest",
+      "Velzard Tempest",
+      "Ranga Tempest",
+      "Benimaru Tempest"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Who named Rimuru Tempest?",
+    "options": [
+      "Shizu Izawa",
+      "Veldora Tempest",
+      "Milim Nava",
+      "Guy Crimson"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What color is Rimuru's slime body?",
+    "options": [
+      "Red",
+      "Green",
+      "Blue",
+      "Gold"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "What color is Rimuru's human hair?",
+    "options": [
+      "Red",
+      "Green",
+      "Black",
+      "Blue-silver"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which secretary's cooking knocks people out?",
+    "options": [
+      "Shion",
+      "Shuna",
+      "Milim",
+      "Eris"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which dryad manages the forest for Rimuru?",
+    "options": [
+      "Ramiris",
+      "Treyni",
+      "Frey",
+      "Luminous"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which pixie runs the Dungeon?",
+    "options": [
+      "Treyni",
+      "Milim",
+      "Ramiris",
+      "Shuna"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which demon butler serves Rimuru?",
+    "options": [
+      "Benimaru",
+      "Souei",
+      "Geld",
+      "Diablo"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which flame demoness serves Rimuru?",
+    "options": [
+      "Testarossa",
+      "Ultima",
+      "Carrera",
+      "Shion"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "easy",
+    "question": "Which kingdom neighbors Jura and trades?",
+    "options": [
+      "The Shirone Kingdom",
+      "The Armed Nation of Dwargon",
+      "The Asura Kingdom",
+      "The Sorcerer Empire"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which officer commands Rimuru's army?",
+    "options": [
+      "Benimaru",
+      "Shion",
+      "Souei",
+      "Hakuro"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which officer serves as Rimuru's secretary?",
+    "options": [
+      "Shuna",
+      "Shion",
+      "Souei",
+      "Hakuro"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which officer runs intelligence and spies?",
+    "options": [
+      "Benimaru",
+      "Shion",
+      "Souei",
+      "Hakuro"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which officer instructs swordsmanship?",
+    "options": [
+      "Souei",
+      "Benimaru",
+      "Geld",
+      "Hakuro"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which boss leads the orc invasion?",
+    "options": [
+      "The Orc Lord Geld",
+      "Charybdis",
+      "Clayman",
+      "Hinata"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which sky beast threatens Jura?",
+    "options": [
+      "Orc Lord",
+      "Charybdis",
+      "Clayman",
+      "Falmuth"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which Demon Lord manipulates the orc war?",
+    "options": [
+      "Milim Nava",
+      "Guy Crimson",
+      "Clayman",
+      "Ramiris"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which holy knight duels Rimuru?",
+    "options": [
+      "Youm Farmenas",
+      "Mjurran",
+      "Frey",
+      "Hinata Sakaguchi"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which Walpurgis feast gathers Demon Lords?",
+    "options": [
+      "Walpurgis",
+      "The Winter Cup",
+      "The Harvest Rite",
+      "The Jeju Raid"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "What must Rimuru do to become a True Demon Lord?",
+    "options": [
+      "Win the Winter Cup",
+      "Complete the Harvest Festival",
+      "Clear a Red Gate",
+      "Enter the Zone"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which skill evolves Predator into Gluttony?",
+    "options": [
+      "Raphael",
+      "Uriel",
+      "Beelzebuth",
+      "Veldora"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which skill evolves Great Sage into Raphael?",
+    "options": [
+      "Gluttony King",
+      "Storm King",
+      "Patience King",
+      "Wisdom King Raphael"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which festival evolves Rimuru into a Demon Lord?",
+    "options": [
+      "The Harvest Festival",
+      "The Winter Cup",
+      "Walpurgis",
+      "The Teleport Rite"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which kingdom invades Jura and kills Shion?",
+    "options": [
+      "Dwargon",
+      "Falmuth",
+      "Shirone",
+      "Asura"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which hero of Falmuth becomes Rimuru's subordinate?",
+    "options": [
+      "Hinata Sakaguchi",
+      "Mjurran",
+      "Youm Farmenas",
+      "Edmaris"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which witch betrays for Clayman?",
+    "options": [
+      "Shuna",
+      "Hinata",
+      "Frey",
+      "Mjurran"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which Demon Lord allies with Milim as puppets?",
+    "options": [
+      "Frey",
+      "Carrion",
+      "Luminous",
+      "Leon"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which Beast King is ruined by Clayman?",
+    "options": [
+      "Frey",
+      "Carrion",
+      "Leon",
+      "Dagrule"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which guild master scouts Rimuru as S-rank?",
+    "options": [
+      "Hakuro",
+      "Diablo",
+      "Yuuki Kagurazaka",
+      "Geld"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which academy does Rimuru teach at?",
+    "options": [
+      "Ranoa University",
+      "Seirin High",
+      "Shutoku Academy",
+      "Ingrassia's Freedom Academy"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which students does Rimuru save?",
+    "options": [
+      "Kenya Alice Gale and co",
+      "Kagami and Kuroko",
+      "Rudeus and Eris",
+      "Jinwoo and Jinho"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which masked hero is revealed as Shizu's legacy?",
+    "options": [
+      "Milim Nava",
+      "The Hero Chronoa",
+      "Hinata Sakaguchi",
+      "Youm Farmenas"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which dragon is sealed in Rimuru's stomach?",
+    "options": [
+      "Velzard",
+      "Velgrynd",
+      "Veldora Tempest",
+      "Charybdis"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which barrier hides the city from armies?",
+    "options": [
+      "Red Gate",
+      "Shadow veil",
+      "Stone wall",
+      "Anti-magic barrier"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which dwarf king befriends Rimuru?",
+    "options": [
+      "Gazel Dwargo",
+      "Edmaris Falmuth",
+      "Youm Farmenas",
+      "Grabell Asura"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which merchant aids Rimuru's trade?",
+    "options": [
+      "Gazel",
+      "Myormiles",
+      "Youm",
+      "Diablo"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which labyrinth becomes a dungeon attraction?",
+    "options": [
+      "Demon Castle",
+      "Cartenon Temple",
+      "Ramiris's Dungeon",
+      "Teleport Labyrinth"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which colossus guards the Dungeon's depths?",
+    "options": [
+      "Cerberus",
+      "Kamish",
+      "Baran",
+      "The golem army"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which trio serve Diablo as demonesses?",
+    "options": [
+      "Testarossa Ultima and Carrera",
+      "Shion Shuna and Milim",
+      "Frey Carrion and Leon",
+      "Kagali Teare and Footman"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "medium",
+    "question": "Which engineer leads the Kurobe smiths?",
+    "options": [
+      "Garm",
+      "Kaijin",
+      "Dordo",
+      "Geld"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which eight Demon Lords rule as the Octagram?",
+    "options": [
+      "Guy Milim Ramiris and co",
+      "Rulers and Monarchs",
+      "Seven Great Powers",
+      "Generation of Miracles"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the primordial darkness?",
+    "options": [
+      "Milim Nava",
+      "Guy Crimson",
+      "Clayman",
+      "Frey"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the Destroyer dragonoid?",
+    "options": [
+      "Guy Crimson",
+      "Ramiris",
+      "Milim Nava",
+      "Luminous"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the pixie labyrinth master?",
+    "options": [
+      "Milim Nava",
+      "Dagrule",
+      "Leon",
+      "Ramiris"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the giant earth father?",
+    "options": [
+      "Dagrule",
+      "Frey",
+      "Carrion",
+      "Dino"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the sky queen harpy?",
+    "options": [
+      "Carrion",
+      "Frey",
+      "Leon",
+      "Luminous"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the vampire holy empress?",
+    "options": [
+      "Frey",
+      "Milim",
+      "Luminous Valentine",
+      "Ramiris"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Demon Lord is the fallen angel slacker?",
+    "options": [
+      "Dagrule",
+      "Leon",
+      "Guy",
+      "Dino"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which True Dragon is the Storm Dragon?",
+    "options": [
+      "Veldora Tempest",
+      "Velzard White Ice",
+      "Velgrynd Scorch",
+      "Velgaia Star"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which True Dragon is the White Ice Dragon?",
+    "options": [
+      "Veldora",
+      "Velzard",
+      "Velgrynd",
+      "Charybdis"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which True Dragon is the Scorch Dragon?",
+    "options": [
+      "Veldora",
+      "Velzard",
+      "Velgrynd",
+      "Ramiris"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Who voices Rimuru Tempest in Japanese?",
+    "options": [
+      "Taito Ban",
+      "Rie Kugimiya",
+      "Yuki Kaji",
+      "Miho Okasaki"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Who wrote the original Reincarnated as a Slime novel?",
+    "options": [
+      "Fuse",
+      "Chugong",
+      "Rifujin na Magonote",
+      "Tadatoshi Fujimaki"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which studio animates Reincarnated as a Slime?",
+    "options": [
+      "A-1 Pictures",
+      "8bit",
+      "Production I.G",
+      "MAPPA"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which manas evolves from Raphael to guide Rimuru?",
+    "options": [
+      "Beelzebuth",
+      "Uriel",
+      "Ciel",
+      "Veldora"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Ultimate Skill devours all as Gluttony?",
+    "options": [
+      "Raphael",
+      "Uriel",
+      "Veldora",
+      "Beelzebuth"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Ultimate Skill guards as a covenant fortress?",
+    "options": [
+      "Uriel",
+      "Beelzebuth",
+      "Raphael",
+      "Ciel"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which friend was summoned as a Hero?",
+    "options": [
+      "Hinata Sakaguchi",
+      "Shizue Izawa",
+      "Youm Farmenas",
+      "Mjurran"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which sword binds the hero Ifrit?",
+    "options": [
+      "A frost dagger",
+      "A holy spear",
+      "The anti-demon mask",
+      "A shadow blade"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which secretary is revived after Falmuth?",
+    "options": [
+      "Shuna",
+      "Milim",
+      "Treyni",
+      "Shion"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which butler is a primordial black demon?",
+    "options": [
+      "Diablo Noir",
+      "Benimaru",
+      "Souei",
+      "Geld"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which primordial is the white demoness?",
+    "options": [
+      "Ultima Violet",
+      "Testarossa Blanc",
+      "Carrera Jaune",
+      "Shion"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which primordial is the violet demoness?",
+    "options": [
+      "Testarossa Blanc",
+      "Carrera Jaune",
+      "Ultima Violet",
+      "Shuna"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which primordial is the yellow demoness?",
+    "options": [
+      "Testarossa Blanc",
+      "Ultima Violet",
+      "Milim",
+      "Carrera Jaune"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Beast Kingdom ruler joins Rimuru's alliance?",
+    "options": [
+      "Carrion",
+      "Frey",
+      "Clayman",
+      "Dino"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Sorcerer Emperor is Yuuki Kagurazaka?",
+    "options": [
+      "The Storm King",
+      "The Grand Master",
+      "The Sky Queen",
+      "The Earth Father"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which Eastern emperor threatens the west?",
+    "options": [
+      "Gazel Dwargo",
+      "Edmaris Falmuth",
+      "Rudra Nam Ul Nasca",
+      "Youm Farmenas"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which angel race descends in the east?",
+    "options": [
+      "The Superd",
+      "The Migurd",
+      "The Harpies",
+      "The Seraphim army"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which dragon is Veldora's eldest sister?",
+    "options": [
+      "Velzard",
+      "Velgrynd",
+      "Milim",
+      "Ramiris"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "that time i got reincarnated as a slime",
+    "difficulty": "hard",
+    "question": "Which skill analyzes all creation as the Voice of the World?",
+    "options": [
+      "The System",
+      "The Voice of the World",
+      "The Emperor Eye",
+      "The Demon Eye"
+    ],
+    "correctAnswerIndex": 1
+  }
+]

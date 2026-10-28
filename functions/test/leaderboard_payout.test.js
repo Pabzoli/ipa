@@ -3,7 +3,7 @@
 // Firestore fake (no emulator).
 //   1. The Monday announcement's winners are the PAID entrants with a real
 //      share, not the top scorers over every user (non-entrants and ₦0 prizes).
-//   2. submitPayoutDetails refuses a zero-share rank (only the top 5 are paid).
+//   2. submitPayoutDetails refuses a zero-share rank (only the top 3 are paid).
 //   3. submitPayoutDetails enforces the advertised 3-day claim window.
 //   4. checkPendingClaim forfeits a winner who never submitted, once.
 'use strict';
@@ -53,9 +53,9 @@ describe('leaderboard payout audit fixes', () => {
 
     const pool = await H.getDoc(db, `prize_pool/${weekId}`);
     assert.deepEqual(pool.winners.map((w) => w.uid), ['E1', 'E2']);
-    // 70% of ₦1,000 = ₦700 → 40% and 25%. Never ₦0.
-    assert.equal(pool.winners[0].prize, 280);
-    assert.equal(pool.winners[1].prize, 175);
+    // 70% of ₦1,000 = ₦700 → 50% and 30%. Never ₦0.
+    assert.equal(pool.winners[0].prize, 350);
+    assert.equal(pool.winners[1].prize, 210);
 
     const cycle = await H.getDoc(db, `leaderboardCycles/${weekId}`);
     assert.deepEqual(cycle.ranked.map((r) => r.uid), ['E1', 'E2']);
@@ -65,6 +65,8 @@ describe('leaderboard payout audit fixes', () => {
 
   it('submitPayoutDetails: a zero-share rank cannot submit a payout', async () => {
     const weekId = H.thisWeekId();
+    // The claimant needs a real account so the zero-share check is what rejects it.
+    await H.mkUser(db, 'L6');
     await H.setDoc(db, `leaderboardCycles/${weekId}`, {
       weekId,
       status: 'calculated',
@@ -85,6 +87,7 @@ describe('leaderboard payout audit fixes', () => {
 
   it('submitPayoutDetails: rejects a submission after the 3-day claim window', async () => {
     const weekId = H.thisWeekId();
+    await H.mkUser(db, 'W1');
     await H.setDoc(db, `leaderboardCycles/${weekId}`, {
       weekId,
       status: 'calculated',
@@ -100,6 +103,7 @@ describe('leaderboard payout audit fixes', () => {
 
   it('submitPayoutDetails: a winner inside the window can still submit', async () => {
     const weekId = H.thisWeekId();
+    await H.mkUser(db, 'W1');
     await H.setDoc(db, `leaderboardCycles/${weekId}`, {
       weekId,
       status: 'calculated',

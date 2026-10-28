@@ -120,6 +120,22 @@ class AnimeQuestion {
     );
   }
 
+  /// Sanitized wire shape returned by `getQuizRun`.
+  ///
+  /// The server deliberately omits `correctAnswerIndex`; -1 is a sentinel that
+  /// must never be used for scoring. All scoring is server-side.
+  factory AnimeQuestion.fromWire(Map<String, dynamic> map) {
+    final id = (map['id'] as String?) ?? '';
+    return AnimeQuestion(
+      id: id,
+      question: (map['question'] as String?) ?? '',
+      options: _optionsListOf(map['options']),
+      correctAnswerIndex: -1,
+      animeTitle: (map['animeTitle'] as String?) ?? '',
+      difficulty: _difficultyOrLegacyFallback(map, id),
+    );
+  }
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'question': question,

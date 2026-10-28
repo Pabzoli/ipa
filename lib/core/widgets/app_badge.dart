@@ -19,6 +19,7 @@ class AppBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glyph = AppColors.readable(color);
     return Container(
       padding: EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 4.r),
       decoration: BoxDecoration(
@@ -34,19 +35,19 @@ class AppBadge extends StatelessWidget {
               width: 8,
               height: 8,
               decoration: BoxDecoration(
-                color: color,
+                color: glyph,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: AppSpacing.xs),
           ],
           if (icon != null) ...[
-            Icon(icon, color: color, size: 14.r),
+            Icon(icon, color: glyph, size: 14.r),
             const SizedBox(width: AppSpacing.xs),
           ],
           Text(
             label,
-            style: AppTypography.labelMedium.copyWith(color: color),
+            style: AppTypography.labelMedium.copyWith(color: glyph),
           ),
         ],
       ),

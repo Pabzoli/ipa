@@ -56,7 +56,7 @@ extension ChallengeKindX on ChallengeKind {
       };
 
   Color get accentColor => switch (this) {
-        ChallengeKind.rival => const Color(0xFFFF6B00),
+        ChallengeKind.rival => AppColors.rival,
         ChallengeKind.code => AppColors.secondary,
         ChallengeKind.quick => AppColors.primary,
         ChallengeKind.spar => AppColors.correct,

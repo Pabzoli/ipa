@@ -23,6 +23,7 @@ describe('server-authoritative profile', () => {
       username: 'Alice',
       email: 'alice@example.com',
       university: 'UNILAG',
+      termsAccepted: true,
     }));
     assert.equal(res.profileCreated, true);
     assert.equal(res.username, 'Alice');
@@ -43,9 +44,9 @@ describe('server-authoritative profile', () => {
   });
 
   it('rejects a duplicate username (case/space insensitive)', async () => {
-    await fns.ensureProfile.run(H.req('u1', { username: 'Alice' }));
+    await fns.ensureProfile.run(H.req('u1', { username: 'Alice', termsAccepted: true }));
     await H.rejectsWith(
-      fns.ensureProfile.run(H.req('u2', { username: '  alice ' })),
+      fns.ensureProfile.run(H.req('u2', { username: '  alice ', termsAccepted: true })),
       'already-exists');
     const user = await H.getDoc(db, 'users/u2');
     assert.equal(user, null, 'the second account must not be created');
@@ -54,7 +55,7 @@ describe('server-authoritative profile', () => {
   it('rejects unknown universities at creation', async () => {
     await H.rejectsWith(
       fns.ensureProfile.run(H.req('u1', {
-        username: 'alice', university: 'Hogwarts',
+        username: 'alice', university: 'Hogwarts', termsAccepted: true,
       })),
       'invalid-argument');
   });

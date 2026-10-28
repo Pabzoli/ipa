@@ -7,6 +7,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/providers/theme_provider.dart';
 import 'core/providers/user_data_provider.dart';
 import 'core/providers/solo_difficulty_provider.dart';
 import 'core/services/ad_service.dart';
@@ -32,6 +33,13 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Appearance preference is read FIRST, before any other service can write a
+  // preference: ThemeProvider seeds an existing install to dark and a fresh one
+  // to system by checking whether the prefs store is empty. Reading here also
+  // lets the very first Flutter frame paint the right palette (and status-bar
+  // icons) instead of flashing dark and correcting itself.
+  final themeProvider = await ThemeProvider.load();
+
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -55,13 +63,9 @@ void main() async {
   await MobileAds.instance.initialize();
   AdService.instance.preloadAll();
 
-  // Transparent status bar with light icons to show through our dark gradient.
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor:          Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-    ),
-  );
+  // Status bar and Android navigation bar are owned by
+  // `applySystemUiOverlay`, which ThemeProvider.load() already applied above
+  // for the resolved brightness.
 
   runApp(
     ScreenUtilInit(
@@ -70,6 +74,7 @@ void main() async {
       builder: (context, child) {
         return MultiProvider(
           providers: [
+            ChangeNotifierProvider(create: (_) => themeProvider),
             ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
             ChangeNotifierProvider(create: (_) => UserDataProvider()),
             ChangeNotifierProvider(create: (_) => SoloDifficultyProvider()..load()),
@@ -108,12 +113,22 @@ class _AnimeQuizAppState extends State<AnimeQuizApp> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = context.watch<ThemeProvider>().resolvedBrightness;
+
+    // Keep the static token palette in step with ThemeData. Idempotent —
+    // ThemeProvider applies it before notifying; this call guarantees the first
+    // frame and any other rebuild path start from the resolved brightness.
+    AppColors.use(brightness);
+
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
       child: MaterialApp(
         title: 'AnimeQuiz',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark,
+        theme: AppTheme.forBrightness(brightness),
+        // A palette swap cannot be interpolated by AnimatedTheme — a crossfade
+        // would paint new chrome over old token colours for ~200 ms.
+        themeAnimationDuration: Duration.zero,
         navigatorKey: appNavigatorKey,
 
       // ── AuthGate is permanent — never recreated ───────────────────────────

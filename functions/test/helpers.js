@@ -32,17 +32,31 @@ async function clearDb(db) {
 }
 
 async function mkUser(db, uid, over = {}) {
+  const email = over.email ?? `${uid}@t.co`;
   await db.collection('users').doc(uid).set({
     username: uid,
-    email: `${uid}@t.co`,
+    email,
     animeCoins: 1000,
     weeklyPoints: 500,
     premiumActive: false,
     university: 'UNILAG',
     leaderboardEntryWeekId: 'W1',
-    createdAt: Date.now(),
+    // Fixtures are "established" accounts by default; payout paths now require
+    // PAYOUT_MIN_ACCOUNT_AGE_DAYS. Tests that care pass createdAt explicitly.
+    createdAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
+    // Email-verification mirror. No server path gates on it any more; the field
+    // exists so referral/payout fixtures look like real profiles.
+    emailVerified: true,
     ...over,
   });
+
+  if (db.authUsers) {
+    db.authUsers.set(uid, {
+      email,
+      emailVerified: over.emailVerified !== false,
+      metadata: { creationTime: new Date(over.createdAt || Date.now()).toISOString() },
+    });
+  }
 }
 
 async function seedQuestions(db, anime = 'testanime') {
@@ -54,6 +68,9 @@ async function seedQuestions(db, anime = 'testanime') {
       await db.collection('questions').doc(`q${n++}`).set({
         animeTitle: anime,
         difficulty: tier,
+        question: `Question ${n}?`,
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswerIndex: 0,
       });
     }
   }
@@ -76,7 +93,19 @@ async function rejectsWith(promise, code, msgPart) {
 
 const req = (uid, data = {}, extra = {}) => ({
   data: { ...data },
-  ...(uid ? { auth: { uid } } : {}),
+  // Verified by default: real clients send email_verified:true after the
+  // verification screen + token refresh. Use unverifiedReq for the negative
+  // case. An explicit extra.auth replaces this wholesale.
+  ...(uid ? { auth: { uid, token: { email_verified: true } } } : {}),
+  ...extra,
+});
+
+// Requests whose ID token carries email_verified: false. The five money-path
+// callables (submitPayoutDetails, savePayoutDetail, claimReferralCashout,
+// requestPaymentLink, claimReferralBonus) reject these; everything else
+// serves them.
+const unverifiedReq = (uid, data = {}, extra = {}) => req(uid, data, {
+  auth: { uid, token: { email_verified: false } },
   ...extra,
 });
 
@@ -99,4 +128,4 @@ async function setDoc(db, path, data, opts) {
   return pathRef(db, path).set(data, opts);
 }
 
-module.exports = { watToday, watDaysAgo, thisWeekId, clearDb, mkUser, seedQuestions, rejectsWith, req, getDoc, setDoc, pathRef };
+module.exports = { watToday, watDaysAgo, thisWeekId, clearDb, mkUser, seedQuestions, rejectsWith, req, unverifiedReq, getDoc, setDoc, pathRef };

@@ -200,7 +200,9 @@ class _CategoryTile extends StatelessWidget {
                 ),
                 child: Icon(
                   _icons[option],
-                  color: selected ? color : AppColors.textMuted,
+                  color: selected
+                      ? AppColors.readable(color)
+                      : AppColors.textMuted,
                   size: 18.r,
                 ),
               ),
@@ -211,7 +213,9 @@ class _CategoryTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontFamily: AppTypography.fontFamily,
-                  color: selected ? color : AppColors.textSecondary,
+                  color: selected
+                      ? AppColors.readable(color)
+                      : AppColors.textSecondary,
                   fontSize: 12.sp,
                   fontWeight: FontWeight.w800,
                 ),

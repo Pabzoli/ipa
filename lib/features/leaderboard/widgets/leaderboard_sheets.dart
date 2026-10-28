@@ -10,7 +10,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/providers/user_data_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_sheet.dart';
-import '../../../core/widgets/no_refunds_note.dart';
 import '../../auth/auth_service.dart';
 import 'leaderboard_pool_card.dart';
 
@@ -69,8 +68,8 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
       return;
     }
 
-    final email = AuthService.instance.currentUser?.email;
-    if (email == null || email.isEmpty) {
+    final user = AuthService.instance.currentUser;
+    if (user == null || (user.email ?? '').isEmpty) {
       _snack('Sign in to purchase a leaderboard entry.');
       return;
     }
@@ -78,14 +77,27 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
     setState(() => _opening = true);
     HttpClient? client;
     try {
+      // Purchases are account-bound server-side: the ID token decides who the
+      // code belongs to, and no email is sent in the body.
+      final token = await user.getIdToken();
+      if (token == null || token.isEmpty) {
+        if (mounted) _snack('Your session expired. Sign in again.');
+        return;
+      }
+
       client = HttpClient();
       final request = await client.postUrl(Uri.parse(_paymentEndpoint));
       request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({'productId': 'AQ_LB_WEEK', 'email': email}));
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.write(jsonEncode({'productId': 'AQ_LB_WEEK'}));
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
 
       final decoded = jsonDecode(body);
+      if (response.statusCode == 401) {
+        if (mounted) _snack('Your session expired. Sign in again.');
+        return;
+      }
       if (response.statusCode != 200 ||
           decoded is! Map<String, dynamic> ||
           decoded['success'] != true) {
@@ -104,7 +116,7 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
         if (mounted) {
           _snack(
-            'After paying, redeem the code you receive under '
+            'The code is tied to this account. Redeem it under '
             'Profile → Redeem Code.',
           );
         }
@@ -167,7 +179,7 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
                 borderRadius: BorderRadius.circular(AppRadii.md),
               ),
               child: Icon(Icons.emoji_events_rounded,
-                  color: LeaderboardPalette.gold, size: 22.r),
+                  color: AppColors.readable(LeaderboardPalette.gold), size: 22.r),
             ),
             SizedBox(width: 12.w),
             Expanded(
@@ -231,9 +243,9 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
               SizedBox(width: 10.w),
               Expanded(
                 child: Text(
-                  "Pay securely via Flutterwave. After payment you'll receive "
-                  "a one-time code on the success page — redeem it under "
-                  'Profile → Redeem Code to activate your entry.',
+                  "Pay securely via Flutterwave. The one-time code is tied to "
+                  'this account — redeem it under Profile → Redeem Code to '
+                  'activate your entry.',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 12.sp,
@@ -244,12 +256,6 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
             ],
           ),
         ),
-        SizedBox(height: 12.h),
-
-        // Final-sale notice sits directly above the pay button: once an entry
-        // is activated it is applied to the pool and cannot be withdrawn, so
-        // this has to be read before "Continue to payment", not after.
-        const NoRefundsNote(compact: true, showPolicyLink: true),
         SizedBox(height: 20.h),
 
         SizedBox(

@@ -324,32 +324,68 @@
   }
   .email-note svg { flex-shrink: 0; color: var(--correct); }
 
-  /* ── Refund notice ─────────────────────────────────────────────── */
-  .final-sale {
+  /* ── Sign in / signed in ───────────────────────────────────────── */
+  .hidden { display: none !important; }
+  .auth-actions {
     display: flex;
-    align-items: flex-start;
-    gap: 11px;
-    margin-bottom: 18px;
-    padding: 14px 16px;
-    border-radius: 14px;
-    background: rgba(255, 179, 0, 0.07);
-    border: 1.5px solid rgba(255, 179, 0, 0.34);
-    color: var(--accent);
-    font-size: 13px;
-    font-weight: 900;
-    letter-spacing: 0.2px;
-    line-height: 1.5;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 16px;
   }
-  .final-sale svg { flex-shrink: 0; margin-top: 1px; }
-  .final-sale .final-sale-body {
-    display: block;
-    margin-top: 6px;
-    font-weight: 700;
+  .auth-actions .btn { flex: 1 1 160px; }
+  .btn-ghost {
+    background: transparent;
     color: var(--muted);
-    letter-spacing: 0;
+    border: 1px solid var(--divider-2);
+    box-shadow: none;
+    padding: 11px 16px;
+    font-size: 12.5px;
   }
-  .final-sale .final-sale-body strong { color: var(--accent); font-weight: 900; }
-  .final-sale a { color: var(--accent); font-weight: 900; }
+  .btn-ghost:hover { color: var(--ink); border-color: var(--primary-ring); filter: none; }
+  .btn-link {
+    background: none;
+    border: 0;
+    box-shadow: none;
+    color: var(--muted);
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+  }
+  .btn-link:hover { color: var(--primary-hi); }
+  .signed-in {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 20px;
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    border: 1px solid rgba(56, 239, 125, 0.28);
+  }
+  .signed-in-avatar {
+    width: 42px; height: 42px;
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    border-radius: 13px;
+    background: var(--correct-dim);
+    border: 1px solid rgba(56, 239, 125, 0.32);
+    color: var(--correct);
+    font-size: 18px;
+    font-weight: 900;
+  }
+  .signed-in-body { min-width: 0; }
+  .signed-in-email {
+    font-size: 14.5px;
+    font-weight: 900;
+    letter-spacing: -0.2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .signed-in .btn-ghost { margin-left: auto; }
 
   /* ── Featured product ──────────────────────────────────────────── */
   .featured {
@@ -365,7 +401,7 @@
   }
   /* Giant watermark number */
   .featured::before {
-    content: "2880";
+    content: "4800";
     position: absolute;
     right: -20px;
     bottom: -60px;
@@ -720,19 +756,22 @@
     </p>
   </section>
 
-  <!-- ── Step 1: Email ── -->
-  <section class="section">
+  <!-- ── Step 1: Sign in ── -->
+  <section class="section" id="authSection">
     <div class="section-head">
       <span class="step-num">1</span>
-      <span class="section-title">Your payment email</span>
+      <span class="section-title">Sign in to buy</span>
+      <span class="section-hint" id="authHint">Same account as the app</span>
     </div>
-    <div class="email-card">
+
+    <!-- Signed out -->
+    <div class="email-card" id="signInCard">
       <label class="email-label" for="email">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="5" width="18" height="14" rx="3"/>
           <path d="M3.5 7.5l8.5 6 8.5-6"/>
         </svg>
-        Email address
+        Email
       </label>
       <input
         type="email"
@@ -743,42 +782,59 @@
         inputmode="email"
         spellcheck="false"
       />
+
+      <label class="email-label" for="password" style="margin-top: 14px; display: flex;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2.5"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        Password
+      </label>
+      <input
+        type="password"
+        id="password"
+        class="email-input"
+        placeholder="Your password"
+        autocomplete="current-password"
+      />
+
+      <div class="auth-actions">
+        <button class="btn" id="signInBtn" type="button">Sign in</button>
+        <button class="btn-link" id="resetBtn" type="button">Forgot password?</button>
+      </div>
+
       <div class="email-note">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20 6L9 17l-5-5"/>
         </svg>
-        Used to process your payment and to recover your code later. Your code is never emailed.
+        Accounts are created in the app. Every purchase is tied to the account
+        you sign in with here.
       </div>
+
+      <div class="msg" id="authMsg" role="status" aria-live="polite"></div>
+    </div>
+
+    <!-- Signed in -->
+    <div class="signed-in hidden" id="signedInCard">
+      <div class="signed-in-avatar" id="signedInAvatar">✓</div>
+      <div class="signed-in-body">
+        <div class="signed-in-email" id="signedInEmail"></div>
+      </div>
+      <button class="btn btn-ghost" id="signOutBtn" type="button">Sign out</button>
     </div>
   </section>
 
-  <!-- ── Step 2: Featured ── -->
+  <!-- ── Step 2: Pack ── -->
   <section class="section">
     <div class="section-head">
       <span class="step-num">2</span>
       <span class="section-title">Pick your pack</span>
     </div>
 
-    <div class="final-sale">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 16.5v.01"/>
-      </svg>
-      <div>
-        NO REFUNDS ONCE A CODE IS DELIVERED OR COINS ARE USED
-        <span class="final-sale-body">
-          Delivered codes and used coins are non-refundable. Request a refund within
-          the refund request window — 3 days from code delivery. After that, failed
-          delivery, duplicate charges, unauthorised payments, wrong amounts and
-          processor reversals are still refundable.
-          <a href="/refund.html">Refund Policy</a>.
-        </span>
-      </div>
-    </div>
-
     <!-- Featured card -->
     <div class="featured">
       <span class="featured-ribbon">★ Most popular</span>
-      <h2 class="featured-title">2880 Anime Coins</h2>
+      <h2 class="featured-title">4800 Anime Coins</h2>
       <p class="featured-desc">
         Our best value pack — includes a 20% bonus and the Champion badge. Enough for weeks of play.
       </p>
@@ -807,7 +863,7 @@
         <a href="/terms.html">Terms of Service</a>
         <a href="/refund.html">Refund Policy</a>
       </div>
-      <div class="footer-copyright">© AnimeQuiz · One-time codes, redeemable in-app · Delivered codes and used coins are non-refundable</div>
+      <div class="footer-copyright">© AnimeQuiz · One-time codes, redeemable in-app</div>
     </div>
     <div class="footer-badges">
       <span>
@@ -823,6 +879,12 @@
 
 </div>
 
+<!-- Firebase Auth (compat build) + the shared shop identity helper.
+     Classic scripts, so load order is guaranteed; see public/assets/shop-auth.js. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="/assets/shop-auth.js"></script>
+
 <script>
   // Matches FLUTTERWAVE_PRODUCTS in functions/index.js.
   // Featured (AQ_AC_3600) is rendered as a hero banner above; the rest are rows.
@@ -832,7 +894,7 @@
     {
       id: 'AQ_AC_300',
       icon: '🪙',
-      title: '300 Anime Coins',
+      title: '500 Anime Coins',
       desc: 'Starter pack — instant AC for hints and cooldown skips.',
       price: '₦500',
       color: '#4EA8DE',
@@ -840,7 +902,7 @@
     {
       id: 'AQ_AC_1100',
       icon: '🪙',
-      title: '990 Anime Coins',
+      title: '1650 Anime Coins',
       desc: 'Includes a 10% bonus — a few solid matches of play.',
       price: '₦1,500',
       color: '#7A8FFF',
@@ -871,7 +933,19 @@
 
   const rowsEl = document.getElementById('rows');
   const msgEl = document.getElementById('msg');
+  const authSection = document.getElementById('authSection');
+  const signInCard = document.getElementById('signInCard');
+  const signedInCard = document.getElementById('signedInCard');
+  const authHint = document.getElementById('authHint');
+  const signedInEmail = document.getElementById('signedInEmail');
+  const authMsgEl = document.getElementById('authMsg');
   const emailEl = document.getElementById('email');
+  const passwordEl = document.getElementById('password');
+  const signInBtn = document.getElementById('signInBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   function msg(text, isError) {
     if (!text) {
@@ -881,6 +955,18 @@
     }
     msgEl.textContent = text;
     msgEl.className = 'msg show ' + (isError ? 'error' : 'info');
+  }
+
+  // Auth errors live in the sign-in card, next to the fields they refer to,
+  // instead of at the bottom of the page.
+  function authMessage(text, isError) {
+    if (!text) {
+      authMsgEl.classList.remove('show', 'error', 'info');
+      authMsgEl.textContent = '';
+      return;
+    }
+    authMsgEl.textContent = text;
+    authMsgEl.className = 'msg show ' + (isError ? 'error' : 'info');
   }
 
   function esc(s) {
@@ -919,19 +1005,114 @@
     }
   }
 
-  async function onPay(ev) {
-    const btn = ev.target.closest('button[data-id]');
-    if (!btn) return;
+  function shopAuth() { return window.ShopAuth || null; }
 
-    const email = emailEl.value.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      msg('Please enter a valid email first.', true);
-      emailEl.classList.add('invalid');
-      emailEl.focus();
-      emailEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Buy buttons are enabled only for a signed-in account. The server enforces
+  // this independently; this is purely so the page never invites a click that
+  // cannot succeed.
+  function setBuyEnabled(enabled) {
+    document.querySelectorAll('button[data-id]').forEach(function (b) {
+      b.disabled = !enabled;
+      b.title = enabled ? '' : 'Sign in with your AnimeQuiz account to buy';
+    });
+  }
+
+  function renderAuth() {
+    const auth = shopAuth();
+    if (!auth) {
+      signInCard.classList.remove('hidden');
+      signedInCard.classList.add('hidden');
+      authHint.textContent = 'Sign-in unavailable';
+      authMessage('Sign-in is unavailable right now. Refresh the page to try again.', true);
+      setBuyEnabled(false);
       return;
     }
-    emailEl.classList.remove('invalid');
+
+    const user = auth.user();
+    const signedIn = !!user;
+
+    signInCard.classList.toggle('hidden', signedIn);
+    signedInCard.classList.toggle('hidden', !signedIn);
+    authHint.textContent = signedIn ? 'Ready to buy' : 'Same account as the app';
+
+    if (signedIn) {
+      signedInEmail.textContent = user.email || 'Signed in';
+    }
+
+    setBuyEnabled(signedIn);
+  }
+
+  async function onSignIn() {
+    const auth = shopAuth();
+    if (!auth) {
+      authMessage('Sign-in is unavailable right now. Refresh the page.', true);
+      return;
+    }
+
+    const email = emailEl.value.trim();
+    if (!EMAIL_RE.test(email)) {
+      authMessage('Enter the email you use in the app.', true);
+      emailEl.focus();
+      return;
+    }
+    if (!passwordEl.value) {
+      authMessage('Enter your password.', true);
+      passwordEl.focus();
+      return;
+    }
+
+    authMessage('');
+    const original = signInBtn.textContent;
+    signInBtn.disabled = true;
+    signInBtn.textContent = 'Signing in…';
+    try {
+      await auth.signIn(email, passwordEl.value);
+      passwordEl.value = '';
+      authMessage('Signed in.', false);
+      setTimeout(function () { authMessage(''); }, 2000);
+    } catch (err) {
+      authMessage(auth.errorMessage(err), true);
+    } finally {
+      signInBtn.disabled = false;
+      signInBtn.textContent = original;
+    }
+  }
+
+  async function onReset() {
+    const auth = shopAuth();
+    if (!auth) return;
+    const email = emailEl.value.trim();
+    if (!EMAIL_RE.test(email)) {
+      authMessage('Enter your email first, then tap “Forgot password?”.', true);
+      emailEl.focus();
+      return;
+    }
+    try {
+      await auth.sendReset(email);
+      authMessage('Password reset email sent. Check your inbox.', false);
+    } catch (err) {
+      authMessage(auth.errorMessage(err), true);
+    }
+  }
+
+  async function onSignOut() {
+    const auth = shopAuth();
+    if (!auth) return;
+    await auth.signOut();
+    msg('');
+  }
+
+  async function onPay(ev) {
+    const btn = ev.target.closest('button[data-id]');
+    if (!btn || btn.disabled) return;
+
+    const auth = shopAuth();
+    if (!auth || !auth.user()) {
+      msg('Sign in first — purchases are tied to your account.', true);
+      authSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      emailEl.focus();
+      return;
+    }
 
     const original = btn.textContent;
     btn.disabled = true;
@@ -939,12 +1120,32 @@
     msg('Creating your secure checkout link…');
 
     try {
+      // Fresh token every time: the SDK refreshes it when it is near expiry,
+      // and a stale one is the usual cause of a 401 here.
+      const token = await auth.getIdToken();
+      if (!token) {
+        msg('Your session expired. Sign in again.', true);
+        renderAuth();
+        return;
+      }
+
       const resp = await fetch(REQUEST_PAYMENT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: btn.dataset.id, email }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        },
+        // Only the product id. The buyer's email, amount and currency are all
+        // server-derived so a tampered body cannot change who pays or how much.
+        body: JSON.stringify({ productId: btn.dataset.id }),
       });
       const json = await resp.json();
+
+      if (resp.status === 401) {
+        msg('Your session expired. Sign in again.', true);
+        renderAuth();
+        return;
+      }
       if (!resp.ok || !json.link) {
         throw new Error(json.error || 'Unable to create checkout');
       }
@@ -952,22 +1153,34 @@
       window.location.href = json.link;
     } catch (err) {
       msg(err.message, true);
+    } finally {
       btn.disabled = false;
       btn.textContent = original;
+      renderAuth();
     }
   }
 
   document.addEventListener('click', onPay);
-
-  emailEl.addEventListener('input', () => {
-    if (emailEl.classList.contains('invalid') &&
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailEl.value.trim())) {
-      emailEl.classList.remove('invalid');
-      msg('');
+  signInBtn.addEventListener('click', onSignIn);
+  resetBtn.addEventListener('click', onReset);
+  signOutBtn.addEventListener('click', onSignOut);
+  passwordEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onSignIn();
     }
+  });
+  emailEl.addEventListener('input', function () {
+    if (authMsgEl.classList.contains('show')) authMessage('');
   });
 
   renderRows();
+  if (shopAuth()) {
+    // Fires immediately with the restored session, then on every change.
+    shopAuth().onChange(renderAuth);
+  } else {
+    renderAuth();
+  }
 </script>
 </body>
 </html>

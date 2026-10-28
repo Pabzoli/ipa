@@ -29,7 +29,7 @@ class SeriesProgressBar extends StatelessWidget {
   });
 
   static const Color _mine = AppColors.primary;
-  static const Color _theirs = AppColors.accent;
+  static Color get _theirs => AppColors.readable(AppColors.accent);
 
   @override
   Widget build(BuildContext context) {

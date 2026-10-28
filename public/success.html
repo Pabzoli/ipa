@@ -425,7 +425,7 @@
 
     <div class="prize-tag">Your AnimeQuiz code</div>
     <div class="codebox" id="code"></div>
-    <p class="note">Single-use. Don’t share it — anyone with this code can redeem it.</p>
+    <p class="note">Single-use. It only works on the account that bought it.</p>
 
     <button class="btn btn-primary" id="copyBtn">
       <svg id="copyIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -440,22 +440,20 @@
         <circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 16.5v.01"/>
       </svg>
       <div>
-        SAVE THIS CODE — DELIVERED CODES ARE NON-REFUNDABLE
+        SAVE THIS CODE
         <span>
-          Save this code now. You can retrieve it again with your checkout email.
-          Request a refund within the refund request window — 3 days from code
-          delivery. After that, failed delivery, duplicate charges, unauthorised
-          payments, wrong amounts and processor reversals stay refundable.
-          <a href="/refund.html">Refund Policy</a>.
+          Save this code now. Sign in on this page any time to see it again.
         </span>
       </div>
     </div>
   </div>
 
-  <!-- Recovery -->
-  <div id="recoverSection" class="hidden">
-    <p class="recover-intro">Enter the email you used at checkout to retrieve your code:</p>
-    <label class="email-label" for="email">Email at checkout</label>
+  <!-- Sign in (purchase recovery is account-bound) -->
+  <div id="authSection" class="hidden">
+    <p class="recover-intro">
+      Sign in with the account you bought with to see your code.
+    </p>
+    <label class="email-label" for="email">Email</label>
     <input
       type="email"
       id="email"
@@ -465,7 +463,41 @@
       autocomplete="email"
       inputmode="email"
     />
-    <button class="btn btn-primary" id="getBtn">Get my code</button>
+    <label class="email-label" for="password">Password</label>
+    <input
+      type="password"
+      id="password"
+      class="email-input"
+      placeholder="Your password"
+      autocomplete="current-password"
+    />
+    <button class="btn btn-primary" id="signInBtn">Sign in</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button" style="margin-top: 10px;">
+      Forgot password?
+    </button>
+
+    <div class="final-sale">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 8v5"/><path d="M12 16.5v.01"/>
+      </svg>
+      <div>
+        THE CODE IS TIED TO YOUR ACCOUNT
+        <span>
+          Codes only work on the account that bought them, so nobody else can
+          redeem yours. Sign-in problems? Email
+          <a href="mailto:animequizzm@gmail.com" style="color: inherit;">animequizzm@gmail.com</a>.
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signed in -->
+  <div id="recoverSection" class="hidden">
+    <p class="recover-intro" id="signedInAs"></p>
+    <button class="btn btn-primary" id="getBtn">Show my code</button>
+    <button class="btn btn-ghost" id="signOutBtn" type="button" style="margin-top: 10px;">
+      Not you? Sign out
+    </button>
 
     <div class="final-sale">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -487,25 +519,36 @@
 
 </div>
 
+<!-- Firebase Auth (compat build) + the shared shop identity helper.
+     Classic scripts, so load order is guaranteed; see public/assets/shop-auth.js. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="/assets/shop-auth.js"></script>
+
 <script>
   const params = new URLSearchParams(window.location.search);
   const status = params.get('status');
   const txRef = params.get('tx_ref');
-  const emailParam = params.get('email');
 
   const GET_CODE_URL =
     'https://us-central1-anime-quiz-1ab1b.cloudfunctions.net/getPurchasedCode';
 
-  // The checkout redirect_url already carries ?email=…; when Flutterwave
-  // appends its own status/tx_ref the address can arrive as
-  // "you@example.com?status=successful". Keep only the address itself so the
-  // attribution check on the server still matches.
+  // The checkout redirect_url carries ?email=…; when Flutterwave appends its
+  // own status/tx_ref the address can arrive as
+  // "you@example.com?status=successful". Keep only the address itself.
+  //
+  // This is ONLY a convenience prefill for the sign-in field. Attribution is
+  // the signed-in account: the server derives the buyer from the ID token and
+  // refuses a code bound to a different account, so a query parameter can no
+  // longer claim someone else's purchase.
   function sanitizeEmail(raw) {
     if (typeof raw !== 'string') return '';
     return raw.split('?')[0].split('&')[0].trim();
   }
-  const buyerEmail = sanitizeEmail(emailParam);
+  const prefillEmail = sanitizeEmail(params.get('email'));
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  function shopAuth() { return window.ShopAuth || null; }
 
   // Auto-retry while the Flutterwave webhook is still in flight. The redirect
   // back to this page often lands BEFORE the server-to-server webhook has
@@ -514,6 +557,8 @@
   const POLL_INTERVAL_MS = 3000;
   const MAX_AUTO_ATTEMPTS = 10; // ~30s total
   let autoCancelled = false;
+  let autoStarted = false;
+  let codeShown = false;
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -527,9 +572,15 @@
   const copyBtn = document.getElementById('copyBtn');
   const copyLabel = document.getElementById('copyLabel');
   const copyIcon = document.getElementById('copyIcon');
-  const recoverSection = document.getElementById('recoverSection');
+  const authSection = document.getElementById('authSection');
   const emailEl = document.getElementById('email');
+  const passwordEl = document.getElementById('password');
+  const signInBtn = document.getElementById('signInBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const recoverSection = document.getElementById('recoverSection');
+  const signedInAs = document.getElementById('signedInAs');
   const getBtn = document.getElementById('getBtn');
+  const signOutBtn = document.getElementById('signOutBtn');
   const msgEl = document.getElementById('msg');
 
   const COPY_ICON =
@@ -546,11 +597,30 @@
     msgEl.className = 'msg show ' + (isError ? 'error' : 'info');
   }
 
-  async function fetchOnce(email) {
+  async function fetchOnce() {
+    const auth = shopAuth();
+    const user = auth && auth.user();
+    if (!user) {
+      const err = new Error('Sign in to see your code.');
+      err.status = 401;
+      throw err;
+    }
+
+    const token = await auth.getIdToken();
+    if (!token) {
+      const err = new Error('Your session expired. Sign in again.');
+      err.status = 401;
+      throw err;
+    }
+
     const resp = await fetch(GET_CODE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_ref: txRef, email }),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+      },
+      // No email in the body: the server uses the token's account.
+      body: JSON.stringify({ tx_ref: txRef }),
     });
     const json = await resp.json();
     if (!resp.ok || !json.code) {
@@ -565,35 +635,37 @@
 
   function showCode(code) {
     showMsg('');
+    codeShown = true;
     pending.classList.add('hidden');
     title.classList.add('hidden');
     sub.classList.add('hidden');
+    authSection.classList.add('hidden');
+    recoverSection.classList.add('hidden');
     codeEl.textContent = code;
     codeSection.classList.remove('hidden');
-    recoverSection.classList.add('hidden');
   }
 
-  async function fetchCode(email, auto) {
+  async function fetchCode(auto) {
     if (auto) {
-      // Auto mode: poll until the webhook mints the code, then fall back
-      // to the manual form only after the retries are exhausted.
+      // Auto mode: poll until the webhook mints the code, then fall back to the
+      // manual button only after the retries are exhausted. Safe because the
+      // server re-verifies the charge with Flutterwave before minting.
       autoCancelled = false;
       getBtn.disabled = true;
       getBtn.textContent = 'Fetching…';
-      emailEl.value = email;
       recoverSection.classList.add('hidden');
       pending.classList.remove('hidden');
       for (let attempt = 1; attempt <= MAX_AUTO_ATTEMPTS; attempt++) {
-        if (autoCancelled) return;
+        if (autoCancelled || codeShown) return;
         showMsg(
           attempt === 1
             ? 'Fetching your code…'
             : `Confirming your payment… (attempt ${attempt}/${MAX_AUTO_ATTEMPTS})`
         );
         try {
-          const code = await fetchOnce(email);
+          const code = await fetchOnce();
           getBtn.disabled = false;
-          getBtn.textContent = 'Get my code';
+          getBtn.textContent = 'Show my code';
           showCode(code);
           return;
         } catch (err) {
@@ -602,28 +674,37 @@
             // Retrying can never produce a code, so say so at once instead of
             // spinning for the full retry budget.
             getBtn.disabled = false;
-            getBtn.textContent = 'Get my code';
+            getBtn.textContent = 'Show my code';
             pending.classList.add('hidden');
             title.classList.remove('hidden');
             title.textContent = 'Payment not completed';
             sub.classList.remove('hidden');
             sub.textContent = err.message + ' You can try again from the products page.';
-            const back = document.createElement('a');
-            back.className = 'btn btn-ghost';
-            back.href = '/';
-            back.textContent = 'Back to products';
-            back.style.marginTop = '14px';
-            recoverSection.appendChild(back);
+            addBackLink(recoverSection);
             recoverSection.classList.remove('hidden');
+            return;
+          }
+          if (err.status === 401) {
+            handleSignedOut();
+            return;
+          }
+          if (err.status === 403) {
+            // The purchase belongs to a different account (or the account has
+            // no access). Show the reason and let them switch accounts.
+            getBtn.disabled = false;
+            getBtn.textContent = 'Show my code';
+            pending.classList.add('hidden');
+            recoverSection.classList.remove('hidden');
+            showMsg(err.message, true);
             return;
           }
           if (attempt === MAX_AUTO_ATTEMPTS) {
             getBtn.disabled = false;
-            getBtn.textContent = 'Get my code';
+            getBtn.textContent = 'Show my code';
             pending.classList.add('hidden');
             recoverSection.classList.remove('hidden');
             showMsg(
-              'Payment confirmed but your code is taking longer than expected. Enter your email to retrieve it.',
+              'Payment confirmed but your code is taking longer than expected. Tap “Show my code” to try again.',
               false
             );
             return;
@@ -638,15 +719,112 @@
     getBtn.textContent = 'Fetching…';
     showMsg('Fetching your code…');
     try {
-      const code = await fetchOnce(email);
+      const code = await fetchOnce();
       getBtn.disabled = false;
-      getBtn.textContent = 'Get my code';
+      getBtn.textContent = 'Show my code';
       showCode(code);
     } catch (err) {
       getBtn.disabled = false;
-      getBtn.textContent = 'Get my code';
+      getBtn.textContent = 'Show my code';
+      if (err.status === 401) {
+        handleSignedOut();
+        return;
+      }
       showMsg(err.message, true);
-      emailEl.classList.add('invalid');
+    }
+  }
+
+  // A "Back to products" link, appended at most once.
+  function addBackLink(parent) {
+    if (parent.querySelector && parent.querySelector('a[href="/"]')) return;
+    const back = document.createElement('a');
+    back.className = 'btn btn-ghost';
+    back.href = '/';
+    back.textContent = 'Back to products';
+    back.style.marginTop = '14px';
+    parent.appendChild(back);
+  }
+
+  function showSignIn(titleText, subText) {
+    if (codeShown) return;
+    pending.classList.add('hidden');
+    recoverSection.classList.add('hidden');
+    authSection.classList.remove('hidden');
+    title.classList.remove('hidden');
+    sub.classList.remove('hidden');
+    title.textContent = titleText;
+    sub.textContent = subText;
+  }
+
+  function showSignedIn(user) {
+    if (codeShown) return;
+    authSection.classList.add('hidden');
+    recoverSection.classList.remove('hidden');
+    signedInAs.textContent = 'Signed in as ' + (user.email || 'your account') + '.';
+    title.classList.add('hidden');
+    sub.classList.add('hidden');
+  }
+
+  // Session died mid-flow (expired or revoked token): drop it and let the auth
+  // listener put the sign-in card back.
+  function handleSignedOut() {
+    showMsg('Your session expired. Sign in again.', true);
+    const auth = shopAuth();
+    if (auth) {
+      auth.signOut();
+    } else {
+      showSignIn(
+        'Payment received?',
+        'Sign-in is unavailable right now. Refresh this page to try again.'
+      );
+    }
+  }
+
+  async function onSignIn() {
+    const auth = shopAuth();
+    if (!auth) return;
+
+    const email = emailEl.value.trim();
+    if (!EMAIL_RE.test(email)) {
+      showMsg('Enter the email you used at checkout.', true);
+      emailEl.focus();
+      return;
+    }
+    if (!passwordEl.value) {
+      showMsg('Enter your password.', true);
+      passwordEl.focus();
+      return;
+    }
+
+    showMsg('');
+    const original = signInBtn.textContent;
+    signInBtn.disabled = true;
+    signInBtn.textContent = 'Signing in…';
+    try {
+      await auth.signIn(email, passwordEl.value);
+      passwordEl.value = '';
+    } catch (err) {
+      showMsg(auth.errorMessage(err), true);
+    } finally {
+      signInBtn.disabled = false;
+      signInBtn.textContent = original;
+    }
+  }
+
+  async function onReset() {
+    const auth = shopAuth();
+    if (!auth) return;
+    const email = emailEl.value.trim();
+    if (!EMAIL_RE.test(email)) {
+      showMsg('Enter your email first, then tap “Forgot password?”.', true);
+      emailEl.focus();
+      return;
+    }
+    try {
+      await auth.sendReset(email);
+      showMsg('Password reset email sent. Check your inbox.', false);
+    } catch (err) {
+      showMsg(auth.errorMessage(err), true);
     }
   }
 
@@ -660,12 +838,7 @@
     if (status === 'failed') {
       title.textContent = 'Payment failed';
       sub.textContent = 'Your payment didn’t go through. Try again from the products page.';
-      const back = document.createElement('a');
-      back.className = 'btn btn-ghost';
-      back.href = '/';
-      back.textContent = 'Back to products';
-      back.style.marginTop = '14px';
-      recoverSection.appendChild(back);
+      addBackLink(recoverSection);
       recoverSection.classList.remove('hidden');
       return;
     }
@@ -676,38 +849,54 @@
       return;
     }
 
-    // Auto-fetch whenever we hold BOTH a reference and a usable email —
-    // including redirect shapes whose status parameter was lost or mangled.
-    // That is safe: getPurchasedCode re-verifies the charge with Flutterwave
-    // server-side, so only a genuinely completed payment can ever mint.
-    if (buyerEmail && EMAIL_RE.test(buyerEmail)) {
-      pending.classList.remove('hidden');
-      fetchCode(buyerEmail, true);
+    // Prefill only; attribution is the signed-in account, never this param.
+    if (prefillEmail) emailEl.value = prefillEmail;
+
+    const auth = shopAuth();
+    if (!auth) {
+      showSignIn(
+        'Payment received?',
+        'Sign-in is unavailable right now. Refresh this page to try again.'
+      );
       return;
     }
 
-    title.textContent = 'Payment received?';
-    sub.textContent = 'If you already paid, fetch your code below.';
-    pending.classList.add('hidden');
-    recoverSection.classList.remove('hidden');
+    // Fires immediately with the restored session, then on every sign-in/out.
+    // The persisted session is why the usual Flutterwave redirect lands back
+    // here already signed in and goes straight to the code.
+    auth.onChange(function (user) {
+      if (codeShown) return;
+      if (!user) {
+        showSignIn(
+          'Payment received?',
+          'Sign in with the account you bought with to see your code.'
+        );
+        return;
+      }
+      showSignedIn(user);
+      if (!autoStarted) {
+        autoStarted = true;
+        fetchCode(true);
+      }
+    });
   }
 
   getBtn.addEventListener('click', () => {
     autoCancelled = true;
-    const email = emailEl.value.trim();
-    if (!EMAIL_RE.test(email)) {
-      showMsg('Enter the email you used at checkout.', true);
-      emailEl.classList.add('invalid');
-      return;
-    }
-    emailEl.classList.remove('invalid');
-    fetchCode(email);
+    fetchCode(false);
   });
 
-  emailEl.addEventListener('input', () => {
-    if (emailEl.classList.contains('invalid') && EMAIL_RE.test(emailEl.value.trim())) {
-      emailEl.classList.remove('invalid');
-      showMsg('');
+  signInBtn.addEventListener('click', onSignIn);
+  resetBtn.addEventListener('click', onReset);
+  signOutBtn.addEventListener('click', () => {
+    autoCancelled = true;
+    const auth = shopAuth();
+    if (auth) auth.signOut();
+  });
+  passwordEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onSignIn();
     }
   });
 

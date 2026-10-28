@@ -100,12 +100,12 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
         context: context,
         builder: (_) => AlertDialog(
           backgroundColor: AppColors.surface,
-          title: const Text('Username Locked',
+          title: Text('Username Locked',
               style: TextStyle(color: AppColors.textPrimary)),
           content: Text(
             'You can change your username again in $daysLeft '
             'day${daysLeft == 1 ? '' : 's'}.',
-            style: const TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: AppColors.textSecondary),
           ),
           actions: [
             TextButton(
@@ -161,10 +161,10 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Sign out?',
+        title: Text('Sign out?',
             style: TextStyle(
                 color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
-        content: const Text('You can sign back in at any time.',
+        content: Text('You can sign back in at any time.',
             style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(
@@ -173,9 +173,9 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sign out',
+            child: Text('Sign out',
                 style: TextStyle(
-                    color: AppColors.wrong, fontWeight: FontWeight.w700)),
+                    color: AppColors.readable(AppColors.wrong), fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -184,9 +184,8 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
   }
 
   // ── Delete account (NDPA/GDPR right to erasure) ──────────────────────────
-  // The flow itself lives in delete_account_flow.dart so the Android "Update
-  // required" wall can offer the same right without a second copy drifting.
-  // This surface keeps the modal-dialog presentation it has always had.
+  // Settings-only surface. The flow itself lives in delete_account_flow.dart
+  // so the wording and error policy exist in exactly one place.
   Future<void> _deleteAccount() async {
     if (!await confirmAccountDeletion(context)) return;
     if (!mounted) return;
@@ -220,12 +219,12 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Account deleted',
+        title: Text('Account deleted',
             style: TextStyle(
-                color: AppColors.correct, fontWeight: FontWeight.w900)),
+                color: AppColors.readable(AppColors.correct), fontWeight: FontWeight.w900)),
         content: Text(
           deletionSuccessMessage(result.retainedCount),
-          style: const TextStyle(color: AppColors.textSecondary, height: 1.45),
+          style: TextStyle(color: AppColors.textSecondary, height: 1.45),
         ),
         actions: [
           TextButton(
@@ -281,7 +280,7 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
                   lastKnownRank: _lastKnownRank,
                   onOpenPremium: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
+                    AppPageRoute(
                       builder: (_) => const PremiumUpsellScreen(),
                     ),
                   ),
@@ -308,14 +307,14 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
                     stats: stats,
                     onEarnCoins: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
+                      AppPageRoute(
                         builder: (_) => const EarnCoinsScreen(),
                       ),
                     ),
                     onSignOut: _signOut,
                     onOpenSettings: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
+                      AppPageRoute(
                         builder: (_) => SettingsPage(
                           onDeleteAccount: _deleteAccount,
                         ),
@@ -380,7 +379,7 @@ class _IdentityCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: AppColors.primary.withOpacity(0.18),
+                    color: AppColors.primary.withValues(alpha: 0.18),
                     width: 1.5,
                   ),
                 ),
@@ -391,15 +390,15 @@ class _IdentityCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      AppColors.primary.withOpacity(0.30),
-                      AppColors.primary.withOpacity(0.08),
+                      AppColors.primary.withValues(alpha: 0.30),
+                      AppColors.primary.withValues(alpha: 0.08),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: AppColors.primary.withOpacity(0.35),
+                    color: AppColors.primary.withValues(alpha: 0.35),
                     width: 1.5,
                   ),
                 ),
@@ -407,7 +406,7 @@ class _IdentityCard extends StatelessWidget {
                   child: Text(
                     initial,
                     style: TextStyle(
-                      color: AppColors.primary,
+                      color: AppColors.readable(AppColors.primary),
                       fontSize: 24.sp,
                       fontWeight: FontWeight.w900,
                       height: 1,
@@ -564,9 +563,9 @@ class _InviteChip extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 4.r),
         decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.10),
+          color: AppColors.primary.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(8.r),
-          border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -576,7 +575,7 @@ class _InviteChip extends StatelessWidget {
             Text(
               'Invite',
               style: TextStyle(
-                color: AppColors.primary,
+                color: AppColors.readable(AppColors.primary),
                 fontSize: 10.sp,
                 fontWeight: FontWeight.w800,
               ),
@@ -616,7 +615,7 @@ class _ProfileTabBar extends StatelessWidget {
         splashFactory: NoSplash.splashFactory,
         overlayColor: WidgetStateProperty.all(Colors.transparent),
         indicator: BoxDecoration(
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           borderRadius: BorderRadius.circular(9.r),
         ),
         tabs: const [
@@ -647,7 +646,7 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.surface,
-      title: const Text('Edit Username',
+      title: Text('Edit Username',
           style: TextStyle(
               color: AppColors.textPrimary, fontWeight: FontWeight.w800)),
       content: Column(
@@ -656,9 +655,9 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
         children: [
           TextField(
             controller: widget.controller,
-            style: const TextStyle(color: AppColors.textPrimary),
+            style: TextStyle(color: AppColors.textPrimary),
             maxLength: 20,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Enter new username',
               counterStyle: TextStyle(color: AppColors.textMuted),
             ),
@@ -940,7 +939,7 @@ class _RedeemCodeCardState extends State<_RedeemCodeCard> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: tint.withOpacity(0.14),
+                  color: tint.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(10.r),
                 ),
                 child: Center(
@@ -1111,7 +1110,7 @@ class _MyPrizesButton extends StatelessWidget {
                   ),
                   child: Center(
                     child: Icon(Icons.emoji_events_rounded,
-                        color: gold, size: 18.r),
+                        color: AppColors.readable(gold), size: 18.r),
                   ),
                 ),
                 SizedBox(width: 10.w),
@@ -1132,7 +1131,7 @@ class _MyPrizesButton extends StatelessWidget {
                   ),
                 ),
                 Icon(Icons.arrow_forward_ios_rounded,
-                    color: gold, size: 14.r),
+                    color: AppColors.readable(gold), size: 14.r),
               ],
             ),
           ),
@@ -1239,38 +1238,38 @@ class _BestRecordsGridState extends State<_BestRecordsGrid> {
         icon: Icons.trending_up_rounded,
         label: 'Best AC win',
         value: '+${stats.hseWon} AC',
-        color: AppColors.correct,
+        color: AppColors.readable(AppColors.correct),
       ),
       _BestRecordItem(
         icon: Icons.trending_down_rounded,
         label: 'Worst AC loss',
         value: '−${stats.hseLost} AC',
-        color: AppColors.wrong,
+        color: AppColors.readable(AppColors.wrong),
       ),
       _BestRecordItem(
         icon: Icons.casino_rounded,
         label: 'Highest AC stake',
         value: '${stats.hseStaked} AC',
-        color: AppColors.accent,
+        color: AppColors.readable(AppColors.accent),
       ),
       if (stats.wpStakedTotal > 0 || stats.hseWpWon > 0) ...[
         _BestRecordItem(
           icon: Icons.trending_up_rounded,
           label: 'Best WP win',
           value: '+${stats.hseWpWon} WP',
-          color: AppColors.correct,
+          color: AppColors.readable(AppColors.correct),
         ),
         _BestRecordItem(
           icon: Icons.trending_down_rounded,
           label: 'Worst WP loss',
           value: '−${stats.hseWpLost} WP',
-          color: AppColors.wrong,
+          color: AppColors.readable(AppColors.wrong),
         ),
         _BestRecordItem(
           icon: Icons.casino_rounded,
           label: 'Highest WP stake',
           value: '${stats.hseWpStaked} WP',
-          color: AppColors.accent,
+          color: AppColors.readable(AppColors.accent),
         ),
       ],
     ];
@@ -1299,12 +1298,12 @@ class _BestRecordsGridState extends State<_BestRecordsGrid> {
                     width: 28.r,
                     height: 28.r,
                     decoration: BoxDecoration(
-                      color: AppColors.accent.withOpacity(0.12),
+                      color: AppColors.accent.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(9.r),
                     ),
                     child: Icon(
                       Icons.military_tech_rounded,
-                      color: AppColors.accent,
+                      color: AppColors.readable(AppColors.accent),
                       size: 15.r,
                     ),
                   ),
@@ -1391,14 +1390,14 @@ class _BestRecordChip extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 6.r),
       decoration: BoxDecoration(
-        color: item.color.withOpacity(0.08),
+        color: item.color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(9.r),
-        border: Border.all(color: item.color.withOpacity(0.22)),
+        border: Border.all(color: item.color.withValues(alpha: 0.22)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(item.icon, color: item.color, size: 13.r),
+          Icon(item.icon, color: AppColors.readable(item.color), size: 13.r),
           SizedBox(width: 5.w),
           Flexible(
             child: FittedBox(
@@ -1420,7 +1419,7 @@ class _BestRecordChip extends StatelessWidget {
               child: Text(
                 item.value,
                 style: TextStyle(
-                  color: item.color,
+                  color: AppColors.readable(item.color),
                   fontSize: 10.sp,
                   fontWeight: FontWeight.w900,
                 ),
@@ -1472,13 +1471,13 @@ class _MatchRecordCard extends StatelessWidget {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.10),
+                  color: AppColors.primary.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(20.r),
                 ),
                 child: Text(
                   '${(winRate * 100).round()}% win rate',
                   style: TextStyle(
-                    color: AppColors.primary,
+                    color: AppColors.readable(AppColors.primary),
                     fontSize: 10.sp,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1493,7 +1492,7 @@ class _MatchRecordCard extends StatelessWidget {
                 child: _HeroStat(
                   value: '$wins',
                   label: 'Wins',
-                  color: AppColors.correct,
+                  color: AppColors.readable(AppColors.correct),
                 ),
               ),
               _VerticalDivider(),
@@ -1509,7 +1508,7 @@ class _MatchRecordCard extends StatelessWidget {
                 child: _HeroStat(
                   value: '$losses',
                   label: 'Losses',
-                  color: AppColors.wrong,
+                  color: AppColors.readable(AppColors.wrong),
                 ),
               ),
             ],
@@ -1615,21 +1614,21 @@ class _WPStatsCard extends StatelessWidget {
             icon: Icons.emoji_events_rounded,
             label: 'WP Won',
             value: stats.wpWon,
-            color: AppColors.correct,
+            color: AppColors.readable(AppColors.correct),
           ),
           SizedBox(height: 8.h),
           _WPRow(
             icon: Icons.shield_rounded,
             label: 'WP Lost',
             value: stats.wpLost,
-            color: AppColors.wrong,
+            color: AppColors.readable(AppColors.wrong),
           ),
           SizedBox(height: 8.h),
           _WPRow(
             icon: Icons.casino_rounded,
             label: 'WP Staked',
             value: stats.wpStakedTotal,
-            color: AppColors.accent,
+            color: AppColors.readable(AppColors.accent),
             showDivider: false,
           ),
         ],
@@ -1663,7 +1662,7 @@ class _WPRow extends StatelessWidget {
               width: 28.r,
               height: 28.r,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8.r),
               ),
               child: Icon(icon, color: color, size: 15.r),
@@ -1692,7 +1691,7 @@ class _WPRow extends StatelessWidget {
         if (showDivider)
           Padding(
             padding: EdgeInsets.symmetric(vertical: 8.r),
-            child: const Divider(color: AppColors.divider, height: 1),
+            child: Divider(color: AppColors.divider, height: 1),
           ),
       ],
     );
@@ -1721,7 +1720,7 @@ class _MatchBreakdownCard extends StatelessWidget {
             wins: stats.quickWins,
             draws: stats.quickDraws,
             losses: stats.quickLosses,
-            color: AppColors.primary,
+            color: AppColors.readable(AppColors.primary),
           ),
           SizedBox(height: 12.h),
           _BreakdownRow(
@@ -1739,7 +1738,7 @@ class _MatchBreakdownCard extends StatelessWidget {
             wins: stats.rivalWins,
             draws: stats.rivalDraws,
             losses: stats.rivalLosses,
-            color: const Color(0xFFFF6B00),
+            color: AppColors.readable(const Color(0xFFFF6B00)),
             showDivider: false,
           ),
         ],
@@ -1775,7 +1774,7 @@ class _BreakdownRow extends StatelessWidget {
               width: 28.r,
               height: 28.r,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8.r),
               ),
               child: Icon(icon, color: color, size: 15.r),
@@ -1794,7 +1793,7 @@ class _BreakdownRow extends StatelessWidget {
             _BreakdownPill(
               label: 'W',
               count: wins,
-              color: AppColors.correct,
+              color: AppColors.readable(AppColors.correct),
             ),
             SizedBox(width: 5.w),
             _BreakdownPill(
@@ -1806,14 +1805,14 @@ class _BreakdownRow extends StatelessWidget {
             _BreakdownPill(
               label: 'L',
               count: losses,
-              color: AppColors.wrong,
+              color: AppColors.readable(AppColors.wrong),
             ),
           ],
         ),
         if (showDivider)
           Padding(
             padding: EdgeInsets.symmetric(vertical: 8.r),
-            child: const Divider(color: AppColors.divider, height: 1),
+            child: Divider(color: AppColors.divider, height: 1),
           ),
       ],
     );
@@ -1836,7 +1835,7 @@ class _BreakdownPill extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 7.r, vertical: 3.r),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(6.r),
       ),
       child: Text(
@@ -1889,7 +1888,7 @@ class _SimpleActionRow extends StatelessWidget {
                   height: 28.r,
                   decoration: BoxDecoration(
                     color: (destructive ? AppColors.wrong : AppColors.primary)
-                        .withOpacity(0.10),
+                        .withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(9.r),
                   ),
                   child: Icon(
@@ -1975,7 +1974,7 @@ class _AchievementDef {
     required this.tiers,
   });
 
-  int get totalAc => tiers.fold(0, (sum, t) => sum + t.ac);
+  int get totalAc => tiers.fold(0, (total, t) => total + t.ac);
 }
 
 class _AchievementsTab extends StatefulWidget {
@@ -2076,17 +2075,17 @@ class _AchievementsTabState extends State<_AchievementsTab> {
 
     final totalGranted = _defs.fold<int>(
       0,
-      (sum, def) => sum + p.grantedThresholds(def.statKey).length,
+      (total, def) => total + p.grantedThresholds(def.statKey).length,
     );
-    final totalTiers = _defs.fold<int>(0, (sum, d) => sum + d.tiers.length);
-    final acEarned = _defs.fold<int>(0, (sum, def) {
+    final totalTiers = _defs.fold<int>(0, (total, d) => total + d.tiers.length);
+    final acEarned = _defs.fold<int>(0, (total, def) {
       var earned = 0;
       for (final t in def.tiers) {
         if (p.grantedThresholds(def.statKey).contains(t.threshold)) {
           earned += t.ac;
         }
       }
-      return sum + earned;
+      return total + earned;
     });
 
     _notifyNewlyGranted(p);
@@ -2137,17 +2136,18 @@ class _AchievementsTabState extends State<_AchievementsTab> {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
                 decoration: BoxDecoration(
-                  color: AppColors.accent.withOpacity(0.14),
+                  color: AppColors.accent.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(20.r),
                   border: Border.all(
-                    color: AppColors.accent.withOpacity(0.30),
+                    color: AppColors.accent.withValues(alpha: 0.30),
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.stars_rounded,
-                        size: 12.r, color: AppColors.accent),
+                        size: 12.r,
+                        color: AppColors.readable(AppColors.accent)),
                     SizedBox(width: 4.w),
                     Text(
                       '$acEarned AC',
@@ -2258,7 +2258,7 @@ class _AchievementCardState extends State<_AchievementCard> {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(14.r),
         border: Border.all(
-          color: isMaxed ? item.color.withOpacity(0.45) : AppColors.divider,
+          color: isMaxed ? item.color.withValues(alpha: 0.45) : AppColors.divider,
           width: isMaxed ? 1.5 : 1,
         ),
       ),
@@ -2307,7 +2307,7 @@ class _AchievementCardState extends State<_AchievementCard> {
                       '$current',
                       style: TextStyle(
                         color: current > 0 || isMaxed
-                            ? item.color
+                            ? AppColors.readable(item.color)
                             : AppColors.textMuted,
                         fontSize: 20.sp,
                         fontWeight: FontWeight.w900,
@@ -2364,7 +2364,7 @@ class _AchievementCardState extends State<_AchievementCard> {
                             Text(
                               'Next  +${nextTier.ac} AC${nextTier.frame != null ? ' · ${_frameLabel(nextTier.frame)}' : ''}',
                               style: TextStyle(
-                                color: item.color,
+                                color: AppColors.readable(item.color),
                                 fontSize: 11.sp,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -2377,7 +2377,8 @@ class _AchievementCardState extends State<_AchievementCard> {
                           child: LinearProgressIndicator(
                             value: barValue,
                             backgroundColor: AppColors.divider,
-                            valueColor: AlwaysStoppedAnimation(item.color),
+                            valueColor: AlwaysStoppedAnimation(
+                                AppColors.readable(item.color)),
                             minHeight: 6,
                           ),
                         ),
@@ -2385,7 +2386,8 @@ class _AchievementCardState extends State<_AchievementCard> {
                         Row(
                           children: [
                             Icon(Icons.emoji_events_rounded,
-                                size: 16.r, color: AppColors.accent),
+                                size: 16.r,
+                                color: AppColors.readable(AppColors.accent)),
                             SizedBox(width: 5.w),
                             Text(
                               'Maxed out  ·  +${item.totalAc} AC',
@@ -2406,7 +2408,7 @@ class _AchievementCardState extends State<_AchievementCard> {
                             tier: tier,
                             earned: granted.contains(tier.threshold),
                             isNext: tier == nextTier,
-                            color: item.color,
+                            color: AppColors.readable(item.color),
                           );
                         }).toList(),
                       ),
@@ -2425,7 +2427,8 @@ class _AchievementCardState extends State<_AchievementCard> {
                                   : granted.length / allTiers.length,
                               minHeight: 5,
                               backgroundColor: AppColors.divider,
-                              valueColor: AlwaysStoppedAnimation(item.color),
+                              valueColor: AlwaysStoppedAnimation(
+                                  AppColors.readable(item.color)),
                             ),
                           ),
                         ),
@@ -2460,12 +2463,12 @@ class _AchievementIcon extends StatelessWidget {
       width: 40.w,
       height: 40.h,
       decoration: BoxDecoration(
-        color: active ? item.color.withOpacity(0.14) : AppColors.surfaceAlt,
+        color: active ? item.color.withValues(alpha: 0.14) : AppColors.surfaceAlt,
         borderRadius: BorderRadius.circular(12.r),
       ),
       child: Icon(
         item.icon,
-        color: active ? item.color : AppColors.textMuted,
+        color: active ? AppColors.readable(item.color) : AppColors.textMuted,
         size: 19.r,
       ),
     );
@@ -2496,13 +2499,13 @@ class _TierPip extends StatelessWidget {
           padding: EdgeInsets.symmetric(vertical: 6.r),
           decoration: BoxDecoration(
             color: earned
-                ? color.withOpacity(0.18)
-                : (isNext ? color.withOpacity(0.10) : AppColors.surfaceAlt),
+                ? color.withValues(alpha: 0.18)
+                : (isNext ? color.withValues(alpha: 0.10) : AppColors.surfaceAlt),
             borderRadius: BorderRadius.circular(7.r),
             border: Border.all(
               color: earned
                   ? color
-                  : (isNext ? color.withOpacity(0.7) : AppColors.divider),
+                  : (isNext ? color.withValues(alpha: 0.7) : AppColors.divider),
               width: earned || isNext ? 1.5 : 1,
             ),
           ),
@@ -2659,20 +2662,20 @@ class _HistoryCard extends StatelessWidget {
       isDraw: isDraw,
     );
 
-    final outcomeColor =
-        isWin ? AppColors.correct : (isDraw ? Colors.amber : AppColors.wrong);
+    final outcomeColor = AppColors.readable(
+        isWin ? AppColors.correct : (isDraw ? Colors.amber : AppColors.wrong));
     final outcomeLetter = isWin
         ? 'W'
         : isDraw
             ? 'D'
             : 'L';
 
-    final acColor = acDelta > 0
+    final acColor = AppColors.readable(acDelta > 0
         ? AppColors.accent
-        : (acDelta < 0 ? AppColors.wrong : AppColors.textMuted);
-    final wpColor = wpDelta > 0
+        : (acDelta < 0 ? AppColors.wrong : AppColors.textMuted));
+    final wpColor = AppColors.readable(wpDelta > 0
         ? AppColors.secondary
-        : (wpDelta < 0 ? AppColors.wrong : AppColors.textMuted);
+        : (wpDelta < 0 ? AppColors.wrong : AppColors.textMuted));
 
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.md),

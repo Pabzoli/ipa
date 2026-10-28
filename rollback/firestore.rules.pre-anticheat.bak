@@ -1,0 +1,441 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Challenges ────────────────────────────────────────────────────────
+    match /challenges/{challengeId} {
+      allow read:   if request.auth != null;
+      // Creation goes through the server-authoritative createChallenge callable
+      // (validates stake/WP caps, active-challenge limits, question pools).
+      // A bare client create could otherwise mint arbitrary challenges.
+      allow create: if false;
+      // HARDENED: NO client writes at all. Every field — including each side's
+      // own score — is server-only.
+      //
+      // Scores used to be client-writable (own score, once, 0..10) because the
+      // quiz wrote them straight to the doc. That made the payout input
+      // client-attested: a patched client could write a perfect score and take
+      // the opponent's AC + WP stake. Scores now go through the
+      // submitChallengeScore / submitQuickMatchResult callables, which read the
+      // authoritative question set from the doc, score the submitted answers
+      // server-side, and write the result via the Admin SDK (bypassing rules).
+      // Joins/declines go through callables; status/outcome transitions are
+      // written by the resolveChallengeOutcome trigger / _resolveChallengeCore.
+      allow update: if false;
+    }
+
+    // ── Rivalry series ────────────────────────────────────────────────────
+    // rivalries/{sortedUidPair} tracks best-of-5 arcs between named rivals
+    // (server-maintained in _resolveChallengeCore). Participants may read
+    // their own rivalry docs for the series UI; all writes are CF-only.
+    match /rivalries/{pairId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.aUid ||
+        request.auth.uid == resource.data.bUid
+      );
+      allow create, update, delete: if false;
+    }
+
+    // ── Friendships (pair docs, CF-only) ─────────────────────────────────
+    // friendships/{sortedUidPair}: {aUid, bUid, status ('pending'|'active'|
+    // 'declined'|'blocked'), requestedBy, declinedAt?, blockedBy?, sparWinsDate, sparWinsCount,
+    // lastNudgeAt {sender_receiver: ts}, createdAt, decidedAt}.
+    // All writes go through friend callables (Admin SDK bypasses rules).
+    // Participants may read their own pair docs (powers spar-gate error copy
+    // and the friendship state the client shows); nobody else may.
+    match /friendships/{pairId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.aUid ||
+        request.auth.uid == resource.data.bUid
+      );
+      allow create, update, delete: if false;
+    }
+
+    // ── Friend codes (code → uid lookup, CF-only) ──────────────────────────
+    // friendCodes/{CODE}: {uid}. Clients must never read this collection
+    // directly (it would be a username/code enumeration oracle); lookup goes
+    // through the sendFriendRequest callable, which returns a fixed not_found
+    // for unknown AND blocked codes and rate-limits attempts (15/day).
+    match /friendCodes/{code} {
+      allow read, write: if false;
+    }
+
+    // ── Referral codes (code → uid lookup, CF-only) ────────────────────────
+    // referralCodes/{CODE}: {uid}. Not client-readable: reading it would be a
+    // uid-enumeration oracle. Resolution goes through the resolveReferralCode
+    // callable, which returns null for unknown codes and for the caller's own
+    // code. `users/{uid}.referredBy` still stores the resolved UID, so the
+    // claimReferralBonus gate is unchanged, and a uid typed by hand is still
+    // accepted (see _resolveReferrerUid in functions/index.js).
+    match /referralCodes/{code} {
+      allow read, write: if false;
+    }
+    // Players may read ONLY their own doc + docs of players who entered the
+    // SAME leaderboard week they entered (their cohort). A current-week payer
+    // therefore sees exactly the current paid board; anyone else sees only
+    // themselves. The payout admin bypasses this and sees every player.
+    //
+    // Why cohort-equality instead of "current week" date math: comparing two
+    // stored strings uses only long-stable rules APIs (get/exists/==). The
+    // client always constrains its board queries to its own entry week, so a
+    // current payer's cohort IS the live paid board. Residual: two stale
+    // non-payers from the same old week can see each other — no live-board
+    // data leaks. The empty-string guard ensures users with no entry week
+    // match nobody (missing field reads as '' via the get-default below).
+    function viewerEntryWeek() {
+      let viewerPath =
+        /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(viewerPath)
+        ? get(viewerPath).data.get('leaderboardEntryWeekId', '')
+        : '';
+    }
+
+    function isSameWeekEntrant(userData) {
+      let viewedWeek = userData.get('leaderboardEntryWeekId', '');
+      let viewerWeek = viewerEntryWeek();
+      return viewedWeek != '' && viewedWeek == viewerWeek;
+    }
+
+    // Mirror of ADMIN_UIDS (functions/index.js) for the admin all-players
+    // exception. This project does not use custom claims; update the UID
+    // here if the backend admin list ever rotates.
+    function isPayoutAdmin() {
+      return request.auth.uid == 'owMNkXmb6QSzO0xfHkSgMlx0zSJ3';
+    }
+
+    // ── Profile creation is Cloud-Function-only ──────────────────────────
+    // Signup no longer writes `users/{uid}` from the client. The ensureProfile
+    // callable creates it with totalScore/stats/animeCoins/weeklyPoints seeded
+    // server-side and claims the username in `usernames/{key}`. That removes
+    // the whole class of "new account seeded itself a maxed profile" and makes
+    // username uniqueness enforceable at creation, not just on edit.
+
+    // ── Transitional legacy-client signup ────────────────────────────────
+    // The APK in distribution still writes its own users/{uid} doc. Until the
+    // App Check build is shipped, allow ONLY the exact legacy starter profile
+    // with every economy/stat value PINNED, so this cannot be used to seed a
+    // balance, points or statistics, and unknown fields are rejected.
+    // Once the new client is live, delete this function and set create:false.
+    function isLegacyStarterProfile(d) {
+      return d.keys().hasOnly([
+               'username', 'email', 'totalScore', 'animeCoins',
+               'weeklyPoints', 'weeklyReset', 'createdAt', 'stats',
+               'university', 'referredBy'
+             ])
+        && d.username is string
+        && d.username.size() >= 3 && d.username.size() <= 64
+        && d.email is string && d.email.size() <= 254
+        && d.totalScore == 500
+        && d.animeCoins == 0
+        && d.weeklyPoints == 0
+        && d.weeklyReset is timestamp
+        && d.createdAt is timestamp
+        && d.stats.keys().hasOnly([
+             'gamesPlayed', 'gamesWon', 'gamesLost',
+             'hseWon', 'hseLost', 'hseStaked'
+           ])
+        && d.stats.gamesPlayed == 0
+        && d.stats.gamesWon == 0
+        && d.stats.gamesLost == 0
+        && d.stats.hseWon == 0
+        && d.stats.hseLost == 0
+        && d.stats.hseStaked == 0
+        && (!('university' in d)
+            || (d.university is string && d.university.size() <= 64))
+        && (!('referredBy' in d)
+            || (d.referredBy is string && d.referredBy.size() <= 64));
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == userId ||
+        isPayoutAdmin() ||
+        isSameWeekEntrant(resource.data)
+      );
+
+      // TRANSITIONAL: see isLegacyStarterProfile above. New clients create the
+      // profile through ensureProfile (Admin SDK bypasses rules); this branch
+      // exists only for the currently shipped build.
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && isLegacyStarterProfile(request.resource.data);
+
+      // POSITIVE ALLOWLIST. Clients may write exactly one field on their own
+      // profile: the FCM registration token. Everything else is server-owned:
+      //   • username / university → changeUsername / updateUniversity callables
+      //     (7-day cooldown, uniqueness claim, canonical university list),
+      //   • totalScore / stats / weeklyPoints / animeCoins / entitlements → CFs.
+      // hasOnly (not a denylist) means a field added on the server in future is
+      // NOT client-writable until it is deliberately listed here.
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.diff(resource.data)
+             .affectedKeys()
+             .hasOnly(['fcmToken'])
+        && request.resource.data.fcmToken is string
+        && request.resource.data.fcmToken.size() <= 4096;
+
+      allow delete: if false;
+
+      // Match history — CF-only via admin SDK (_resolveChallengeCore,
+      // submitQuickMatchResult). Clients may read their own history but
+      // may never create documents here.
+      match /matches/{matchId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow create:         if false;
+        allow update, delete: if false;
+      }
+
+      // Seen-question markers (Step 5) — written ONLY by Cloud Functions
+      // (Admin SDK) on successful submit; clients can never self-mark.
+      // Owner reads feed the fetch-side unseen filtering
+      // (candidates minus seen). Doc shape:
+      //   { animeTitle, difficulty ('easy'|'medium'|'hard'; legacy docs
+      //     recorded as 'medium'), seenAt }
+      match /seenQuestions/{questionId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow create:         if false; // CF-only (submit flows mark on success)
+        allow update, delete: if false; // CF-only (resetSeenPool deletes)
+      }
+
+      // Per-pool observability counters, maintained by the same CFs:
+      //   { animeTitle, difficulty, seenCount, totalCount, exhaustedAt }
+      // Read by owner (e.g. future "pool health" UI); never client-written.
+      match /questionPoolState/{stateId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only
+      }
+
+      // Solo anime cooldown locks — { title, expiresAt }. Written ONLY by
+      // startSoloCooldowns / spendCoins / unlockAnimeEarly (Admin SDK). The
+      // owner may read their own locks for the countdown; no client writes, so
+      // clearing app data or editing the client cannot skip a lock.
+      match /cooldowns/{titleId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false;
+      }
+
+      // Coin transaction log — owner-read, CF-append-only, immutable.
+      // Clients can no longer create entries: an owner-appendable ledger with
+      // arbitrary delta/balanceAfter was forgeable audit data (it could not
+      // move a balance, but it could poison fraud review and misstate history).
+      // Every entry is written by a Cloud Function via the Admin SDK.
+      match /coinTransactions/{txId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      // Referral records — written ONLY by Cloud Functions (ensureProfile
+      // creates, claimReferralBonus progresses/flips). The inviter may read
+      // their own; there is no client write path at all.
+      // Doc shape: { inviteeUsername, status ('pending'|'rewarded'),
+      //   quizzesCompleted, quizzesRequired, quizDays, daysRequired,
+      //   createdAt, qualifiedAt, expiresAt, rewardAmount }
+      // Keyed by inviteeUid.
+      match /referrals/{inviteeUid} {
+        allow read:  if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      // ── WP transaction log — owner-read, CF-append-only, immutable ─────
+      match /wpTransactions/{txId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      // IAP purchase receipts — idempotency ledger, CF-only via admin SDK.
+      match /iapReceipts/{purchaseToken} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only (verifyIAPPurchase)
+      }
+
+      // Premium subscription receipts — idempotency ledger, CF-only.
+      match /premiumReceipts/{purchaseToken} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only (verifyPremiumPurchase)
+      }
+
+      // Leaderboard entry receipts — audit ledger, CF-only.
+      match /leaderboardReceipts/{codeId} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow write:          if false; // CF-only (redeemCode)
+      }
+
+      // ── Payout Details (reusable bank account info per user) ───────────
+      // Winner submits their bank account so the admin can transfer manually.
+      // Retained across weeks (repeat winners don't re-enter). Owner may READ
+      // their own; ALL writes are CF-only (savePayoutDetail /
+      // submitPayoutDetails), which validate the payload and append a
+      // before/after entry to payoutDetailAudit. A client-writable destination
+      // account is the highest-value target in the app, so it has no direct
+      // write path at all. Admin access goes through the ADMIN_UIDS-gated
+      // listPayoutClaims callable, never a direct read.
+      match /payoutDetails/{detailId} {
+        allow read:  if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      // ── Friend links (per-user friendship list, CF-only) ───────────────
+      // users/{uid}/friendLinks/{otherUid}: {status ('incoming'|'outgoing'|
+      // 'friend'|'blocked'), username snapshot, since}. Written ONLY by the
+      // friend callables (send/respond/cancel/block/unblock/removeFriend,
+      // deleteAccount cleanup). Owner may read; clients may never write.
+      // Doc shape: { otherUid, status, username, since }.
+      match /friendLinks/{otherUid} {
+        allow read:           if request.auth != null && request.auth.uid == userId;
+        allow create:         if false;
+        allow update, delete: if false;
+      }
+    }
+
+    // ── Questions ─────────────────────────────────────────────────────────
+    // Client-read-only: all writes go through the Admin SDK (seed script /
+    // Cloud Functions), which bypasses security rules. The difficulty
+    // contract below documents the schema for reviewers and is enforced in
+    // scripts/seed_questions.js; it is also conjunctively attached to the
+    // (still false) write rule so that if client writes are ever opened,
+    // invalid difficulty values are rejected by default.
+    function isValidQuestionDifficulty(data) {
+      return data.get('difficulty', '') in ['easy', 'medium', 'hard'];
+    }
+    match /questions/{questionId} {
+      allow read:  if request.auth != null;
+      allow create, update: if false && isValidQuestionDifficulty(request.resource.data);
+      allow delete: if false;
+    }
+
+    // ── Prize Pool ────────────────────────────────────────────────────────
+    match /prize_pool/{weekId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── Leaderboard Cycles (paid leaderboard payout snapshots) ────────────
+    match /leaderboardCycles/{weekId} {
+      allow read:  if request.auth != null;
+      allow write: if false; // CF-only via admin SDK
+
+      // Winner claim submissions — the destination account the admin pays by
+      // hand. Winner reads their own; every write is CF-only so a client can
+      // never forge or alter a payout destination.
+      match /pendingClaim/{uid} {
+        allow read:    if request.auth != null && request.auth.uid == uid;
+        allow create:  if false; // CF-only (submitPayoutDetails)
+        allow update:  if false; // CF-only (markLeaderboardPayout / checkPendingClaim)
+        allow delete:  if false; // CF-only (deleteAccount)
+      }
+    }
+
+    // ── Referral cashout claims (manual NGN payouts) ──────────────────────
+    // One doc per claimant (doc id = uid). Owner reads their own claim so the
+    // Referrals page can show "submitted / paid"; every write is CF-only
+    // (claimReferralCashout / markReferralCashoutPaid). The eligibility count
+    // and amount are server-derived — a client can never forge either.
+    match /referralCashouts/{uid} {
+      allow read:  if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // ── Matchmaking Queue ─────────────────────────────────────────────────
+    match /matchmaking_queue/{docId} {
+      // Managed entirely by Cloud Functions (matchmaking CFs). Clients must
+      // not read/write the queue directly — it could expose opponent
+      // information or let a client flood/poison the queue.
+      allow read, write: if false;
+    }
+
+    // ── Ghost Sessions ────────────────────────────────────────────────────
+    match /ghost_sessions/{animeId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── House Fees ────────────────────────────────────────────────────────
+    match /house_fees/{docId} {
+      allow read, write: if false; // CF-only via admin SDK
+    }
+
+    // ── App Config ────────────────────────────────────────────────────────
+    // Default: authenticated read, never client-writable (CF via Admin SDK).
+    // This covers the sensitive tunables: app_config/antifraud holds the
+    // fraud-scoring weights/thresholds, and app_config/leaderboard_entry_config
+    // holds the entry floor. Neither should be readable anonymously.
+    match /app_config/{docId} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+
+    // Android forced-update gate config (minBuild / latestBuild / apkUrl).
+    //
+    // Deliberately the ONLY publicly-readable app_config doc, and readable
+    // WITHOUT authentication: the client-side "Update required" wall has to be
+    // able to read it before sign-in, otherwise an outdated install would be
+    // allowed to authenticate and only then hit the wall — and the gate would
+    // not truly be "on launch". The doc carries no secrets (three numbers and
+    // a public download URL), so anonymous exposure is acceptable.
+    //
+    // Rules are OR-ed, not AND-ed: Firestore grants access if ANY matching
+    // block allows it. The block above therefore still requires auth for every
+    // other app_config doc; this block only widens access to this one path.
+    //
+    // Write is admin-UID only (isPayoutAdmin, same list as functions/index.js
+    // ADMIN_UIDS). Raising minBuild is what arms the gate, so it must not be
+    // client-writable under any circumstances.
+    match /app_config/android {
+      allow read:  if true;
+      allow write: if request.auth != null && isPayoutAdmin();
+    }
+
+    // ── Fraud Reviews (advisory scores, server-computed) ─────────────────
+    // Written ONLY by scoreFraudForWeek via Admin SDK. Admins consume them
+    // through the admin-gated listPayoutClaims callable (which attaches
+    // fraudScore/fraudReasons per claim) — never via direct reads, so no
+    // client can read/write them here.
+    match /fraudReviews/{ref} {
+      allow read:    if false;
+      allow write:   if false; // CF-only (scoreFraudForWeek)
+    }
+
+    // ── Telemetry ────────────────────────────────────────────────────────
+    // Server-side only (Cloud Functions via admin SDK). Clients must not
+    // be able to write telemetry data.
+    // Feedback (contact / bug reports / suggestions) is server-side only:
+    // written by the submitFeedback callable through the Admin SDK. No client
+    // may read other players' reports or write/delete any report.
+    match /feedback/{docId} {
+      allow read, write: if false;
+    }
+
+    match /telemetry/{docId=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // ── Server-owned security collections ────────────────────────────────
+    //   usernames/{key}        {uid, username} uniqueness claim (an
+    //                          enumeration oracle if readable)
+    //   adSessions/{token}     single-use rewarded-ad session tokens
+    //   adSessionRate/{uid}    per-uid session mint rate limiter
+    //   redeemAttempts/{uid}   failed-code counter / lockout state
+    //   phoneNumbers/{E164}    verified-phone uniqueness claim {uid}
+    //   payoutDetailAudit/{id} before/after trail of every bank-detail change
+    //   referralCashoutReserve/{id} the SEPARATE referral cashout budget
+    //   referralCashoutAudit/{id}   admin funding / status-transition trail
+    // All written only by Cloud Functions via the Admin SDK. Sealed explicitly
+    // rather than relying on default-deny, so a future edit cannot silently
+    // open one of them.
+    match /usernames/{key}        { allow read, write: if false; }
+    match /adSessions/{token}     { allow read, write: if false; }
+    match /adSessionRate/{uid}    { allow read, write: if false; }
+    match /redeemAttempts/{uid}   { allow read, write: if false; }
+    // phone -> uid is an enumeration oracle ("is this number registered?"), so
+    // it is server-only like usernames/{key}. confirmPhoneVerification owns it.
+    match /phoneNumbers/{number}  { allow read, write: if false; }
+    match /payoutDetailAudit/{id} { allow read, write: if false; }
+    // Referral cashout budget + admin audit trail. The budget is deliberately
+    // separate from prize_pool and is readable only by the admin callables.
+    match /referralCashoutReserve/{id} { allow read, write: if false; }
+    match /referralCashoutAudit/{id}   { allow read, write: if false; }
+  }
+}

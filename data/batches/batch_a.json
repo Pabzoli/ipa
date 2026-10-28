@@ -1,0 +1,4322 @@
+[
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Hunter x Hunter?",
+    "options": [
+      "Gon Freecss",
+      "Killua Zoldyck",
+      "Kurapika",
+      "Leorio Paradinight"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who is Gon's best friend from the Zoldyck assassin family?",
+    "options": [
+      "Kurapika",
+      "Killua Zoldyck",
+      "Leorio Paradinight",
+      "Hisoka Morow"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "On which island does Gon grow up?",
+    "options": [
+      "Kukuroo Mountain",
+      "Yorknew City",
+      "Whale Island",
+      "Meteor City"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who raises Gon as his guardian and aunt?",
+    "options": [
+      "Kikyo Zoldyck",
+      "Biscuit Krueger",
+      "Palm Siberia",
+      "Mito Freecss"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who is Gon's father and a legendary Hunter?",
+    "options": [
+      "Ging Freecss",
+      "Silva Zoldyck",
+      "Isaac Netero",
+      "Kite"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What title does Gon seek in order to find his father?",
+    "options": [
+      "Assassin",
+      "Hunter",
+      "Magician",
+      "Chef"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Which assassin family does Killua come from?",
+    "options": [
+      "Freecss",
+      "Kurta",
+      "Zoldyck",
+      "Morow"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Which clan does Kurapika belong to?",
+    "options": [
+      "Zoldyck family",
+      "Phantom Troupe",
+      "Hunter Association",
+      "Kurta Clan"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What color do Kurapika's eyes turn when he feels strong emotion?",
+    "options": [
+      "Scarlet",
+      "Blue",
+      "Gold",
+      "Green"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What does Leorio want to become in the future?",
+    "options": [
+      "Assassin",
+      "Doctor",
+      "Magician",
+      "Chairman"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What exam do Gon, Killua, Kurapika and Leorio take together?",
+    "options": [
+      "Chunin Exam",
+      "Zoldyck Trial",
+      "Hunter Exam",
+      "Greed Island Trial"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who chairs the Hunter Association during the Hunter Exam?",
+    "options": [
+      "Pariston Hill",
+      "Ging Freecss",
+      "Cheadle Yorkshire",
+      "Isaac Netero"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Which magician clown takes part in the Hunter Exam?",
+    "options": [
+      "Hisoka Morow",
+      "Chrollo Lucilfer",
+      "Genthru",
+      "Knuckle Bine"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What tool does young Gon often carry for fishing?",
+    "options": [
+      "A skateboard",
+      "A fishing rod",
+      "A briefcase",
+      "A sword"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What does Killua ride that he later powers with electricity?",
+    "options": [
+      "A fishing rod",
+      "A bicycle",
+      "A skateboard",
+      "A motorcycle"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What tower do Gon and Killua climb to earn money and grow stronger?",
+    "options": [
+      "Trick Tower",
+      "Yorknew Tower",
+      "Pillar Tower",
+      "Heaven's Arena"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Which Zoldyck sibling is linked to the mysterious entity Nanika?",
+    "options": [
+      "Alluka Zoldyck",
+      "Kalluto Zoldyck",
+      "Milluki Zoldyck",
+      "Illumi Zoldyck"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What video game world do Gon and Killua enter to find clues about Ging?",
+    "options": [
+      "Yorknew City",
+      "Greed Island",
+      "Meteor City",
+      "Whale Island"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What are the man-eating ant enemies of the Chimera Ant arc called?",
+    "options": [
+      "Shadow Beasts",
+      "Magic Beasts",
+      "Chimera Ants",
+      "Hell Wasps"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who is the King of the Chimera Ants?",
+    "options": [
+      "Neferpitou",
+      "Shaiapouf",
+      "Menthuthuyoupi",
+      "Meruem"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What is the life-energy power system used by Hunters called?",
+    "options": [
+      "Nen",
+      "Magic",
+      "Alchemy",
+      "Quirks"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What is Gon's signature Rock-Paper-Scissors technique called?",
+    "options": [
+      "Godspeed",
+      "Jajanken",
+      "Bungee Gum",
+      "Chain Jail"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What element does Killua channel for his Godspeed technique?",
+    "options": [
+      "Fire",
+      "Water",
+      "Electricity",
+      "Wind"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who leads the Phantom Troupe?",
+    "options": [
+      "Hisoka Morow",
+      "Feitan Portor",
+      "Uvogin",
+      "Chrollo Lucilfer"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What mark identifies members of the Phantom Troupe?",
+    "options": [
+      "A spider tattoo with a number",
+      "A scarlet eye",
+      "A star birthmark",
+      "A dragon tattoo"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "What is Hisoka's sticky aura technique called?",
+    "options": [
+      "Chain Jail",
+      "Bungee Gum",
+      "Jajanken",
+      "Godspeed"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who is Killua's grandfather and a famed assassin?",
+    "options": [
+      "Silva Zoldyck",
+      "Illumi Zoldyck",
+      "Zeno Zoldyck",
+      "Milluki Zoldyck"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Who is Killua's father and head of the Zoldyck family?",
+    "options": [
+      "Zeno Zoldyck",
+      "Illumi Zoldyck",
+      "Ging Freecss",
+      "Silva Zoldyck"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Which of Gon's friends fights with conjured chains?",
+    "options": [
+      "Kurapika",
+      "Leorio Paradinight",
+      "Gon Freecss",
+      "Killua Zoldyck"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "easy",
+    "question": "Which of Gon's friends carries a briefcase and wears glasses?",
+    "options": [
+      "Gon Freecss",
+      "Leorio Paradinight",
+      "Killua Zoldyck",
+      "Kurapika"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "How many main Nen categories are there?",
+    "options": [
+      "Six",
+      "Four",
+      "Five",
+      "Seven"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "From which floor upward must Heaven's Arena fighters know Nen?",
+    "options": [
+      "The 50th floor",
+      "The 200th floor",
+      "The 100th floor",
+      "The 150th floor"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What was Hisoka's former number in the Phantom Troupe?",
+    "options": [
+      "Number 0",
+      "Number 1",
+      "Number 4",
+      "Number 11"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What number is Uvogin in the Phantom Troupe?",
+    "options": [
+      "Number 0",
+      "Number 4",
+      "Number 7",
+      "Number 11"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Who can Kurapika use Chain Jail against?",
+    "options": [
+      "Phantom Troupe members",
+      "Chimera Ants",
+      "Hunter Association members",
+      "Zoldyck family members"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What happens if Kurapika uses Chain Jail on someone outside the Troupe?",
+    "options": [
+      "He falls asleep",
+      "He will die",
+      "He loses his voice",
+      "He forgets his Nen"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What scarlet-eyes state lets Kurapika use every Nen type?",
+    "options": [
+      "Crazy Slots",
+      "Godspeed",
+      "Emperor Time",
+      "Bungee Gum"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Who teaches Gon and Killua the basics of Nen?",
+    "options": [
+      "Kite",
+      "Knuckle",
+      "Morel",
+      "Wing"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What sport do Gon and Killua play against Razor on Greed Island?",
+    "options": [
+      "Dodgeball",
+      "Football",
+      "Gungi",
+      "Boxing"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Who leads the Bombers on Greed Island?",
+    "options": [
+      "Razor",
+      "Genthru",
+      "Tsezguerra",
+      "Chrollo Lucilfer"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What is Kite's Nen ability that summons random weapons?",
+    "options": [
+      "Jajanken",
+      "Bungee Gum",
+      "Crazy Slots",
+      "Chain Jail"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which Royal Guard toys with Gon after Kite's death?",
+    "options": [
+      "Shaiapouf",
+      "Menthuthuyoupi",
+      "Meruem",
+      "Neferpitou"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which butterfly-like Royal Guard serves Meruem?",
+    "options": [
+      "Shaiapouf",
+      "Neferpitou",
+      "Menthuthuyoupi",
+      "Zazan"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which hulking Royal Guard can metamorphose his body?",
+    "options": [
+      "Neferpitou",
+      "Menthuthuyoupi",
+      "Shaiapouf",
+      "Cheetu"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What board game does Meruem obsess over with Komugi?",
+    "options": [
+      "Chess",
+      "Shogi",
+      "Gungi",
+      "Go"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What is Netero's ultimate technique against Meruem?",
+    "options": [
+      "Jajanken",
+      "Godspeed",
+      "Rising Sun",
+      "Zero Hand"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What finally kills Meruem after his fight with Netero?",
+    "options": [
+      "The Poor Man's Rose poison",
+      "Chain Jail",
+      "Bungee Gum",
+      "Emperor Time"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which Godspeed mode reacts to threats automatically?",
+    "options": [
+      "Speed of Lightning",
+      "Whirlwind",
+      "Bungee Gum",
+      "Crazy Slots"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which Zoldyck butler fights with Nen-empowered coins?",
+    "options": [
+      "Canary",
+      "Tsubone",
+      "Gotoh",
+      "Amane"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Who is the tireless running examiner of the first Hunter Exam phase?",
+    "options": [
+      "Menchi",
+      "Buhara",
+      "Lippo",
+      "Satotz"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which pair of examiners tests cooking in the Hunter Exam?",
+    "options": [
+      "Menchi and Buhara",
+      "Satotz and Lippo",
+      "Netero and Pariston",
+      "Wing and Biscuit"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What must Hunter Exam candidates descend during the Trick Tower phase?",
+    "options": [
+      "Heaven's Arena",
+      "Trick Tower",
+      "Kukuroo Mountain",
+      "Greed Island"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which city hosts the auction arc where the Troupe appears?",
+    "options": [
+      "Whale Island",
+      "Meteor City",
+      "Yorknew City",
+      "Dolle Harbor"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Where does the Phantom Troupe originate?",
+    "options": [
+      "Whale Island",
+      "Yorknew City",
+      "Kukuroo Mountain",
+      "Meteor City"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What book does Chrollo use to steal Nen abilities?",
+    "options": [
+      "Skill Hunter",
+      "Emperor Time",
+      "Crazy Slots",
+      "Godspeed"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What is Feitan's pain-fuelled fire counterattack called?",
+    "options": [
+      "Bungee Gum",
+      "Pain Packer",
+      "Chain Jail",
+      "Jajanken"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What is Shizuku's conjured vacuum cleaner called?",
+    "options": [
+      "Razor",
+      "Gungi",
+      "Blinky",
+      "Bungee Gum"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Which Chimera Ant officer takes over Meteor City?",
+    "options": [
+      "Cheetu",
+      "Leol",
+      "Meleoron",
+      "Zazan"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "What are Ten, Zetsu, Ren and Hatsu collectively called?",
+    "options": [
+      "The Four Major Principles",
+      "The Four Games",
+      "The Four Oaths",
+      "The Four Hunts"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "medium",
+    "question": "Who trains Gon and Killua on Greed Island with harsh methods?",
+    "options": [
+      "Machi Komacine",
+      "Biscuit Krueger",
+      "Palm Siberia",
+      "Shizuku Murasaki"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "Who voices Gon Freecss in the 2011 anime?",
+    "options": [
+      "Megumi Han",
+      "Mariya Ise",
+      "Miyuki Sawashiro",
+      "Daisuke Namikawa"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "Who voices Killua Zoldyck in the 2011 anime?",
+    "options": [
+      "Megumi Han",
+      "Mariya Ise",
+      "Keiji Fujiwara",
+      "Banjo Ginga"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "Who created Hunter x Hunter and also wrote Yu Yu Hakusho?",
+    "options": [
+      "Eiichiro Oda",
+      "Masashi Kishimoto",
+      "Yoshihiro Togashi",
+      "Tite Kubo"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "Which studio animated the 2011 Hunter x Hunter series?",
+    "options": [
+      "Toei Animation",
+      "Pierrot",
+      "Bones",
+      "Madhouse"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "In which magazine did the Hunter x Hunter manga begin in 1998?",
+    "options": [
+      "Weekly Shonen Jump",
+      "Weekly Shonen Magazine",
+      "Weekly Shonen Sunday",
+      "Weekly Young Jump"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Gon Freecss's Nen type?",
+    "options": [
+      "Transmuter",
+      "Enhancer",
+      "Conjurer",
+      "Emitter"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Killua Zoldyck's Nen type?",
+    "options": [
+      "Enhancer",
+      "Conjurer",
+      "Transmuter",
+      "Manipulator"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Hisoka Morow's Nen type?",
+    "options": [
+      "Enhancer",
+      "Specialist",
+      "Emitter",
+      "Transmuter"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Kurapika's natural Nen type?",
+    "options": [
+      "Conjurer",
+      "Enhancer",
+      "Transmuter",
+      "Emitter"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Leorio Paradinight's Nen type?",
+    "options": [
+      "Enhancer",
+      "Emitter",
+      "Transmuter",
+      "Conjurer"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Chrollo Lucilfer's Nen type?",
+    "options": [
+      "Enhancer",
+      "Transmuter",
+      "Specialist",
+      "Conjurer"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Morel Mackernasey's Nen type?",
+    "options": [
+      "Enhancer",
+      "Emitter",
+      "Conjurer",
+      "Manipulator"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Knov's Nen type?",
+    "options": [
+      "Conjurer",
+      "Manipulator",
+      "Emitter",
+      "Enhancer"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "On which date is Gon Freecss's birthday?",
+    "options": [
+      "July 7",
+      "May 5",
+      "April 4",
+      "March 3"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "On which date is Killua Zoldyck's birthday?",
+    "options": [
+      "May 5",
+      "April 4",
+      "July 7",
+      "June 6"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "On which date is Kurapika's birthday?",
+    "options": [
+      "May 5",
+      "July 7",
+      "March 3",
+      "April 4"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "On which date is Leorio Paradinight's birthday?",
+    "options": [
+      "March 3",
+      "May 5",
+      "July 7",
+      "April 4"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "On which date is Hisoka Morow's birthday?",
+    "options": [
+      "May 5",
+      "June 6",
+      "July 7",
+      "April 4"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Chrollo in the Phantom Troupe?",
+    "options": [
+      "Number 1",
+      "Number 4",
+      "Number 0",
+      "Number 11"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Nobunaga Hazama in the Phantom Troupe?",
+    "options": [
+      "Number 0",
+      "Number 2",
+      "Number 4",
+      "Number 1"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Feitan Portor in the Phantom Troupe?",
+    "options": [
+      "Number 2",
+      "Number 0",
+      "Number 1",
+      "Number 4"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Machi Komacine in the Phantom Troupe?",
+    "options": [
+      "Number 0",
+      "Number 3",
+      "Number 1",
+      "Number 2"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Franklin Bordeau in the Phantom Troupe?",
+    "options": [
+      "Number 6",
+      "Number 8",
+      "Number 7",
+      "Number 9"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Shizuku Murasaki in the Phantom Troupe?",
+    "options": [
+      "Number 6",
+      "Number 7",
+      "Number 9",
+      "Number 8"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Pakunoda in the Phantom Troupe?",
+    "options": [
+      "Number 9",
+      "Number 7",
+      "Number 8",
+      "Number 10"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Bonolenov Ndongo in the Phantom Troupe?",
+    "options": [
+      "Number 8",
+      "Number 10",
+      "Number 9",
+      "Number 11"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What number is Kortopi in the Phantom Troupe?",
+    "options": [
+      "Number 10",
+      "Number 11",
+      "Number 12",
+      "Number 9"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "Which two properties does Hisoka say Bungee Gum combines?",
+    "options": [
+      "Fire and gum",
+      "Rubber and steel",
+      "Gum and paper",
+      "Rubber and gum"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "On which mountain does the Zoldyck family estate sit?",
+    "options": [
+      "Kukuroo Mountain",
+      "Mount Gorudo",
+      "Mount Split-in-Half",
+      "Mount Yorbian"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "hunter x hunter",
+    "difficulty": "hard",
+    "question": "What is Netero's giant Nen manifestation called?",
+    "options": [
+      "Crazy Slots",
+      "100-Type Guanyin Bodhisattva",
+      "Skill Hunter",
+      "Pain Packer"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the protagonist of Phantom Blood?",
+    "options": [
+      "Jonathan Joestar",
+      "Joseph Joestar",
+      "Jotaro Kujo",
+      "Josuke Higashikata"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the protagonist of Battle Tendency?",
+    "options": [
+      "Jonathan Joestar",
+      "Joseph Joestar",
+      "Jotaro Kujo",
+      "Giorno Giovanna"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the protagonist of Stardust Crusaders?",
+    "options": [
+      "Joseph Joestar",
+      "Josuke Higashikata",
+      "Jotaro Kujo",
+      "Giorno Giovanna"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the protagonist of Diamond is Unbreakable?",
+    "options": [
+      "Jotaro Kujo",
+      "Giorno Giovanna",
+      "Jonathan Joestar",
+      "Josuke Higashikata"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the protagonist of Golden Wind?",
+    "options": [
+      "Giorno Giovanna",
+      "Josuke Higashikata",
+      "Jotaro Kujo",
+      "Joseph Joestar"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the main villain of Phantom Blood and Stardust Crusaders?",
+    "options": [
+      "Kars",
+      "Dio Brando",
+      "Yoshikage Kira",
+      "Diavolo"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What artifact turns people into vampires in Phantom Blood?",
+    "options": [
+      "The Stand Arrow",
+      "The Red Stone of Aja",
+      "The Stone Mask",
+      "The Saint's Corpse"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What breathing technique fights vampires in Parts 1 and 2?",
+    "options": [
+      "Spin",
+      "Stands",
+      "Alchemy",
+      "Hamon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who teaches Jonathan Joestar Hamon?",
+    "options": [
+      "Will Anthonio Zeppeli",
+      "Robert E O Speedwagon",
+      "Lisa Lisa",
+      "Jotaro Kujo"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is Jonathan Joestar's loyal ally and supporter?",
+    "options": [
+      "Will Anthonio Zeppeli",
+      "Robert E O Speedwagon",
+      "Dio Brando",
+      "Kars"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What does Joseph Joestar say to predict an enemy's speech?",
+    "options": [
+      "Ora ora ora",
+      "Muda muda muda",
+      "Your next line is",
+      "Arrivederci"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What is Jotaro Kujo's Stand?",
+    "options": [
+      "Crazy Diamond",
+      "Gold Experience",
+      "The World",
+      "Star Platinum"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What is Josuke Higashikata's repairing Stand?",
+    "options": [
+      "Crazy Diamond",
+      "Star Platinum",
+      "Gold Experience",
+      "Sticky Fingers"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What is Giorno Giovanna's Stand?",
+    "options": [
+      "Star Platinum",
+      "Gold Experience",
+      "Crazy Diamond",
+      "The World"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What is DIO's time-stopping Stand?",
+    "options": [
+      "Star Platinum",
+      "King Crimson",
+      "The World",
+      "Killer Queen"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Which heroic Stand can also stop time like The World?",
+    "options": [
+      "Crazy Diamond",
+      "Gold Experience",
+      "Hermit Purple",
+      "Star Platinum"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What is Joseph Joestar's vine-like Stand?",
+    "options": [
+      "Hermit Purple",
+      "Hierophant Green",
+      "Magician's Red",
+      "Silver Chariot"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What shape is the Joestar family birthmark?",
+    "options": [
+      "A heart",
+      "A star",
+      "A cross",
+      "A skull"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Where is the Joestar birthmark located?",
+    "options": [
+      "On the palm",
+      "On the forehead",
+      "On the back of the neck",
+      "On the chest"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who is the Speedwagon Foundation named after?",
+    "options": [
+      "Jonathan Joestar",
+      "Will Anthonio Zeppeli",
+      "Jotaro Kujo",
+      "Robert E O Speedwagon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What does DIO sleep in to avoid sunlight?",
+    "options": [
+      "A coffin",
+      "A cave",
+      "A car",
+      "A tent"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What ancient super-beings rule as villains of Part 2?",
+    "options": [
+      "The Vampires",
+      "The Pillar Men",
+      "The Stand Users",
+      "The Zombies"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Who leads the Pillar Men?",
+    "options": [
+      "Esidisi",
+      "Wamuu",
+      "Kars",
+      "Santana"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What does the Red Stone of Aja empower?",
+    "options": [
+      "The Stand Arrow",
+      "Hamon breathing",
+      "The coffin",
+      "The Stone Mask"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What arrows grant Stands to worthy people?",
+    "options": [
+      "The Stand Arrows",
+      "The Stone Masks",
+      "The Red Stones",
+      "The Ripple Bows"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Which Italian gang does Giorno join in Golden Wind?",
+    "options": [
+      "The Speedwagon Foundation",
+      "Passione",
+      "The Joestar Group",
+      "The Morioh Police"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "In which town is Diamond is Unbreakable set?",
+    "options": [
+      "Cairo",
+      "Venice",
+      "Morioh",
+      "London"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Which ally wields The Hand that erases space?",
+    "options": [
+      "Koichi Hirose",
+      "Rohan Kishibe",
+      "Jotaro Kujo",
+      "Okuyasu Nijimura"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "Which hidden killer menaces Morioh in Part 4?",
+    "options": [
+      "Yoshikage Kira",
+      "Diavolo",
+      "Dio Brando",
+      "Kars"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "easy",
+    "question": "What is the name of DIO's mansion servant falcon in Part 3?",
+    "options": [
+      "Iggy",
+      "Pet Shop",
+      "Coco Jumbo",
+      "Stray Cat"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Who trains Joseph and Caesar in Hamon on Air Supplena Island?",
+    "options": [
+      "Lisa Lisa",
+      "Erina Pendleton",
+      "Susie Q",
+      "Enya Geil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What is Caesar Zeppeli's bubble technique called?",
+    "options": [
+      "Thunder Split Attack",
+      "Bubble Launcher",
+      "Turquoise Blue Overdrive",
+      "Zoom Punch"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which Pillar Man commands wind as the lord of gales?",
+    "options": [
+      "Kars",
+      "Esidisi",
+      "Wamuu",
+      "Santana"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which Pillar Man boils his own blood to fight?",
+    "options": [
+      "Wamuu",
+      "Kars",
+      "Santana",
+      "Esidisi"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which Pillar Man is discovered sleeping in Mexico?",
+    "options": [
+      "Santana",
+      "Kars",
+      "Esidisi",
+      "Wamuu"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "To which city do the Stardust Crusaders travel to kill DIO?",
+    "options": [
+      "Venice",
+      "Cairo",
+      "Morioh",
+      "London"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which crusader wields Magician's Red?",
+    "options": [
+      "Noriaki Kakyoin",
+      "Jean Pierre Polnareff",
+      "Muhammad Avdol",
+      "Iggy"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which crusader wields Hierophant Green?",
+    "options": [
+      "Muhammad Avdol",
+      "Jean Pierre Polnareff",
+      "Iggy",
+      "Noriaki Kakyoin"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which crusader wields Silver Chariot?",
+    "options": [
+      "Jean Pierre Polnareff",
+      "Muhammad Avdol",
+      "Noriaki Kakyoin",
+      "Iggy"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which crusader's Stand is the stray dog's The Fool?",
+    "options": [
+      "Muhammad Avdol",
+      "Iggy",
+      "Noriaki Kakyoin",
+      "Jean Pierre Polnareff"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which vampire servant wields the void Stand Cream?",
+    "options": [
+      "Hol Horse",
+      "Enya Geil",
+      "Vanilla Ice",
+      "Daniel J D'Arby"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Killer Queen turn into bombs?",
+    "options": [
+      "Only metal",
+      "Only plants",
+      "Only shadows",
+      "Whatever it touches"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What is Killer Queen's heat-seeking tank?",
+    "options": [
+      "Sheer Heart Attack",
+      "Bites the Dust",
+      "Harvest",
+      "Enigma"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What is Killer Queen's looping time bomb?",
+    "options": [
+      "Sheer Heart Attack",
+      "Bites the Dust",
+      "Stray Cat",
+      "Cheap Trick"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Koichi's Echoes Act 3 do?",
+    "options": [
+      "Erases space",
+      "Reads minds",
+      "Freezes targets with weight",
+      "Stops time"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Rohan Kishibe's Heaven's Door do?",
+    "options": [
+      "Freezes time",
+      "Fires bullets",
+      "Controls weather",
+      "Turns people into readable books"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Bucciarati's Sticky Fingers create?",
+    "options": [
+      "Zippers",
+      "Bullets",
+      "Viruses",
+      "Mirrors"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What is Narancia's plane-like Stand?",
+    "options": [
+      "Sex Pistols",
+      "Aerosmith",
+      "Purple Haze",
+      "Moody Blues"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Mista's Sex Pistols ride on?",
+    "options": [
+      "Planes",
+      "Zippers",
+      "Bullets",
+      "Coins"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Fugo's Purple Haze release?",
+    "options": [
+      "A magnet",
+      "A fire",
+      "A sound",
+      "A flesh-eating virus"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What is Trish Una's Stand?",
+    "options": [
+      "Spice Girl",
+      "Sticky Fingers",
+      "Moody Blues",
+      "Baby Face"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Diavolo's King Crimson do?",
+    "options": [
+      "Stops time",
+      "Erases time",
+      "Reverses time",
+      "Loops time"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Abbacchio's Moody Blues do?",
+    "options": [
+      "Predicts the future",
+      "Erases space",
+      "Replays the past",
+      "Reads books"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "How does Polpo test new gang members in Golden Wind?",
+    "options": [
+      "With a duel at noon",
+      "With a bubble fight",
+      "With a card game",
+      "With an arrow hidden in a lighter"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Giorno dream of becoming?",
+    "options": [
+      "A Gang-Star",
+      "A policeman",
+      "A doctor",
+      "A sailor"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which Part 4 villain wields Red Hot Chili Pepper?",
+    "options": [
+      "Keicho Nijimura",
+      "Akira Otoishi",
+      "Yukako Yamagishi",
+      "Tamami Kobayashi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Which Stand commands a tiny toy army?",
+    "options": [
+      "Harvest",
+      "Enigma",
+      "Bad Company",
+      "Cheap Trick"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What does Yukako Yamagishi control with Love Deluxe?",
+    "options": [
+      "Paper",
+      "Coins",
+      "Water",
+      "Her hair"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "What is Tonio Trussardi's Stand that cooks healing meals?",
+    "options": [
+      "Pearl Jam",
+      "Harvest",
+      "Cinderella",
+      "Enigma"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "medium",
+    "question": "Who is the boss that Giorno hunts in Golden Wind?",
+    "options": [
+      "Dio Brando",
+      "Diavolo",
+      "Yoshikage Kira",
+      "Kars"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which undead knights does Dio revive in Phantom Blood?",
+    "options": [
+      "Tarkus and Bruford",
+      "Wamuu and Esidisi",
+      "Oingo and Boingo",
+      "Sorbet and Gelato"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What is Dire's suicide attack against Dio?",
+    "options": [
+      "Bubble Launcher",
+      "Thunder Split Attack",
+      "Turquoise Blue Overdrive",
+      "Zoom Punch"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Hamon master betrays his training to use the Stone Mask?",
+    "options": [
+      "Dire",
+      "Tonpetty",
+      "Straizo",
+      "Lisa Lisa"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Who is Lisa Lisa to Joseph Joestar?",
+    "options": [
+      "His sister",
+      "His aunt",
+      "His cousin",
+      "His mother"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What does Kars become with the perfected Stone Mask?",
+    "options": [
+      "The Ultimate Life Form",
+      "A vampire",
+      "A zombie",
+      "A Stand user"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What is Wamuu's devastating wind attack?",
+    "options": [
+      "Heat Control Mode",
+      "Divine Sandstorm",
+      "Sheer Heart Attack",
+      "Aerosmith bombing"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "How does Esidisi fight with his own blood?",
+    "options": [
+      "Divine Sandstorm",
+      "Thunder Split Attack",
+      "Heat Control Mode",
+      "Bubble Launcher"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which fortune-telling Stand appears as a comic book?",
+    "options": [
+      "Khnum",
+      "Osiris",
+      "Atum",
+      "Thoth"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand changes faces like a mask?",
+    "options": [
+      "Khnum",
+      "Thoth",
+      "Osiris",
+      "Bastet"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What is Enya Geil's fog Stand?",
+    "options": [
+      "Judgement",
+      "Justice",
+      "Empress",
+      "Lovers"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What is Hol Horse's gun Stand?",
+    "options": [
+      "The Hanged Man",
+      "The Sun",
+      "The Emperor",
+      "The Lovers"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand magnetizes victims through wall outlets?",
+    "options": [
+      "Justice",
+      "Cream",
+      "Osiris",
+      "Bastet"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which gambler's Stand steals souls through bets?",
+    "options": [
+      "Osiris",
+      "Atum",
+      "Khnum",
+      "Thoth"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which younger D'Arby brother reads answers with Atum?",
+    "options": [
+      "Daniel J D'Arby",
+      "Terence T D'Arby",
+      "Vanilla Ice",
+      "Hol Horse"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What does Vanilla Ice's Cream erase things into?",
+    "options": [
+      "A card",
+      "A book",
+      "A dark void dimension",
+      "A mirror"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Morioh salon Stand swaps faces?",
+    "options": [
+      "Pearl Jam",
+      "Harvest",
+      "Love Deluxe",
+      "Cinderella"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which tiny Stand gathers coins across Morioh?",
+    "options": [
+      "Harvest",
+      "Bad Company",
+      "Enigma",
+      "Cheap Trick"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which ghost warns Josuke about the Ghost Alley?",
+    "options": [
+      "Yukako Yamagishi",
+      "Reimi Sugimoto",
+      "Aya Tsuji",
+      "Tonio Trussardi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand kills whoever looks at its user's back?",
+    "options": [
+      "Super Fly",
+      "Enigma",
+      "Cheap Trick",
+      "Highway Star"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand traps its user inside a transmission tower?",
+    "options": [
+      "Cheap Trick",
+      "Enigma",
+      "Highway Star",
+      "Super Fly"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand chases victims at 60 kmh to drain them?",
+    "options": [
+      "Highway Star",
+      "Super Fly",
+      "Enigma",
+      "Cheap Trick"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand seals people inside paper?",
+    "options": [
+      "Cheap Trick",
+      "Enigma",
+      "Super Fly",
+      "Highway Star"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Hitman Team member uses White Album's ice armor?",
+    "options": [
+      "Prosciutto",
+      "Pesci",
+      "Ghiaccio",
+      "Melone"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand ages everything with metallic mist?",
+    "options": [
+      "Beach Boy",
+      "Baby Face",
+      "White Album",
+      "The Grateful Dead"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand is a fishing rod that phases through walls?",
+    "options": [
+      "Beach Boy",
+      "The Grateful Dead",
+      "Baby Face",
+      "White Album"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand is born from a computer and a human host?",
+    "options": [
+      "Beach Boy",
+      "Baby Face",
+      "The Grateful Dead",
+      "White Album"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which turtle hides a furnished room in its body?",
+    "options": [
+      "Iggy",
+      "Pet Shop",
+      "Coco Jumbo",
+      "Stray Cat"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "What is the turtle's Stand room called?",
+    "options": [
+      "Harvest",
+      "Enigma",
+      "Aerosmith",
+      "Mr President"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which song-named rock foretells a fated death?",
+    "options": [
+      "Rolling Stones",
+      "Crazy Diamond",
+      "Sticky Fingers",
+      "Moody Blues"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "jojo's bizarre adventure",
+    "difficulty": "hard",
+    "question": "Which Stand keeps fighting after its user's death?",
+    "options": [
+      "Baby Face",
+      "Notorious B I G",
+      "Beach Boy",
+      "White Album"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Who is the magicless protagonist of Black Clover?",
+    "options": [
+      "Asta",
+      "Yuno",
+      "Yami Sukehiro",
+      "Julius Novachrono"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Who is Asta's wind-talented rival?",
+    "options": [
+      "Asta",
+      "Yuno",
+      "Noelle Silva",
+      "Luck Voltia"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What is Asta famously born without?",
+    "options": [
+      "A grimoire",
+      "A sword",
+      "Magic",
+      "A squad"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What do Asta's swords nullify?",
+    "options": [
+      "Steel",
+      "Fire",
+      "Water",
+      "Magic"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What element does Yuno control?",
+    "options": [
+      "Wind",
+      "Fire",
+      "Water",
+      "Lightning"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "How many leaves mark Asta's grimoire?",
+    "options": [
+      "One",
+      "Five",
+      "Three",
+      "Four"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "How many leaves mark Yuno's grimoire?",
+    "options": [
+      "Three",
+      "Five",
+      "Four",
+      "Two"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Magic Knight squad does Asta join?",
+    "options": [
+      "The Golden Dawn",
+      "The Silver Eagles",
+      "The Blue Roses",
+      "The Black Bulls"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Who captains the Black Bulls?",
+    "options": [
+      "Yami Sukehiro",
+      "William Vangeance",
+      "Nozel Silva",
+      "Charlotte Roselei"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What kind of magic does Yami use?",
+    "options": [
+      "Light Magic",
+      "Dark Magic",
+      "Fire Magic",
+      "Water Magic"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What weapon does Yami carry alongside his magic?",
+    "options": [
+      "A bow",
+      "A spear",
+      "A katana",
+      "An axe"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which squad does Yuno join?",
+    "options": [
+      "The Black Bulls",
+      "The Silver Eagles",
+      "The Blue Roses",
+      "The Golden Dawn"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What element does Noelle Silva control?",
+    "options": [
+      "Water",
+      "Fire",
+      "Wind",
+      "Lightning"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which royal family does Noelle belong to?",
+    "options": [
+      "House Vermillion",
+      "House Silva",
+      "House Adlai",
+      "House Roulacase"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Who is the Wizard King when the story begins?",
+    "options": [
+      "Yami Sukehiro",
+      "William Vangeance",
+      "Julius Novachrono",
+      "Augustus Kira"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which devil lives inside Asta's grimoire?",
+    "options": [
+      "Zagred",
+      "Megicula",
+      "Lucifero",
+      "Liebe"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What does Asta dream of becoming?",
+    "options": [
+      "Wizard King",
+      "Magic Emperor",
+      "Squad captain",
+      "Devil host"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Where did Asta and Yuno grow up?",
+    "options": [
+      "Clover Castle",
+      "Hage Village church",
+      "Yami's ship",
+      "The Golden Dawn base"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Who runs the Hage Village church?",
+    "options": [
+      "Julius Novachrono",
+      "Yami Sukehiro",
+      "Father Orsi",
+      "Marx Francois"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Who does Asta repeatedly propose to?",
+    "options": [
+      "Noelle Silva",
+      "Vanessa Enoteca",
+      "Charlotte Roselei",
+      "Sister Lily Aquaria"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull uses lightning magic?",
+    "options": [
+      "Luck Voltia",
+      "Magna Swing",
+      "Gauche Adlai",
+      "Finral Roulacase"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull uses fire magic?",
+    "options": [
+      "Luck Voltia",
+      "Magna Swing",
+      "Gauche Adlai",
+      "Henry Legolant"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull uses thread magic?",
+    "options": [
+      "Charmy Pappitson",
+      "Grey",
+      "Vanessa Enoteca",
+      "Noelle Silva"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull loves food and uses cotton magic?",
+    "options": [
+      "Vanessa Enoteca",
+      "Finral Roulacase",
+      "Zora Ideale",
+      "Charmy Pappitson"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull specializes in spatial magic portals?",
+    "options": [
+      "Finral Roulacase",
+      "Gauche Adlai",
+      "Magna Swing",
+      "Luck Voltia"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull uses mirror magic?",
+    "options": [
+      "Finral Roulacase",
+      "Gauche Adlai",
+      "Magna Swing",
+      "Luck Voltia"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What is the name of Asta's bird companion?",
+    "options": [
+      "Bell",
+      "Undine",
+      "Nero",
+      "Sylph"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "In which kingdom does most of Black Clover take place?",
+    "options": [
+      "The Diamond Kingdom",
+      "The Spade Kingdom",
+      "The Heart Kingdom",
+      "The Clover Kingdom"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "What covers Asta's body when he uses devil power?",
+    "options": [
+      "Anti-magic devil union markings",
+      "Golden light armor",
+      "Water armor",
+      "Wind cloaks"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "easy",
+    "question": "Which Black Bull always wears a stitched mask?",
+    "options": [
+      "Magna Swing",
+      "Zora Ideale",
+      "Luck Voltia",
+      "Gauche Adlai"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who captains the Golden Dawn?",
+    "options": [
+      "William Vangeance",
+      "Yami Sukehiro",
+      "Nozel Silva",
+      "Charlotte Roselei"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who captains the Silver Eagles?",
+    "options": [
+      "William Vangeance",
+      "Nozel Silva",
+      "Yami Sukehiro",
+      "Jack the Ripper"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who captains the Blue Roses?",
+    "options": [
+      "Dorothy Unsworth",
+      "Mereoleona Vermillion",
+      "Charlotte Roselei",
+      "Rill Boismortier"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who captains the Crimson Lions?",
+    "options": [
+      "Mereoleona Vermillion",
+      "Jack the Ripper",
+      "Kaiser Granvorka",
+      "Fuegoleon Vermillion"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who captains the Green Mantises?",
+    "options": [
+      "Jack the Ripper",
+      "Fuegoleon Vermillion",
+      "Nozel Silva",
+      "Rill Boismortier"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who captains the Aqua Deer?",
+    "options": [
+      "Jack the Ripper",
+      "Rill Boismortier",
+      "Dorothy Unsworth",
+      "Kaiser Granvorka"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who leads the Coral Peacocks?",
+    "options": [
+      "Charlotte Roselei",
+      "Rill Boismortier",
+      "Dorothy Unsworth",
+      "Kaiser Granvorka"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who leads the Purple Orcas?",
+    "options": [
+      "Dorothy Unsworth",
+      "Jack the Ripper",
+      "Fuegoleon Vermillion",
+      "Kaiser Granvorka"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "What magic does Nozel Silva use?",
+    "options": [
+      "Mercury Magic",
+      "Water Magic",
+      "Wind Magic",
+      "Fire Magic"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "What magic does Charlotte Roselei use?",
+    "options": [
+      "Cotton Magic",
+      "Briar Magic",
+      "Mirror Magic",
+      "Ash Magic"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "What magic does Jack the Ripper use?",
+    "options": [
+      "Slash Magic",
+      "Dark Magic",
+      "Severing Magic",
+      "Beast Magic"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "What magic does Fuegoleon Vermillion use?",
+    "options": [
+      "Water Magic",
+      "Wind Magic",
+      "Earth Magic",
+      "Fire Magic"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which terrorist group seeks the magic stones?",
+    "options": [
+      "The Eye of the Midnight Sun",
+      "The Dark Triad",
+      "The Diamond Army",
+      "The Elf Tribe"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who secretly leads the Eye of the Midnight Sun?",
+    "options": [
+      "Zagred",
+      "Patri",
+      "Lucifero",
+      "Megicula"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which devil causes the elf massacre tragedy?",
+    "options": [
+      "Liebe",
+      "Megicula",
+      "Zagred",
+      "Lucifero"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which spirit does Yuno inherit?",
+    "options": [
+      "Undine the water spirit",
+      "Salamander the fire spirit",
+      "Gnome the earth spirit",
+      "Sylph the wind spirit"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which water spirit serves the Heart Kingdom?",
+    "options": [
+      "Undine",
+      "Sylph",
+      "Salamander",
+      "Gnome"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which fire spirit serves Fuegoleon?",
+    "options": [
+      "Undine",
+      "Salamander",
+      "Sylph",
+      "Gnome"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "What exam forms the Royal Knights?",
+    "options": [
+      "The Magic Knights Entrance Exam",
+      "The Star Festival",
+      "The Royal Knights Selection Exam",
+      "The Dungeon Trial"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which dungeon pairs Asta, Yuno, Noelle and Luck?",
+    "options": [
+      "The Underwater Temple",
+      "The Witches Forest",
+      "The Shadow Palace",
+      "The first dungeon expedition"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which temple tests the Black Bulls underwater?",
+    "options": [
+      "The Underwater Temple",
+      "The Shadow Palace",
+      "The Sky Fortress",
+      "The Sun Temple"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who rules the Underwater Temple?",
+    "options": [
+      "Vetto",
+      "Gio",
+      "Fana",
+      "Rhya"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which Eye of the Midnight Sun beast attacks the Underwater Temple?",
+    "options": [
+      "Fana",
+      "Rhya",
+      "Vetto",
+      "Patri"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Where do the witches live?",
+    "options": [
+      "The Underwater Temple",
+      "The Shadow Palace",
+      "Hage Village",
+      "The Witches Forest"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who is the Witch Queen?",
+    "options": [
+      "Vanessa's mother",
+      "Dorothy Unsworth",
+      "Charlotte Roselei",
+      "Mereoleona Vermillion"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which festival celebrates Magic Knight stars?",
+    "options": [
+      "The Royal Ball",
+      "The Star Festival",
+      "The Harvest Feast",
+      "The Devil Banquet"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which squad wins the Star Festival in Asta's first year?",
+    "options": [
+      "The Golden Dawn",
+      "The Silver Eagles",
+      "The Black Bulls",
+      "The Blue Roses"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Who is Fuegoleon's fierce sister?",
+    "options": [
+      "Charlotte Roselei",
+      "Dorothy Unsworth",
+      "Vanessa Enoteca",
+      "Mereoleona Vermillion"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which neighboring kingdom invades with crystal mages?",
+    "options": [
+      "The Diamond Kingdom",
+      "The Spade Kingdom",
+      "The Heart Kingdom",
+      "The Joker Kingdom"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "medium",
+    "question": "Which princess rules the Heart Kingdom?",
+    "options": [
+      "Charlotte Roselei",
+      "Lolopechka",
+      "Dorothy Unsworth",
+      "Vanessa Enoteca"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Who wrote and illustrated Black Clover?",
+    "options": [
+      "Yuki Tabata",
+      "Eiichiro Oda",
+      "Masashi Kishimoto",
+      "Yoshihiro Togashi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which studio animated the Black Clover TV series?",
+    "options": [
+      "Madhouse",
+      "Pierrot",
+      "Bones",
+      "MAPPA"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "In which magazine did Black Clover begin in 2015?",
+    "options": [
+      "Weekly Shonen Magazine",
+      "Weekly Shonen Sunday",
+      "Weekly Shonen Jump",
+      "Ultra Jump"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What kind of magic does Julius Novachrono use?",
+    "options": [
+      "Light Magic",
+      "Dark Magic",
+      "Wind Magic",
+      "Time Magic"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What kind of magic does William Vangeance use?",
+    "options": [
+      "World Tree Magic",
+      "Dark Magic",
+      "Light Magic",
+      "Mist Magic"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which devil possesses Megicula's curse?",
+    "options": [
+      "Zagred",
+      "Megicula",
+      "Liebe",
+      "Lucifero"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which devil serves the Dark Triad as the highest devil?",
+    "options": [
+      "Liebe",
+      "Zagred",
+      "Lucifero",
+      "Megicula"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which Dark Triad host wields bone magic?",
+    "options": [
+      "Dante Zogratis",
+      "Vanica Zogratis",
+      "Moris Libardirt",
+      "Zenon Zogratis"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which Dark Triad host wields body magic?",
+    "options": [
+      "Dante Zogratis",
+      "Zenon Zogratis",
+      "Vanica Zogratis",
+      "Moris Libardirt"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which Dark Triad host wields blood and curse magic?",
+    "options": [
+      "Dante Zogratis",
+      "Vanica Zogratis",
+      "Zenon Zogratis",
+      "Moris Libardirt"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which devil dwells inside Nacht Faust?",
+    "options": [
+      "Liebe",
+      "Zagred",
+      "Gimodelo",
+      "Lucifero"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What role is Nacht Faust within the Black Bulls?",
+    "options": [
+      "Captain",
+      "Medic",
+      "Scout",
+      "Vice-captain"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "From which foreign land does Yami originate?",
+    "options": [
+      "Hino Country",
+      "Diamond Kingdom",
+      "Heart Kingdom",
+      "Spade Kingdom"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which earth spirit partners with the Heart Kingdom?",
+    "options": [
+      "Sylph",
+      "Gnome",
+      "Undine",
+      "Salamander"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What is Asta's devil Liebe's magic attribute?",
+    "options": [
+      "Fire magic",
+      "Wind magic",
+      "Anti-magic",
+      "Time magic"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which elf is reincarnated in William Vangeance?",
+    "options": [
+      "Rhya",
+      "Vetto",
+      "Fana",
+      "Patri"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which elf apostle uses imitation magic?",
+    "options": [
+      "Rhya",
+      "Vetto",
+      "Fana",
+      "Patri"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which elf apostle uses beast magic?",
+    "options": [
+      "Rhya",
+      "Vetto",
+      "Fana",
+      "Patri"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which elf apostle uses flame magic?",
+    "options": [
+      "Rhya",
+      "Vetto",
+      "Fana",
+      "Patri"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which captain was possessed by an elf at the Royal Knights base?",
+    "options": [
+      "Yami Sukehiro",
+      "Jack the Ripper",
+      "Nozel Silva",
+      "Rill Boismortier"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which mage stage marks Asta and Yami as otherworldly?",
+    "options": [
+      "Arcane Stage",
+      "Stage One",
+      "Stage Five",
+      "Stage Nine"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What is Grey's true magic attribute?",
+    "options": [
+      "Cotton Magic",
+      "Transformation Magic",
+      "Mirror Magic",
+      "Ash Magic"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What is Zora Ideale's magic attribute?",
+    "options": [
+      "Fire Magic",
+      "Sand Magic",
+      "Ash Magic",
+      "Mist Magic"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What is Henry Legolant's magic attribute?",
+    "options": [
+      "Spatial Magic",
+      "Beast Magic",
+      "Steel Magic",
+      "Recombination Magic"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What is Gordon Agrippa's magic attribute?",
+    "options": [
+      "Poison Magic",
+      "Fire Magic",
+      "Ash Magic",
+      "Curse Magic"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What is Secre Swallowtail's sealed bird form?",
+    "options": [
+      "Bell",
+      "Nero",
+      "Sylph",
+      "Undine"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "What magic does Secre Swallowtail use?",
+    "options": [
+      "Healing Magic",
+      "Wind Magic",
+      "Sealing Magic",
+      "Time Magic"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which devil cursed Acier Silva?",
+    "options": [
+      "Zagred",
+      "Liebe",
+      "Lucifero",
+      "Megicula"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Who becomes the second Wizard King successor figure revealed as Lucius?",
+    "options": [
+      "Julius Novachrono",
+      "William Vangeance",
+      "Yami Sukehiro",
+      "Augustus Kira"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "black clover",
+    "difficulty": "hard",
+    "question": "Which Magic Knight is feared as the Crimson Lioness?",
+    "options": [
+      "Charlotte Roselei",
+      "Mereoleona Vermillion",
+      "Dorothy Unsworth",
+      "Vanessa Enoteca"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Blue Lock?",
+    "options": [
+      "Yoichi Isagi",
+      "Meguru Bachira",
+      "Seishiro Nagi",
+      "Rin Itoshi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What facility trains strikers in Blue Lock?",
+    "options": [
+      "Blue Prison",
+      "Blue Lock",
+      "Blue Academy",
+      "Blue Stadium"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who runs the Blue Lock project?",
+    "options": [
+      "Anri Teieri",
+      "Hirotoshi Buratsuta",
+      "Jinpachi Ego",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What kind of player does Blue Lock aim to create?",
+    "options": [
+      "The world's best goalkeeper",
+      "The world's best referee",
+      "The world's best medic",
+      "The world's best striker"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Which position does Blue Lock train?",
+    "options": [
+      "Striker",
+      "Goalkeeper",
+      "Referee",
+      "Coach"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What happens to Blue Lock losers?",
+    "options": [
+      "They join the coaches",
+      "They lose the right to play for Japan",
+      "They become referees",
+      "They win money"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What philosophy does Ego preach?",
+    "options": [
+      "Teamwork only",
+      "Passing only",
+      "Egoism",
+      "Defense only"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Which team does Isagi start on?",
+    "options": [
+      "Team X",
+      "Team V",
+      "Team W",
+      "Team Z"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is Isagi's wasp-like dribbling friend?",
+    "options": [
+      "Meguru Bachira",
+      "Seishiro Nagi",
+      "Hyoma Chigiri",
+      "Rensuke Kunigami"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the laid-back genius with amazing trapping?",
+    "options": [
+      "Meguru Bachira",
+      "Seishiro Nagi",
+      "Hyoma Chigiri",
+      "Yoichi Isagi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the red-haired speedster with a past knee injury?",
+    "options": [
+      "Rensuke Kunigami",
+      "Seishiro Nagi",
+      "Hyoma Chigiri",
+      "Meguru Bachira"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the orange-haired power shooter?",
+    "options": [
+      "Hyoma Chigiri",
+      "Seishiro Nagi",
+      "Meguru Bachira",
+      "Rensuke Kunigami"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the cold prodigy with teal hair?",
+    "options": [
+      "Rin Itoshi",
+      "Sae Itoshi",
+      "Ryusei Shidou",
+      "Tabito Karasu"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the wild blonde demon striker?",
+    "options": [
+      "Rin Itoshi",
+      "Ryusei Shidou",
+      "Sae Itoshi",
+      "Yoichi Isagi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What is Isagi's signature direct shot called?",
+    "options": [
+      "Panther snipe",
+      "Knuckle shot",
+      "Direct shot",
+      "Volley smash"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What is Nagi's best weapon?",
+    "options": [
+      "Speed",
+      "Heading",
+      "Sliding",
+      "Trapping"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What is Bachira's best weapon?",
+    "options": [
+      "Dribbling",
+      "Heading",
+      "Blocking",
+      "Catching"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What is Chigiri's best weapon?",
+    "options": [
+      "Strength",
+      "Speed",
+      "Heading",
+      "Catching"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What is Kunigami's best weapon?",
+    "options": [
+      "Goalkeeping",
+      "Dribbling",
+      "Powerful shooting",
+      "Passing"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What number shirt does Isagi wear on Team Z?",
+    "options": [
+      "Number 1",
+      "Number 4",
+      "Number 10",
+      "Number 11"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What tournament must Japan win in Blue Lock's goal?",
+    "options": [
+      "The World Cup",
+      "The Olympics",
+      "The High School Cup",
+      "The Futsal Cup"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is Rin's older brother and midfield prodigy?",
+    "options": [
+      "Rin Itoshi",
+      "Sae Itoshi",
+      "Ryusei Shidou",
+      "Yoichi Isagi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "How many forwards are invited into Blue Lock at the start?",
+    "options": [
+      "100",
+      "200",
+      "300",
+      "350"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What sport does Blue Lock train players for?",
+    "options": [
+      "Basketball",
+      "Baseball",
+      "Tennis",
+      "Football"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the tall goalkeeper who later becomes a field player?",
+    "options": [
+      "Gin Gagamaru",
+      "Gurimu Igarashi",
+      "Asahi Naruhaya",
+      "Jingo Raichi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the short monk-like Team Z forward?",
+    "options": [
+      "Gin Gagamaru",
+      "Gurimu Igarashi",
+      "Jingo Raichi",
+      "Okuhito Iemon"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the loud shark-toothed Team Z midfielder?",
+    "options": [
+      "Gurimu Igarashi",
+      "Gin Gagamaru",
+      "Jingo Raichi",
+      "Asahi Naruhaya"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the bee-helmeted Team Z goalkeeper?",
+    "options": [
+      "Gin Gagamaru",
+      "Gurimu Igarashi",
+      "Jingo Raichi",
+      "Okuhito Iemon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "Who is the small silver-haired Team Z winger?",
+    "options": [
+      "Asahi Naruhaya",
+      "Gurimu Igarashi",
+      "Jingo Raichi",
+      "Gin Gagamaru"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "easy",
+    "question": "What does Ego lock players inside to train?",
+    "options": [
+      "A normal school",
+      "A remote high-tech facility",
+      "A public park",
+      "A shopping mall"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which teams make up Isagi's first-selection group?",
+    "options": [
+      "Teams V, W, X, Y and Z",
+      "Teams A, B, C, D and E",
+      "Teams 1, 2, 3, 4 and 5",
+      "Teams Red, Blue, Green, Yellow and Black"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "What test opens Blue Lock with a tag-like game?",
+    "options": [
+      "The penalty test",
+      "The entrance tag test",
+      "The swimming test",
+      "The quiz test"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who is eliminated in Blue Lock's entrance tag game?",
+    "options": [
+      "Yoichi Isagi",
+      "Meguru Bachira",
+      "Kira Ryosuke",
+      "Rensuke Kunigami"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "What is Isagi's core weapon that reads the field?",
+    "options": [
+      "Sheer strength",
+      "High jumping",
+      "Long throws",
+      "Spatial awareness"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "What vision skill blooms in Isagi during selection?",
+    "options": [
+      "Meta Vision",
+      "Dragon Drive",
+      "Panther Snipe",
+      "Total Defense"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which Team V ace has a chameleon-like shot style?",
+    "options": [
+      "Reo Mikage",
+      "Seishiro Nagi",
+      "Zantetsu Tsurugi",
+      "Yoichi Isagi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who is Nagi's wealthy passing partner?",
+    "options": [
+      "Zantetsu Tsurugi",
+      "Seishiro Nagi",
+      "Reo Mikage",
+      "Rin Itoshi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who is the glasses-wearing speedster of Team V?",
+    "options": [
+      "Reo Mikage",
+      "Seishiro Nagi",
+      "Hyoma Chigiri",
+      "Zantetsu Tsurugi"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "What formation does second selection use for rival battles?",
+    "options": [
+      "Three-player teams",
+      "Eleven-player teams",
+      "Solo matches",
+      "Goalkeeper duels"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which trio does Isagi join in second selection?",
+    "options": [
+      "Bachira and Chigiri",
+      "Nagi and Barou",
+      "Rin and Shidou",
+      "Kunigami and Reo"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who is the crown-wearing king-like striker?",
+    "options": [
+      "Seishiro Nagi",
+      "Yoichi Isagi",
+      "Shoei Barou",
+      "Rin Itoshi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "What is Barou's villainous shooting style called?",
+    "options": [
+      "Hero football",
+      "Ghost football",
+      "Robot football",
+      "Villain football"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which U-20 captain leads Japan against Blue Lock?",
+    "options": [
+      "Oliver Aiku",
+      "Sae Itoshi",
+      "Ryusei Shidou",
+      "Rin Itoshi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "What was the score when Blue Lock Eleven beat Japan U-20?",
+    "options": [
+      "1-0",
+      "4-3",
+      "2-2",
+      "5-1"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which German club does Isagi join in the Neo Egoist League?",
+    "options": [
+      "Manshine City",
+      "Ubers",
+      "Bastard Munchen",
+      "Paris X Gen"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who coaches Bastard Munchen?",
+    "options": [
+      "Chris Prince",
+      "Lavinho",
+      "Marc Snuffy",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who is Bastard Munchen's young emperor-like striker?",
+    "options": [
+      "Michael Kaiser",
+      "Alexis Ness",
+      "Yoichi Isagi",
+      "Rensuke Kunigami"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who is Kaiser's loyal midfielder?",
+    "options": [
+      "Michael Kaiser",
+      "Alexis Ness",
+      "Yoichi Isagi",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which English club plays with macho training?",
+    "options": [
+      "Bastard Munchen",
+      "Ubers",
+      "Manshine City",
+      "Barcha"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which Italian club plays organized tactics?",
+    "options": [
+      "Barcha",
+      "Manshine City",
+      "Paris X Gen",
+      "Ubers"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which Spanish club plays free technique?",
+    "options": [
+      "Barcha",
+      "Ubers",
+      "Manshine City",
+      "Bastard Munchen"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which French club signs Rin and Shidou?",
+    "options": [
+      "Barcha",
+      "Paris X Gen",
+      "Ubers",
+      "Manshine City"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who coaches Manshine City?",
+    "options": [
+      "Noel Noa",
+      "Lavinho",
+      "Chris Prince",
+      "Marc Snuffy"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who coaches Barcha?",
+    "options": [
+      "Chris Prince",
+      "Noel Noa",
+      "Marc Snuffy",
+      "Lavinho"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who coaches Ubers?",
+    "options": [
+      "Marc Snuffy",
+      "Chris Prince",
+      "Lavinho",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Who coaches Paris X Gen?",
+    "options": [
+      "Chris Prince",
+      "Julian Loki",
+      "Lavinho",
+      "Marc Snuffy"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which team does Seishiro Nagi join in the Neo Egoist League?",
+    "options": [
+      "Bastard Munchen",
+      "Ubers",
+      "Manshine City",
+      "Barcha"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which long-limbed glasses defender plays for Ubers?",
+    "options": [
+      "Oliver Aiku",
+      "Tabito Karasu",
+      "Eita Otoya",
+      "Jyubei Aryu"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which crow-like midfielder steals balls with smarts?",
+    "options": [
+      "Tabito Karasu",
+      "Jyubei Aryu",
+      "Eita Otoya",
+      "Oliver Aiku"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "medium",
+    "question": "Which ninja-like winger cuts inside silently?",
+    "options": [
+      "Tabito Karasu",
+      "Eita Otoya",
+      "Jyubei Aryu",
+      "Oliver Aiku"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Who writes the Blue Lock manga story?",
+    "options": [
+      "Muneyuki Kaneshiro",
+      "Yuki Tabata",
+      "Yoshihiro Togashi",
+      "Eiichiro Oda"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Who illustrates the Blue Lock manga?",
+    "options": [
+      "Yuki Tabata",
+      "Yusuke Nomura",
+      "Takeshi Obata",
+      "Yusuke Murata"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "In which magazine did Blue Lock begin in 2018?",
+    "options": [
+      "Weekly Shonen Jump",
+      "Weekly Shonen Sunday",
+      "Weekly Shonen Magazine",
+      "Weekly Young Jump"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which studio animated the Blue Lock TV series?",
+    "options": [
+      "Madhouse",
+      "Pierrot",
+      "Bones",
+      "8bit"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Ego's full name?",
+    "options": [
+      "Jinpachi Ego",
+      "Hirotoshi Buratsuta",
+      "Anri Teieri",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Who is the JFU secretary backing Blue Lock?",
+    "options": [
+      "Hirotoshi Buratsuta",
+      "Anri Teieri",
+      "Jinpachi Ego",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Who chairs the JFU against Ego?",
+    "options": [
+      "Anri Teieri",
+      "Jinpachi Ego",
+      "Hirotoshi Buratsuta",
+      "Noel Noa"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which nation does Sae Itoshi play club football in?",
+    "options": [
+      "Germany",
+      "England",
+      "Italy",
+      "Spain"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which Team Z player becomes Blue Lock's standout goalkeeper?",
+    "options": [
+      "Gin Gagamaru",
+      "Okuhito Iemon",
+      "Gurimu Igarashi",
+      "Asahi Naruhaya"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which U-20 defender uses arms like snakes?",
+    "options": [
+      "Sae Itoshi",
+      "Oliver Aiku",
+      "Shuto Sendo",
+      "Jyubei Aryu"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which U-20 forward scores with acrobatic shots?",
+    "options": [
+      "Oliver Aiku",
+      "Sae Itoshi",
+      "Shuto Sendo",
+      "Jyubei Aryu"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which player copies others with chameleon play?",
+    "options": [
+      "Zantetsu Tsurugi",
+      "Seishiro Nagi",
+      "Yoichi Isagi",
+      "Reo Mikage"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Zantetsu's acceleration weapon named?",
+    "options": [
+      "Rocket start",
+      "Panther snipe",
+      "Direct shot",
+      "Villain shot"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Chigiri's signature left-foot shot?",
+    "options": [
+      "Knuckle shot",
+      "44-degree panther snipe",
+      "Direct shot",
+      "Villain shot"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Kunigami's signature shot after the wild card?",
+    "options": [
+      "Panther snipe",
+      "Direct shot",
+      "Knuckle shot",
+      "Villain shot"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What program rebuilds Kunigami after elimination?",
+    "options": [
+      "The Manshine program",
+      "The Ubers program",
+      "The Barcha program",
+      "The Wild Card program"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which midfielder controls games like an octopus?",
+    "options": [
+      "Yo Hiori",
+      "Tabito Karasu",
+      "Eita Otoya",
+      "Jyubei Aryu"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which glasses striker snipes with both feet?",
+    "options": [
+      "Yo Hiori",
+      "Kenyu Yukimiya",
+      "Tabito Karasu",
+      "Eita Otoya"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What illness limits Yukimiya's career?",
+    "options": [
+      "Knee injury",
+      "Heart disease",
+      "Optic neuropathy",
+      "Asthma"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which monk-headed forward shouts temple slogans?",
+    "options": [
+      "Asahi Naruhaya",
+      "Jingo Raichi",
+      "Okuhito Iemon",
+      "Gurimu Igarashi"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which small forward dreams of a pro contract for family?",
+    "options": [
+      "Asahi Naruhaya",
+      "Gurimu Igarashi",
+      "Jingo Raichi",
+      "Gin Gagamaru"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which miserly defender-turned-forward loves money?",
+    "options": [
+      "Yoichi Isagi",
+      "Shoei Barou",
+      "Seishiro Nagi",
+      "Rin Itoshi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Kaiser's signature shot called?",
+    "options": [
+      "Direct shot",
+      "Panther snipe",
+      "Kaiser Impact",
+      "Knuckle shot"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Ness's magic-like pass called?",
+    "options": [
+      "Direct pass",
+      "Panther pass",
+      "Villain pass",
+      "Magic pass"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "In which country does Bastard Munchen's league play?",
+    "options": [
+      "Germany",
+      "England",
+      "Spain",
+      "Italy"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What is Rin's destructive awakened state called?",
+    "options": [
+      "Hero mode",
+      "Destroyer mode",
+      "Ghost mode",
+      "King mode"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Who is the world's best striker coaching Bastard Munchen?",
+    "options": [
+      "Lavinho",
+      "Chris Prince",
+      "Noel Noa",
+      "Marc Snuffy"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "Which goalkeeper defends Japan U-20 against Blue Lock?",
+    "options": [
+      "Gin Gagamaru",
+      "Okuhito Iemon",
+      "Goat Monjiro",
+      "Gen Fukaku"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "How many episodes did Blue Lock season one have?",
+    "options": [
+      "24",
+      "12",
+      "13",
+      "26"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "blue lock",
+    "difficulty": "hard",
+    "question": "What does Bachira imagine guiding his dribbles?",
+    "options": [
+      "A coach",
+      "A monster",
+      "A robot",
+      "A ghost"
+    ],
+    "correctAnswerIndex": 1
+  }
+]

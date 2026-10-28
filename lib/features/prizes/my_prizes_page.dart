@@ -22,6 +22,7 @@ import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_page_route.dart';
@@ -62,7 +63,7 @@ String _weekLabel(String weekId) {
 
 /// Server-derived display state for one prize row. The label never claims more
 /// than the server knows: `paid` is the only "Paid" source, `marked` means the
-/// admin recorded the transfer, `pending` is a submitted-but-unsent claim, and
+/// claim was recorded, `pending` is a submitted-but-unsent claim, and
 /// `expired` is a forfeited share (the 3-day window has closed, so no reclaim).
 class _PrizeStatus {
   final String label;
@@ -77,22 +78,22 @@ class _PrizeStatus {
           'Paid', AppColors.correct, Icons.check_circle_rounded);
     }
     // `ranked[]` carries every entrant, and only the paid places get a
-    // non-zero share. A rank outside the top five is still listed here, but it
+    // non-zero share. A rank outside the top three is still listed here, but it
     // must never read as claimable money — the claim screen shows the same
     // "no prize this week" outcome.
     if (s.share <= 0) {
-      return const _PrizeStatus(
+      return _PrizeStatus(
           'No prize', AppColors.textMuted, Icons.remove_circle_outline_rounded);
     }
     switch (s.claimStatus) {
       case 'marked':
         return const _PrizeStatus(
-            'Transfer sent', AppColors.secondary, Icons.local_shipping_rounded);
+            'In progress', AppColors.secondary, Icons.hourglass_top_rounded);
       case 'pending':
         return const _PrizeStatus(
             'Awaiting payment', AppColors.accent, Icons.hourglass_top_rounded);
       case 'expired':
-        return const _PrizeStatus('Expired · forfeited', AppColors.textMuted,
+        return _PrizeStatus('Expired · forfeited', AppColors.textMuted,
             Icons.event_busy_rounded);
       default:
         return const _PrizeStatus(
@@ -119,7 +120,7 @@ class _MyPrizesPageState extends State<MyPrizesPage> {
     _announcementFuture = FirestoreService.instance.getLastWeekWinners();
   }
 
-  /// Pull-to-refresh: re-runs the query so a payout the admin just approved
+  /// Pull-to-refresh: re-runs the query so a recently approved payout
   /// becomes visible without a restart. `getMyWinnerCycles` already degrades to
   /// an empty list on failure, so there is nothing to surface here.
   Future<void> _reload() async {
@@ -145,6 +146,7 @@ class _MyPrizesPageState extends State<MyPrizesPage> {
         backgroundColor: AppColors.surfaceDim,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
+        leading: const AppBackButton(),
         title: Text(
           'My Prizes',
           style: AppTypography.titleLarge.copyWith(fontWeight: FontWeight.w900),
@@ -165,7 +167,7 @@ class _MyPrizesPageState extends State<MyPrizesPage> {
             }
             final cycles = snap.data ?? const <WinnerClaimSummary>[];
             return RefreshIndicator(
-              color: AppColors.primary,
+              color: AppColors.readable(AppColors.primary),
               backgroundColor: AppColors.surface,
               onRefresh: _reload,
               child: cycles.isEmpty
@@ -270,9 +272,9 @@ class _AnnouncementLink extends StatelessWidget {
                     padding: EdgeInsets.all(14.r),
                     child: Row(
                       children: [
-                        const _IconTile(
+                        _IconTile(
                           icon: Icons.campaign_rounded,
-                          color: AppColors.gold,
+                          color: AppColors.readable(AppColors.gold),
                         ),
                         SizedBox(width: 12.w),
                         Expanded(
@@ -302,7 +304,7 @@ class _AnnouncementLink extends StatelessWidget {
                         SizedBox(width: 8.w),
                         Icon(
                           Icons.chevron_right_rounded,
-                          color: AppColors.gold,
+                          color: AppColors.readable(AppColors.gold),
                           size: 20.r,
                         ),
                       ],
@@ -348,7 +350,7 @@ class _WinningsHero extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(18.r),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           colors: AppColors.cardGradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -368,9 +370,9 @@ class _WinningsHero extends StatelessWidget {
         children: [
           Row(
             children: [
-              const _IconTile(
+              _IconTile(
                 icon: Icons.emoji_events_rounded,
-                color: AppColors.gold,
+                color: AppColors.readable(AppColors.gold),
                 size: 34,
               ),
               SizedBox(width: 10.w),
@@ -383,23 +385,8 @@ class _WinningsHero extends StatelessWidget {
                   ),
                 ),
               ),
-              // Same "cycle tag" treatment the weekly PrizePoolCard uses, so
-              // the two money screens read as one family.
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 8.r, vertical: 3.r),
-                decoration: BoxDecoration(
-                  color: AppColors.secondary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6.r),
-                ),
-                child: Text(
-                  'PAID MANUALLY',
-                  style: AppTypography.labelSmall.copyWith(
-                    fontSize: 9.sp,
-                    letterSpacing: 0.6,
-                    color: AppColors.secondary,
-                  ),
-                ),
-              ),
+              // Prize tag.
+              const SizedBox.shrink(),
             ],
           ),
           SizedBox(height: 16.h),
@@ -428,9 +415,8 @@ class _WinningsHero extends StatelessWidget {
             SizedBox(height: 6.h),
             Text(
               outstandingRows.length == 1
-                  ? '1 weekly prize is still to be sent to your bank.'
-                  : '${outstandingRows.length} weekly prizes are still to be '
-                      'sent to your bank.',
+                  ? '1 weekly prize is still pending.'
+                  : '${outstandingRows.length} weekly prizes are still pending.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textMuted,
                 fontSize: 11.5.sp,
@@ -439,7 +425,7 @@ class _WinningsHero extends StatelessWidget {
             ),
           ],
           SizedBox(height: 16.h),
-          const Divider(height: 1, color: AppColors.divider),
+          Divider(height: 1, color: AppColors.divider),
           SizedBox(height: 14.h),
           Row(
             children: [
@@ -604,7 +590,7 @@ class _RankMedal extends StatelessWidget {
             '#$rank',
             style: TextStyle(
               fontFamily: AppTypography.fontFamily,
-              color: color,
+              color: AppColors.readable(color),
               fontSize: 13.sp,
               fontWeight: FontWeight.w900,
               height: 1,
@@ -644,12 +630,13 @@ class _StatusChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(status.icon, color: status.color, size: 11.r),
+          Icon(status.icon,
+              color: AppColors.readable(status.color), size: 11.r),
           SizedBox(width: 4.w),
           Text(
             status.label,
             style: AppTypography.labelSmall.copyWith(
-              color: status.color,
+              color: AppColors.readable(status.color),
               fontSize: 9.5.sp,
               letterSpacing: 0.1,
             ),
@@ -679,7 +666,8 @@ class _IconTile extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       alignment: Alignment.center,
-      child: Icon(icon, color: color, size: (size * 0.52).r),
+      child: Icon(icon,
+          color: AppColors.readable(color), size: (size * 0.52).r),
     );
   }
 }
@@ -767,14 +755,14 @@ class _EmptyPrizes extends StatelessWidget {
           hasScrollBody: false,
           child: AppEmptyState(
             icon: Icons.emoji_events_outlined,
-            color: AppColors.gold,
+            color: AppColors.readable(AppColors.gold),
             title: 'No prizes yet',
             message: 'Finish in the paid ranks of a weekly leaderboard and '
                 'your winnings will appear here, ready to claim.',
             action: AppButton(
               label: 'View weekly rankings',
               variant: AppButtonVariant.outline,
-              color: AppColors.gold,
+              color: AppColors.readable(AppColors.gold),
               icon: const Icon(Icons.leaderboard_rounded),
               onPressed: () => Navigator.of(context).push(
                 AppPageRoute(builder: (_) => const WeeklyLeaderboardPage()),

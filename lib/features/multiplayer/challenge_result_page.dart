@@ -350,12 +350,13 @@ class _HeaderRow extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(kind.icon, color: color, size: 13.r),
+              Icon(kind.icon,
+                  color: AppColors.readable(color), size: 13.r),
               SizedBox(width: 6.w),
               Text(
                 kind.shortLabel,
                 style: AppTypography.labelMedium.copyWith(
-                  color: color,
+                  color: AppColors.readable(color),
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -411,7 +412,8 @@ class _OutcomeHero extends StatelessWidget {
           Text(
             fx.headline,
             textAlign: TextAlign.center,
-            style: AppTypography.heading1.copyWith(color: color),
+            style: AppTypography.heading1
+                .copyWith(color: AppColors.readable(color)),
           ),
           SizedBox(height: 22.h),
           _ScoreLine(
@@ -498,7 +500,7 @@ class _StatusCard extends StatelessWidget {
         children: [
           _Medallion(
             icon: icon,
-            color: AppColors.primary,
+            color: AppColors.readable(AppColors.primary),
             size: 72.r,
             glyphSize: 32.r,
           ),
@@ -665,7 +667,9 @@ class _PlayerScore extends StatelessWidget {
                 fontSize: 40.sp,
                 height: 1,
                 letterSpacing: -1.5,
-                color: isWinner ? AppColors.correct : AppColors.textPrimary,
+                color: isWinner
+                    ? AppColors.readable(AppColors.correct)
+                    : AppColors.textPrimary,
               ),
             ),
             if (total > 0) ...[
@@ -734,7 +738,7 @@ class _MatchSummaryCard extends StatelessWidget {
                       emoji: '🪙',
                       value: '+$ac',
                       label: 'anime coins',
-                      color: AppColors.coinGold,
+                      color: AppColors.readable(AppColors.coinGold),
                     ),
                   ),
                 if (ac > 0 && wp > 0) SizedBox(width: 12.w),
@@ -744,7 +748,7 @@ class _MatchSummaryCard extends StatelessWidget {
                       icon: Icons.leaderboard_rounded,
                       value: '+$wp',
                       label: 'weekly pts',
-                      color: AppColors.skyBright,
+                      color: AppColors.readable(AppColors.skyBright),
                     ),
                   ),
               ],
@@ -755,7 +759,7 @@ class _MatchSummaryCard extends StatelessWidget {
                 emoji: '🎯',
                 label: 'Upset bounty',
                 value: '+$bounty WP',
-                color: AppColors.amber,
+                color: AppColors.readable(AppColors.amber),
               ),
             ],
             if (seriesPrize > 0) ...[
@@ -764,7 +768,7 @@ class _MatchSummaryCard extends StatelessWidget {
                 emoji: '🏆',
                 label: 'Series prize',
                 value: '+$seriesPrize AC',
-                color: AppColors.coinGold,
+                color: AppColors.readable(AppColors.coinGold),
               ),
             ],
           ] else
@@ -839,6 +843,7 @@ class _Medallion extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glyph = AppColors.readable(color);
     return Container(
       width: size,
       height: size,
@@ -850,7 +855,7 @@ class _Medallion extends StatelessWidget {
       child: Center(
         child: emoji != null
             ? Text(emoji!, style: TextStyle(fontSize: glyphSize))
-            : Icon(icon, color: color, size: glyphSize),
+            : Icon(icon, color: glyph, size: glyphSize),
       ),
     );
   }
@@ -919,10 +924,11 @@ class _RewardBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glyph = AppColors.readable(color);
     return Row(
       children: [
         if (emoji != null) Text(emoji!, style: TextStyle(fontSize: 18.sp)),
-        if (icon != null) Icon(icon, color: color, size: 18.r),
+        if (icon != null) Icon(icon, color: glyph, size: 18.r),
         SizedBox(width: 8.w),
         Expanded(
           child: Column(
@@ -933,7 +939,7 @@ class _RewardBlock extends StatelessWidget {
                 value,
                 style: AppTypography.titleLarge.copyWith(
                   fontSize: 17.sp,
-                  color: color,
+                  color: glyph,
                   height: 1,
                   letterSpacing: -0.3,
                 ),
@@ -971,12 +977,13 @@ class _RewardLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glyph = AppColors.readable(color);
     return Row(
       children: [
         Text(emoji, style: TextStyle(fontSize: 16.sp)),
         SizedBox(width: 10.w),
         Expanded(child: Text(label, style: AppTypography.bodyLarge)),
-        Text(value, style: AppTypography.titleLarge.copyWith(color: color)),
+        Text(value, style: AppTypography.titleLarge.copyWith(color: glyph)),
       ],
     );
   }

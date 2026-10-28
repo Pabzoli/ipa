@@ -24,6 +24,13 @@ class ReferralEntry {
   final int rewardAmount;
   final bool isLegacy;
 
+  /// True when the invitee activated a leaderboard entry on their own account.
+  /// This is the second half of the NGN 5,000 cashout gate (the first being
+  /// that they signed up with the inviter's code). Server-written only.
+  final bool leaderboardEntryPurchased;
+  final String? leaderboardEntryWeekId;
+  final DateTime? leaderboardEntryPurchasedAt;
+
   const ReferralEntry({
     required this.inviteeUsername,
     required this.status,
@@ -36,6 +43,9 @@ class ReferralEntry {
     required this.expiresAt,
     required this.rewardAmount,
     this.isLegacy = false,
+    this.leaderboardEntryPurchased = false,
+    this.leaderboardEntryWeekId,
+    this.leaderboardEntryPurchasedAt,
   });
 
   factory ReferralEntry.legacy({

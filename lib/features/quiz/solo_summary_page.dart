@@ -1,5 +1,6 @@
 // lib/features/quiz/solo_summary_page.dart
 import 'package:flutter/material.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
@@ -15,12 +16,15 @@ import '../../core/services/ad_service.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../premium/premium_upsell_screen.dart';
 import 'questions_page.dart';
-import 'quiz_controller.dart' show kGauntletTiers;
-import '../../core/constants/gauntlet_economy.dart';
+import '../../core/constants/blitz_economy.dart';
+import '../../core/constants/solo_economy.dart';
 
-// Solo cooldown-retry (non-Gauntlet) flat cost. Kept for the legacy
-// "Try Again 40 AC" replay that clears local cooldown locks only.
-const int _kRetryCost = 40;
+// The replay cost lives in kSoloRetryCost (mirrors SOLO_RETRY_COST server-side).
+
+/// Achievement purple: a fill hue that is too light for small text on white.
+const Color _kPurple = Color(0xFF8B5CF6);
+Color get _purpleText =>
+    AppColors.isDark ? _kPurple : const Color(0xFF6D28D9);
 
 class SoloSummaryPage extends StatefulWidget {
   final int correctCount;
@@ -35,7 +39,10 @@ class SoloSummaryPage extends StatefulWidget {
   /// and logged as a separate `earn_achievement` ledger entry server-side.
   final int achievementCoins;
   final bool isGauntlet;
-  final int gauntletStreak;
+
+  /// Blitz questions attempted before the clock ran out (<= totalQuestions).
+  /// Equals totalQuestions for solo runs.
+  final int answeredCount;
   final List<int> gauntletPerQuestionWP;
 
   const SoloSummaryPage({
@@ -48,7 +55,7 @@ class SoloSummaryPage extends StatefulWidget {
     this.wpEarned = 0,
     this.achievementCoins = 0,
     this.isGauntlet = false,
-    this.gauntletStreak = 0,
+    this.answeredCount = 0,
     this.gauntletPerQuestionWP = const [],
   });
 
@@ -64,6 +71,10 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
   late Animation<double> _medallionScale;
 
   bool _navigating = false;
+
+  /// True from the confirm tap until the retry charge resolves, so a second tap
+  /// on a slow connection cannot pay the 80🪙 retry twice.
+  bool _retrying = false;
 
   @override
   void initState() {
@@ -89,8 +100,9 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       if (!mounted) return;
       if (widget.coinsEarned > 0) {
         Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted)
+          if (mounted) {
             CoinEarnAnimation.show(context, amount: widget.coinsEarned);
+          }
         });
       }
       // Achievement coins get their own distinct (purple/trophy) animation so
@@ -147,12 +159,12 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
 
   void _openPremiumUpsell() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+      AppPageRoute(builder: (_) => const PremiumUpsellScreen()),
     );
   }
 
   Future<void> _tryAgainWithCoins() async {
-    if (_navigating) return;
+    if (_navigating || _retrying) return;
 
     if (widget.isGauntlet) return;
 
@@ -164,9 +176,10 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       return;
     }
 
-    if (userData.animeCoins < _kRetryCost) {
-      if (mounted)
-        await showInsufficientCoinsSheet(context, needed: _kRetryCost);
+    if (userData.animeCoins < kSoloRetryCost) {
+      if (mounted) {
+        await showInsufficientCoinsSheet(context, needed: kSoloRetryCost);
+      }
       return;
     }
 
@@ -175,7 +188,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       builder: (ctx) => AppDialog(
         title: 'Try Again?',
         contentWidget: Text(
-          'Spend 40🪙 to reset today\'s cooldown and replay the same anime immediately?',
+          'Spend $kSoloRetryCost🪙 to reset today\'s cooldown and replay the same anime immediately?',
           style: AppTypography.bodyMedium,
         ),
         actions: [
@@ -185,9 +198,9 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
             onPressed: () => Navigator.pop(ctx, false),
           ),
           AppButton(
-            label: '🔄 Try Again  −40🪙',
+            label: '🔄 Try Again  −$kSoloRetryCost🪙',
             variant: AppButtonVariant.text,
-            color: AppColors.accent,
+            color: AppColors.readable(AppColors.accent),
             onPressed: () => Navigator.pop(ctx, true),
           ),
         ],
@@ -196,31 +209,64 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
 
     if (confirmed != true || !mounted) return;
 
+    // Claim the retry before the charge. On a slow connection the button stayed
+    // live, so a second tap fired a second 80🪙 spend before the
+    // first one had navigated — the player paid twice for a single replay. Every
+    // failure path below releases the claim again.
+    setState(() {
+      _navigating = true;
+      _retrying = true;
+    });
+
     try {
-      // The server clears this lineup's cooldown locks as part of the spend.
-      await userData.spendCoins(
-        _kRetryCost,
+      // The server clears this lineup's cooldown locks and mints the replay
+      // run's session (required by submitQuizAnswers) in one atomic spend.
+      final spend = await userData.spendCoinsWithResult(
+        kSoloRetryCost,
         'spend_retry',
-        extra: {'titles': widget.selectedTitles},
+        extra: {
+          'titles': widget.selectedTitles,
+          'runV2': true,
+        },
       );
+      final sessionId = (spend['sessionId'] as String?)?.trim() ?? '';
 
       if (!mounted) return;
-      _navigating = true;
       Navigator.of(context).pushReplacement(
         AppPageRoute(
           builder: (_) => QuestionsPage(
             selectedTitles: widget.selectedTitles,
             soloDifficulty: widget.soloDifficulty,
+            soloSessionId: sessionId.isEmpty ? null : sessionId,
           ),
         ),
       );
     } on PremiumRequiredException {
+      _releaseRetry();
       if (mounted) _openPremiumUpsell();
     } on InsufficientCoinsException {
-      if (mounted)
-        await showInsufficientCoinsSheet(context, needed: _kRetryCost);
+      _releaseRetry();
+      if (mounted) {
+        await showInsufficientCoinsSheet(context, needed: kSoloRetryCost);
+      }
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('[SoloSummaryPage] _tryAgainWithCoins CF error: $e');
+      _releaseRetry();
+      if (!mounted) return;
+      // A stale lock (e.g. a run left open elsewhere) blocks the replay
+      // spend — name it instead of the generic message so the player knows
+      // the Clear-run path on the home screen will fix it.
+      final msg = e.code == 'failed-precondition' &&
+              e.message == 'run_in_progress'
+          ? 'Finish your current run before starting another. '
+              'Clear it from the home screen, then try again.'
+          : 'Something went wrong — please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
     } catch (e) {
       debugPrint('[SoloSummaryPage] _tryAgainWithCoins error: $e');
+      _releaseRetry();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -228,6 +274,15 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
         );
       }
     }
+  }
+
+  /// Re-arms the Try Again button after a failed retry charge.
+  void _releaseRetry() {
+    if (!mounted) return;
+    setState(() {
+      _navigating = false;
+      _retrying = false;
+    });
   }
 
   @override
@@ -291,17 +346,19 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                       const _AchievementBonusBanner(),
                     ],
 
-                    // ── Gauntlet panel ────────────────────────────────
+                    // ── Blitz panel ───────────────────────────────────
                     if (widget.isGauntlet) ...[
                       SizedBox(height: 12.h),
-                      _GauntletResultPanel(
-                        streak: widget.gauntletStreak,
-                        perQuestionWP: widget.gauntletPerQuestionWP,
+                      _BlitzResultPanel(
+                        correct: widget.correctCount,
+                        answered: widget.answeredCount > 0
+                            ? widget.answeredCount
+                            : widget.totalQuestions,
                       ),
                     ],
 
                     // ── Hint ──────────────────────────────────────────
-                    if (widget.correctCount < 5) ...[
+                    if (!widget.isGauntlet && widget.correctCount < 5) ...[
                       SizedBox(height: 12.h),
                       const _HintCard(),
                     ],
@@ -329,16 +386,19 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                         height: 44.h,
                         child: AppButton(
                           label: isPremium
-                              ? 'Try Again  —  40🪙'
+                              ? 'Try Again  —  $kSoloRetryCost🪙'
                               : 'Try Again  —  Premium only',
                           icon: isPremium
                               ? Text('🔄',
                                   style: TextStyle(fontSize: 13.sp))
                               : Icon(Icons.lock_rounded),
                           variant: AppButtonVariant.outline,
-                          color: isPremium ? AppColors.accent : AppColors.gold,
+                          color: isPremium
+                              ? AppColors.readable(AppColors.accent)
+                              : AppColors.readable(AppColors.gold),
                           size: AppButtonSize.small,
                           height: 44.h,
+                          loading: _retrying,
                           onPressed: isPremium
                               ? _tryAgainWithCoins
                               : _openPremiumUpsell,
@@ -380,9 +440,9 @@ class _HeaderRow extends StatelessWidget {
         Container(
           padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 5.r),
           decoration: BoxDecoration(
-            color: AppColors.accent.withOpacity(0.13),
+            color: AppColors.accent.withValues(alpha: 0.13),
             borderRadius: BorderRadius.circular(20.r),
-            border: Border.all(color: AppColors.accent.withOpacity(0.32)),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.32)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -392,7 +452,7 @@ class _HeaderRow extends StatelessWidget {
               Text(
                 '$coins',
                 style: TextStyle(
-                  color: AppColors.accent,
+                  color: AppColors.readable(AppColors.accent),
                   fontSize: 13.sp,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -0.2,
@@ -427,14 +487,14 @@ class _ResultHero extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            tier.color.withOpacity(0.14),
-            tier.color.withOpacity(0.04),
+            tier.color.withValues(alpha: 0.14),
+            tier.color.withValues(alpha: 0.04),
           ],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
         borderRadius: BorderRadius.circular(24.r),
-        border: Border.all(color: tier.color.withOpacity(0.25), width: 1.2),
+        border: Border.all(color: tier.color.withValues(alpha: 0.25), width: 1.2),
       ),
       child: Column(
         children: [
@@ -444,9 +504,9 @@ class _ResultHero extends StatelessWidget {
             height: 72.r,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: tier.color.withOpacity(0.16),
+              color: tier.color.withValues(alpha: 0.16),
               border:
-                  Border.all(color: tier.color.withOpacity(0.4), width: 1.5),
+                  Border.all(color: tier.color.withValues(alpha: 0.4), width: 1.5),
             ),
             child: Center(
               child: Text(tier.emoji, style: TextStyle(fontSize: 34.sp)),
@@ -462,7 +522,7 @@ class _ResultHero extends StatelessWidget {
                 TextSpan(
                   text: '$correct',
                   style: TextStyle(
-                    color: tier.color,
+                    color: AppColors.readable(tier.color),
                     fontSize: 64.sp,
                     fontWeight: FontWeight.w900,
                     height: 1,
@@ -486,14 +546,14 @@ class _ResultHero extends StatelessWidget {
           Container(
             padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 6.r),
             decoration: BoxDecoration(
-              color: tier.color.withOpacity(0.14),
+              color: tier.color.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(20.r),
-              border: Border.all(color: tier.color.withOpacity(0.35)),
+              border: Border.all(color: tier.color.withValues(alpha: 0.35)),
             ),
             child: Text(
               tier.title.toUpperCase(),
               style: TextStyle(
-                color: tier.color,
+                color: AppColors.readable(tier.color),
                 fontSize: 11.sp,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1.3,
@@ -568,7 +628,7 @@ class _StatsCard extends StatelessWidget {
               Text(
                 '$pct%',
                 style: TextStyle(
-                  color: tier.color,
+                  color: AppColors.readable(tier.color),
                   fontSize: 15.sp,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -0.2,
@@ -624,17 +684,17 @@ class _StatsCard extends StatelessWidget {
                 padding: EdgeInsets.symmetric(
                     horizontal: 12.r, vertical: 10.r),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF8B5CF6).withOpacity(0.10),
+                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(14.r),
                   border: Border.all(
-                    color: const Color(0xFF8B5CF6).withOpacity(0.45),
+                    color: const Color(0xFF8B5CF6).withValues(alpha: 0.45),
                   ),
                 ),
                 child: _RewardBlock(
                   emoji: '🏆',
                   value: '+$achievementCoins',
                   label: 'achievement bonus',
-                  color: const Color(0xFF8B5CF6),
+                  color: _purpleText,
                 ),
               ),
             ],
@@ -693,12 +753,21 @@ class _DifficultyPill extends StatelessWidget {
       'medium' => ('⚔️', 'MEDIUM', const Color(0xFFF59E0B)),
       _ => ('🌱', 'EASY', const Color(0xFF34D399)),
     };
+    // Vivid difficulty hues are fills; the label needs the darker light-mode
+    // variant to stay legible on the 10% tint.
+    final textColor = AppColors.isDark
+        ? color
+        : switch (d) {
+            'hard' => const Color(0xFFB91C1C),
+            'medium' => const Color(0xFFB45309),
+            _ => const Color(0xFF047857),
+          };
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: color.withOpacity(0.45)),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -708,7 +777,7 @@ class _DifficultyPill extends StatelessWidget {
           Text(
             '$label MODE',
             style: TextStyle(
-              color: color,
+              color: textColor,
               fontSize: 11.sp,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.0,
@@ -743,7 +812,7 @@ class _RewardBlock extends StatelessWidget {
     return Row(
       children: [
         if (emoji != null) Text(emoji!, style: TextStyle(fontSize: 18.sp)),
-        if (icon != null) Icon(icon, color: color, size: 18.r),
+        if (icon != null) Icon(icon, color: AppColors.readable(color), size: 18.r),
         SizedBox(width: 8.w),
         Expanded(
           child: Column(
@@ -753,7 +822,7 @@ class _RewardBlock extends StatelessWidget {
               Text(
                 value,
                 style: TextStyle(
-                  color: color,
+                  color: AppColors.readable(color),
                   fontSize: 17.sp,
                   fontWeight: FontWeight.w900,
                   height: 1,
@@ -786,7 +855,7 @@ class _RewardBlock extends StatelessWidget {
 class _AchievementBonusBanner extends StatelessWidget {
   const _AchievementBonusBanner();
 
-  static const _purple = Color(0xFF8B5CF6);
+  static const _purple = _kPurple;
 
   @override
   Widget build(BuildContext context) {
@@ -795,14 +864,14 @@ class _AchievementBonusBanner extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            _purple.withOpacity(0.16),
-            _purple.withOpacity(0.06),
+            _purple.withValues(alpha: 0.16),
+            _purple.withValues(alpha: 0.06),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16.r),
-        border: Border.all(color: _purple.withOpacity(0.45)),
+        border: Border.all(color: _purple.withValues(alpha: 0.45)),
       ),
       child: Row(
         children: [
@@ -810,9 +879,9 @@ class _AchievementBonusBanner extends StatelessWidget {
             width: 36.r,
             height: 36.r,
             decoration: BoxDecoration(
-              color: _purple.withOpacity(0.18),
+              color: _purple.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(color: _purple.withOpacity(0.40)),
+              border: Border.all(color: _purple.withValues(alpha: 0.40)),
             ),
             child: Center(
               child: Text('🏆', style: TextStyle(fontSize: 18.sp)),
@@ -827,7 +896,7 @@ class _AchievementBonusBanner extends StatelessWidget {
                 Text(
                   'ACHIEVEMENT REWARD',
                   style: TextStyle(
-                    color: _purple,
+                    color: _purpleText,
                     fontSize: 9.sp,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 1.0,
@@ -873,12 +942,12 @@ class _HintCard extends StatelessWidget {
             width: 32.r,
             height: 32.r,
             decoration: BoxDecoration(
-              color: AppColors.accent.withOpacity(0.14),
+              color: AppColors.accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(10.r),
             ),
             child: Icon(
               Icons.lightbulb_outline_rounded,
-              color: AppColors.accent,
+              color: AppColors.readable(AppColors.accent),
               size: 17.r,
             ),
           ),
@@ -947,28 +1016,28 @@ extension _TierProps on _Tier {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Gauntlet result panel (unchanged)
+// Blitz result panel: correct/answered plus the gamble payout ladder with
+// the earned tier highlighted.
 // ═══════════════════════════════════════════════════════════════════════════
-class _GauntletResultPanel extends StatelessWidget {
-  final int streak;
-  final List<int> perQuestionWP;
+class _BlitzResultPanel extends StatelessWidget {
+  final int correct;
+  final int answered;
 
-  const _GauntletResultPanel({
-    required this.streak,
-    required this.perQuestionWP,
+  const _BlitzResultPanel({
+    required this.correct,
+    required this.answered,
   });
-
-  int? get _nextMilestoneDay {
-    for (final day in kGauntletMilestones.keys) {
-      if (streak < day) return day;
-    }
-    return null;
-  }
 
   @override
   Widget build(BuildContext context) {
-    final nextDay = _nextMilestoneDay;
-    final tiers = kGauntletTiers;
+    var earnedAc = 0;
+    var earnedMin = 0;
+    for (final tier in kBlitzAcTiers) {
+      if (correct >= tier.minCorrect) {
+        earnedAc = tier.ac;
+        earnedMin = tier.minCorrect;
+      }
+    }
 
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.md + 2),
@@ -978,45 +1047,40 @@ class _GauntletResultPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('🔥', style: TextStyle(fontSize: 16.sp)),
+              Text('⚡', style: TextStyle(fontSize: 16.sp)),
               SizedBox(width: 7.w),
               Text(
-                '$streak day streak',
+                '$correct/$answered correct',
                 style: TextStyle(
-                  color: AppColors.amber,
+                  color: AppColors.readable(AppColors.amber),
                   fontSize: 14.sp,
                   fontWeight: FontWeight.w900,
                 ),
               ),
               const Spacer(),
-              Flexible(
-                child: Text(
-                  nextDay != null
-                      ? '${nextDay - streak}d → ${kGauntletMilestones[nextDay]}'
-                      : 'All milestones claimed',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w700,
-                  ),
+              Text(
+                '+$earnedAc AC',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11.sp,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
           SizedBox(height: 12.h),
-          Row(
+          Column(
             children: [
-              for (int i = 0; i < tiers.length; i++) ...[
-                if (i > 0) SizedBox(width: 5.w),
-                Expanded(child: _tierChip(i, tiers[i])),
-              ],
+              for (final tier in kBlitzAcTiers)
+                _payoutRow(
+                  tier: tier,
+                  earned: tier.minCorrect == earnedMin,
+                ),
             ],
           ),
           SizedBox(height: 8.h),
           Text(
-            'WP per question — tiers climb as you survive',
+            'WP by difficulty (5/8/12) · capped daily',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.textMuted,
@@ -1029,40 +1093,40 @@ class _GauntletResultPanel extends StatelessWidget {
     );
   }
 
-  Widget _tierChip(int index, int tier) {
-    final correct = index < perQuestionWP.length && perQuestionWP[index] > 0;
-    final isTopTier = tier == kGauntletTiers.last;
+  Widget _payoutRow({required BlitzAcTier tier, required bool earned}) {
     return Container(
-      padding: EdgeInsets.symmetric(vertical: 7.r),
+      margin: EdgeInsets.only(bottom: 5.r),
+      padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 7.r),
       decoration: BoxDecoration(
-        color: correct
+        color: earned
             ? AppColors.amber.withValues(alpha: 0.22)
             : AppColors.surfaceAlt.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(AppRadii.sm),
         border: Border.all(
-          color: correct
+          color: earned
               ? AppColors.amber.withValues(alpha: 0.55)
               : AppColors.divider.withValues(alpha: 0.7),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
           Text(
-            'Q${index + 1}',
+            '${tier.minCorrect}+ correct',
             style: TextStyle(
-              color: correct ? AppColors.amber : AppColors.textMuted,
-              fontSize: 9.sp,
+              color: earned
+                  ? AppColors.readable(AppColors.amber)
+                  : AppColors.textMuted,
+              fontSize: 11.sp,
               fontWeight: FontWeight.w800,
             ),
           ),
-          SizedBox(height: 2.h),
+          const Spacer(),
           Text(
-            correct ? '+$tier' : '$tier',
+            '+${tier.ac} AC',
             style: TextStyle(
-              color: correct
-                  ? AppColors.amber
-                  : (isTopTier ? AppColors.textSecondary : AppColors.textMuted),
+              color: earned
+                  ? AppColors.readable(AppColors.amber)
+                  : AppColors.textSecondary,
               fontSize: 12.sp,
               fontWeight: FontWeight.w900,
             ),

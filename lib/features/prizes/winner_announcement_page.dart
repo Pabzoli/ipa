@@ -128,7 +128,10 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
 
   @override
   Widget build(BuildContext context) {
-    final winners = widget.result.winners.take(5).toList();
+    // The server decides how many winners a week has (top 3 since the
+    // 50/30/20 split). Render the whole snapshot so older weeks that were
+    // paid out on a 5-rank split still show every winner they paid.
+    final winners = widget.result.winners;
     final myUid = FirebaseAuth.instance.currentUser?.uid;
     PrizeWinner? myWin;
     if (myUid != null) {
@@ -255,7 +258,7 @@ class _CloseButton extends StatelessWidget {
       label: 'Close announcement',
       child: Material(
         color: AppColors.surface,
-        shape: const CircleBorder(
+        shape: CircleBorder(
           side: BorderSide(color: AppColors.divider),
         ),
         child: InkWell(
@@ -296,7 +299,7 @@ class _Header extends StatelessWidget {
             border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
           ),
           child: Icon(Icons.emoji_events_rounded,
-              color: AppColors.gold, size: 36.r),
+              color: AppColors.readable(AppColors.gold), size: 36.r),
         ),
         const SizedBox(height: AppSpacing.lg),
         Text(
@@ -328,7 +331,7 @@ class _Header extends StatelessWidget {
                   TextSpan(
                     text:  '₦${_fmtNaira(totalNaira)}',
                     style: AppTypography.labelLarge
-                        .copyWith(color: AppColors.gold),
+                        .copyWith(color: AppColors.readable(AppColors.gold)),
                   ),
                 ],
               ),
@@ -363,12 +366,12 @@ class _YourResultCard extends StatelessWidget {
         children: [
           Text(
             'YOU PLACED #$rank',
-            style: AppTypography.labelSmall.copyWith(color: AppColors.gold),
+            style: AppTypography.labelSmall.copyWith(color: AppColors.readable(AppColors.gold)),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
             '₦$formatted',
-            style: AppTypography.heading1.copyWith(color: AppColors.gold),
+            style: AppTypography.heading1.copyWith(color: AppColors.readable(AppColors.gold)),
           ),
           const SizedBox(height: AppSpacing.lg),
           AppButton(
@@ -488,7 +491,7 @@ class _RankBadge extends StatelessWidget {
       child: Text(
         '$rank',
         style: AppTypography.labelMedium.copyWith(
-          color:      color,
+          color: AppColors.readable(color),
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -509,7 +512,7 @@ class _YouTag extends StatelessWidget {
       ),
       child: Text(
         'YOU',
-        style: AppTypography.labelSmall.copyWith(color: AppColors.primary),
+        style: AppTypography.labelSmall.copyWith(color: AppColors.readable(AppColors.primary)),
       ),
     );
   }

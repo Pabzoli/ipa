@@ -81,7 +81,7 @@ class UserDataProvider extends ChangeNotifier {
   int get animeCoins => spendableAnimeCoins;
   int get committedAnimeCoins => _animeCoins;
   int get pendingAnimeCoins =>
-      _pendingCoinReservations.values.fold(0, (sum, value) => sum + value);
+      _pendingCoinReservations.values.fold(0, (total, value) => total + value);
   int get spendableAnimeCoins {
     final value = _animeCoins - pendingAnimeCoins;
     return value < 0 ? 0 : value;
@@ -335,8 +335,8 @@ class UserDataProvider extends ChangeNotifier {
 
     // ── Daily Ad Watched (P-04) ───────────────────────────────────────────────
     _dailyAdWatchedSub = FirestoreService.instance.dailyAdWatchedStream().listen(
-      (count) {
-        _dailyAdWatched = count;
+      (watched) {
+        _dailyAdWatched = watched;
         notifyListeners();
       },
       onError: (e) {
@@ -358,8 +358,8 @@ class UserDataProvider extends ChangeNotifier {
     // ── Challenges Created Today ──────────────────────────────────────────────
     _challengesCreatedTodaySub =
         FirestoreService.instance.challengesCreatedTodayStream().listen(
-      (count) {
-        _challengesCreatedToday = count;
+      (createdToday) {
+        _challengesCreatedToday = createdToday;
         notifyListeners();
       },
       onError: (e) {
@@ -393,8 +393,8 @@ class UserDataProvider extends ChangeNotifier {
 
     // ── WP Staked Today ──────────────────────────────────────────────────────
     _wpStakedTodaySub = FirestoreService.instance.wpStakedTodayStream().listen(
-      (count) {
-        _wpStakedToday = count;
+      (stakedToday) {
+        _wpStakedToday = stakedToday;
         notifyListeners();
       },
       onError: (e) {
@@ -493,7 +493,37 @@ class UserDataProvider extends ChangeNotifier {
     }
   }
 
+  /// Settles a reservation already charged server-side by a dedicated
+  /// callable (e.g. `useQuizHint`, which deducts coins in the same
+  /// transaction that picks the eliminated option). Unlike
+  /// [commitReservedCoinSpend] this never calls `spendCoins` again — that
+  /// would double-charge. The local balance jumps to the server's
+  /// authoritative `newBalance` instantly so the coin pill drops without
+  /// waiting for the Firestore stream.
+  void settleReservationWithBalance(int reservationId, int? newBalance) {
+    if (_pendingCoinReservations.remove(reservationId) == null) return;
+    if (newBalance != null) {
+      _animeCoins = newBalance;
+    }
+    notifyListeners();
+  }
+
   Future<int> commitReservedCoinSpend(
+    int reservationId,
+    String type, {
+    Map<String, dynamic>? extra,
+  }) async {
+    final data = await _commitCoinSpend(reservationId, type, extra: extra);
+    return (data['newBalance'] as num).toInt();
+  }
+
+  /// Commits a reserved spend and returns the raw `spendCoins` payload.
+  ///
+  /// `spend_retry` includes the server-minted `sessionId` of the replay run;
+  /// the summary page forwards it to the quiz page so `submitQuizAnswers` can
+  /// verify the run. Other spend types have no extra fields beyond
+  /// `success` / `newBalance`.
+  Future<Map<String, dynamic>> _commitCoinSpend(
     int reservationId,
     String type, {
     Map<String, dynamic>? extra,
@@ -530,7 +560,7 @@ class UserDataProvider extends ChangeNotifier {
       _pendingCoinReservations.remove(reservationId);
       _animeCoins = (data['newBalance'] as num).toInt();
       notifyListeners();
-      return _animeCoins;
+      return data;
     } on FirebaseFunctionsException catch (e) {
       rollbackReservedCoinSpend(reservationId);
 
@@ -566,7 +596,20 @@ class UserDataProvider extends ChangeNotifier {
     Map<String, dynamic>? extra,
   }) async {
     final reservationId = reserveCoins(amount);
-    await commitReservedCoinSpend(reservationId, type, extra: extra);
+    await _commitCoinSpend(reservationId, type, extra: extra);
+  }
+
+  /// Spend wrapper that also returns the server payload.
+  ///
+  /// Used by the solo retry, which needs the server-minted `sessionId` for the
+  /// replay run (`spendCoins` type `spend_retry`).
+  Future<Map<String, dynamic>> spendCoinsWithResult(
+    int amount,
+    String type, {
+    Map<String, dynamic>? extra,
+  }) async {
+    final reservationId = reserveCoins(amount);
+    return _commitCoinSpend(reservationId, type, extra: extra);
   }
 
   // ── Daily Login Bonus (+20 AC) + Streak WP Milestones ───────────────────────

@@ -91,6 +91,11 @@ const int kCooldownSkipCost = 100;
 /// AC cost to permanently unlock one anime early (`unlockAnimeEarly`).
 const int kEarlyUnlockCost = 5000;
 
+/// Flat AC cost of the summary-page "Try Again": clears the finished lineup's
+/// cooldown locks and starts a fresh run. Mirrors SOLO_RETRY_COST in
+/// functions/index.js (`spendCoins` type 'spend_retry') — change both together.
+const int kSoloRetryCost = 80;
+
 /// Max raw WP for a perfect all-slow run at [difficulty] (before decay/cap).
 /// Used for UI previews only — the server is authoritative.
 int soloDifficultyMaxWP(String difficulty) {

@@ -8,9 +8,12 @@ import '../../../../../../core/theme/app_theme.dart';
 import '../../../../../../core/widgets/app_button.dart';
 import '../../../../../../core/widgets/app_empty_state.dart';
 import '../../../../../../core/widgets/share_card.dart';
+import '../../../../data/model/referral_cashout.dart';
 import '../../../../data/model/referral_entry.dart';
 import 'expired_referrals_section.dart';
 import 'pending_referrals_section.dart';
+import 'referral_cashout_card.dart';
+import 'referral_cashout_sheet.dart';
 import 'referral_code_card.dart';
 import 'referral_stats_card.dart';
 import 'rewarded_referrals_section.dart';
@@ -24,12 +27,17 @@ class ReferralBody extends StatelessWidget {
   /// slow mint never blocks the list.
   final Future<String> codeFuture;
 
+  /// The player's own cashout claim (null when none was submitted), loaded
+  /// separately so the card can render before the list resolves.
+  final Future<ReferralCashoutClaim?> cashoutFuture;
+
   final Future<void> Function() onRefresh;
 
   const ReferralBody({
     super.key,
     required this.entriesFuture,
     required this.codeFuture,
+    required this.cashoutFuture,
     required this.onRefresh,
   });
 
@@ -79,6 +87,9 @@ class ReferralBody extends StatelessWidget {
         final rewardedInWindow = rewarded
             .where((entry) => entry.rewardedAt?.isAfter(cutoff) ?? false)
             .length;
+        final qualifiedForCashout = entries
+            .where((entry) => entry.leaderboardEntryPurchased)
+            .length;
 
         return RefreshIndicator(
           color: AppColors.primary,
@@ -101,6 +112,27 @@ class ReferralBody extends StatelessWidget {
                   );
                 },
               ),
+              SizedBox(height: AppSpacing.lg),
+
+              // Cashout milestone. Rendered above the list (and even when the
+              // player has no referrals yet) because it is the page's headline
+              // promise. The bar never shows a target or a count.
+              FutureBuilder<ReferralCashoutClaim?>(
+                future: cashoutFuture,
+                builder: (context, claimSnap) {
+                  final state = ReferralCashoutState(
+                    qualifiedCount: qualifiedForCashout,
+                    claim: claimSnap.data,
+                  );
+                  return ReferralCashoutCard(
+                    state: state,
+                    claimLoading:
+                        claimSnap.connectionState == ConnectionState.waiting,
+                    onClaim: () => _openCashoutClaim(context, state),
+                  );
+                },
+              ),
+
               if (entries.isEmpty)
                 const _NoReferralsState()
               else ...[
@@ -125,6 +157,21 @@ class ReferralBody extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _openCashoutClaim(
+    BuildContext context,
+    ReferralCashoutState state,
+  ) async {
+    final submitted = await showReferralCashoutSheet(context, state: state);
+    if (submitted != true || !context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cashout claim submitted. You will be notified on status change.'),
+      ),
+    );
+    await onRefresh();
   }
 
   Future<void> _copyCode(BuildContext context, String code) {

@@ -1,7 +1,6 @@
 // lib/core/widgets/coin_earn_animation.dart
 
 import 'dart:math';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';

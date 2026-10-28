@@ -37,34 +37,40 @@ class AdService {
 
   // ── Ad Unit IDs ───────────────────────────────────────────────────────────
   static String get _rewardedId {
-  if (_isDebug) return Platform.isAndroid
-      ? 'ca-app-pub-3940256099942544/5224354917'   // Android test
-      : 'ca-app-pub-3940256099942544/1712485313';  // iOS test
-  return Platform.isAndroid
-      ? 'ca-app-pub-9195964766205519/8333794938'   // your existing Android ID
-      : 'ca-app-pub-9195964766205519/3107536339';
-}
+    if (_isDebug) {
+      return Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/5224354917'   // Android test
+          : 'ca-app-pub-3940256099942544/1712485313';  // iOS test
+    }
+    return Platform.isAndroid
+        ? 'ca-app-pub-9195964766205519/8333794938'   // your existing Android ID
+        : 'ca-app-pub-9195964766205519/3107536339';
+  }
 
 // ── Interstitial ──────────────────────────────────────────────────────────────
-static String get _interstitialId {
-  if (_isDebug) return Platform.isAndroid
-      ? 'ca-app-pub-3940256099942544/1033173712'   // Android test
-      : 'ca-app-pub-3940256099942544/4411468910';  // iOS test
-  return Platform.isAndroid
-      ? 'ca-app-pub-9195964766205519/7020713265'   // your existing Android ID
-      : 'ca-app-pub-9195964766205519/8027175151';
-}
+  static String get _interstitialId {
+    if (_isDebug) {
+      return Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/1033173712'   // Android test
+          : 'ca-app-pub-3940256099942544/4411468910';  // iOS test
+    }
+    return Platform.isAndroid
+        ? 'ca-app-pub-9195964766205519/7020713265'   // your existing Android ID
+        : 'ca-app-pub-9195964766205519/8027175151';
+  }
 
 // ── App Open ──────────────────────────────────────────────────────────────────
 // TODO: Create App Open ad units in your AdMob dashboard and replace these IDs.
-static String get _appOpenAdId {
-  if (_isDebug) return Platform.isAndroid
-      ? 'ca-app-pub-3940256099942544/9257395921'   // Android test
-      : 'ca-app-pub-3940256099942544/5575463023';  // iOS test
-  return Platform.isAndroid
-      ? 'ca-app-pub-9195964766205519/2949625797'
-: 'ca-app-pub-9195964766205519/8728410558';
-}
+  static String get _appOpenAdId {
+    if (_isDebug) {
+      return Platform.isAndroid
+          ? 'ca-app-pub-3940256099942544/9257395921'   // Android test
+          : 'ca-app-pub-3940256099942544/5575463023';  // iOS test
+    }
+    return Platform.isAndroid
+        ? 'ca-app-pub-9195964766205519/2949625797'
+        : 'ca-app-pub-9195964766205519/8728410558';
+  }
 
 // ── State ─────────────────────────────────────────────────────────────────
   RewardedAd?     _rewardedAd;

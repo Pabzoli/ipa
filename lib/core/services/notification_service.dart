@@ -22,6 +22,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../features/leaderboard/weekly_leaderboard_page.dart';
 import '../../features/friends/add_friend_page.dart';
 import '../../features/prizes/payout_claim_page.dart';
+import '../widgets/app_page_route.dart';
 import 'firestore_service.dart';
 
 /// Background entry-point. Must stay a top-level function. Does no UI work —
@@ -201,13 +202,13 @@ class NotificationService {
     _lastNavAt = now;
 
     if (type == 'friend_request') {
-      nav.push(MaterialPageRoute(builder: (_) => const AddFriendPage()));
+      nav.push(AppPageRoute(builder: (_) => const AddFriendPage()));
       return;
     }
 
     final Widget page = hasWeek
         ? PayoutClaimPage(weekId: weekId)
         : const WeeklyLeaderboardPage();
-    nav.push(MaterialPageRoute(builder: (_) => page));
+    nav.push(AppPageRoute(builder: (_) => page));
   }
 }

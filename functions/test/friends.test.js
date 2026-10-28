@@ -401,6 +401,24 @@ describe('friends', () => {
     assert.equal((await pairDoc('A', 'B')).status, 'pending');
   });
 
+  it('raw-uid requests are allowed for a player you have played', async () => {
+    const week = H.thisWeekId();
+    await db.collection('users').doc('A').update({ university: 'UNILAG', leaderboardEntryWeekId: week });
+    await db.collection('users').doc('C').update({ university: 'OAU', leaderboardEntryWeekId: week });
+    // Different campus and no match yet: still indistinguishable from unknown.
+    await H.rejectsWith(
+      fns.sendFriendRequest.run(H.req('A', { uid: 'C', ...STAMP })),
+      'not-found', 'not_found');
+    // A real match in the caller's own history unlocks the rival-page request.
+    await db.collection('users').doc('A').collection('matches').doc('m1').set({
+      opponentUid: 'C', opponent: 'C', outcome: 'win',
+      timestamp: new ctx.FakeTimestamp(Date.now()),
+    });
+    await fns.sendFriendRequest.run(H.req('A', { uid: 'C', ...STAMP }));
+    assert.equal((await pairDoc('A', 'C')).status, 'pending');
+    assert.equal((await linkDoc('C', 'A')).status, 'incoming');
+  });
+
   it('block: blocking an active friend works (reads before writes)', async () => {
     await beFriends('A', 'B');
     await H.mkUser(db, 'A', { username: 'A', friendCount: 1 });

@@ -35,8 +35,9 @@ const String kEntryCtaLabelExternal = 'Get entry on the website';
 /// Shown when a mobile player taps the website CTA, so the hand-off to an
 /// external browser is never a dead end.
 const String kEntryCtaExternalHint =
-    'Leaderboard entries are bought on our website. You will get a one-time '
-    'code to redeem under Profile → Redeem Code.';
+    'Leaderboard entries are bought on our website. Sign in there with this '
+    'same account, pay, then redeem your one-time code under Profile → '
+    'Redeem Code.';
 
 /// Support / privacy contact address.
 ///
@@ -51,21 +52,11 @@ const String kSupportEmail = 'animequizzm@gmail.com';
 
 /// Hosted "No Refunds Policy". Every paid item is final sale; see
 /// public/refund.html for the full text and the single billing-error carve-out.
+///
+/// This is the only refund surface in the app: the Legal row in Settings links
+/// here. Do not reintroduce inline "no refunds" notices on individual purchase
+/// screens — the policy page is the single place that states it.
 const String kNoRefundsPolicyUrl = '$kShopUrl/refund.html';
-
-/// The one-line no-refund notice shown on every in-app purchase surface.
-///
-/// This is the single source of truth for that copy. Keep it short, blunt and
-/// identical everywhere — a soft or inconsistent notice defeats the point of the
-/// policy, because the hosted page at [kNoRefundsPolicyUrl] only helps if the
-/// user believes it when they tap Buy.
-///
-/// Note it covers *purchases* only. It must never be shown next to the in-game
-/// stake refunds on expired multiplayer challenges, which are real credit
-/// movements between players, not refunds of money paid to us.
-const String kNoRefundsNotice =
-    'All purchases are final sale. No refunds — not if you change your mind, '
-    'not if the code is unused or unclaimed.';
 
 /// Pre-filled mailto for a data-deletion request from a signed-out user.
 ///

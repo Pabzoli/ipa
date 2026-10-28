@@ -117,7 +117,7 @@ class AppDropdownField<T> extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppRadii.lg),
       menuMaxHeight: menuMaxHeight,
       icon: icon ??
-          const Icon(
+          Icon(
             Icons.expand_more,
             color: AppColors.textSecondary,
           ),

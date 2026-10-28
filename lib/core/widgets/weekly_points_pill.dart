@@ -33,13 +33,14 @@ class WeeklyPointsPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.bolt_rounded, color: AppColors.accent, size: 16),
+          Icon(Icons.bolt_rounded,
+              color: AppColors.readable(AppColors.accent), size: 16),
           const SizedBox(width: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 13,
                 fontWeight: FontWeight.w800,

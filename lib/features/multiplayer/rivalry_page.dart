@@ -13,9 +13,12 @@
 // state is never a silent dead end. The word "rank" is never used here: series
 // standing is not a rank.
 //
-// FRIENDSHIP: the relationship is visible on the face-off card ("FRIEND"
-// badge), the actions are hidden behind the AppBar ⋯ (see friend_actions.dart).
-// The body stays solely about the match, so the page ends on Spar.
+// FRIENDSHIP: the relationship is visible on the face-off card (FRIEND /
+// REQUESTED / WANTS IN / BLOCKED). For a rival you have actually played, a
+// compact panel under the face-off card offers the next friendship step (add,
+// cancel, accept, unblock); once the two are friends it goes away and the
+// destructive actions stay behind the AppBar ⋯ (see friend_actions.dart), so
+// the page still ends on Spar.
 //
 // READ COST: the series block is a single rivalry-doc listener (rivalryStream).
 // The H2H record, the rival user doc and the cooldown are one-shot reads on
@@ -31,6 +34,7 @@ import '../../core/services/firestore_service.dart';
 import '../../core/constants/rival_economy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/weekly_points_pill.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_page_route.dart';
@@ -39,6 +43,7 @@ import '../../core/widgets/rival_avatar.dart';
 import '../../core/widgets/series_progress_bar.dart';
 import '../../core/widgets/shared_widgets.dart';
 import '../friends/friend_actions.dart';
+import '../friends/friend_messages.dart';
 import 'anime_select_page.dart';
 import 'spar_launcher.dart';
 
@@ -70,13 +75,35 @@ class _RivalryPageState extends State<RivalryPage> {
   int? _rivalWP;
   bool _rivalWPFailed = false;
 
+  /// The caller's own friendship link to this rival: 'friend' / 'outgoing' /
+  /// 'incoming' / 'blocked', or null when there is none. Seeded from the
+  /// Friends board hint (so a friend never flashes as a stranger) and then
+  /// replaced by the authoritative link read on open.
+  String? _friendStatus;
+  bool _friendBusy = false;
+
   /// Whole hours before a staked rematch is allowed, from the shared client
   /// mirror of the server rule (0 = allowed). Drives the Duel button label.
   int _cooldownHours = 0;
 
+  bool get _isFriend => _friendStatus == 'friend';
+
+  /// True once a match against this rival shows up in the head-to-head record.
+  /// The server accepts a uid friend request for a player you have actually
+  /// met, so this is also the gate for offering the Add friend panel: the page
+  /// never offers a request the server would refuse.
+  bool get _hasPlayed {
+    final h2h = _h2h;
+    if (h2h == null) return false;
+    return (h2h['wins'] ?? 0) + (h2h['draws'] ?? 0) + (h2h['losses'] ?? 0) > 0;
+  }
+
+  bool get _showFriendPanel => !_isFriend && (_friendStatus != null || _hasPlayed);
+
   @override
   void initState() {
     super.initState();
+    _friendStatus = widget.isFriend ? 'friend' : null;
     _load();
   }
 
@@ -98,6 +125,7 @@ class _RivalryPageState extends State<RivalryPage> {
           widget.rivalUid,
           premium: premium,
         ),
+        FirestoreService.instance.getFriendLinkStatus(widget.rivalUid),
       ]);
       if (!mounted) return;
       setState(() {
@@ -108,6 +136,7 @@ class _RivalryPageState extends State<RivalryPage> {
                 .data()?['weeklyPoints'] as num?)
             ?.toInt();
         _cooldownHours = results[2] as int;
+        _friendStatus = results[3] as String?;
       });
     } catch (e) {
       // Rival doc may be unreadable (different cohort week) — show the
@@ -165,6 +194,68 @@ class _RivalryPageState extends State<RivalryPage> {
     });
   }
 
+  void _toast(String text, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text),
+        backgroundColor: error ? AppColors.wrong : null,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Rival page → friend: the uid is one the player has actually met, which is
+  /// exactly what the server accepts (campus cohort or a real match between the
+  /// pair). A mutual request comes back 'active', so the copy reflects that.
+  Future<void> _addFriend() async {
+    if (_friendBusy) return;
+    setState(() => _friendBusy = true);
+    try {
+      final status = await FirestoreService.instance
+          .sendFriendRequest(uid: widget.rivalUid);
+      final link = await FirestoreService.instance
+          .getFriendLinkStatus(widget.rivalUid);
+      if (!mounted) return;
+      setState(() {
+        _friendStatus = link;
+        _friendBusy = false;
+      });
+      _toast(
+        status == 'active' ? 'You are now friends!' : 'Friend request sent!',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _friendBusy = false);
+      _toast(friendErrorFrom(e), error: true);
+    }
+  }
+
+  /// Cancel / accept / decline / unblock. Every write goes through a friend
+  /// callable; the link is then re-read so the panel and the face-off badge
+  /// show the state the server actually committed.
+  Future<void> _runFriendAction(
+    Future<void> Function() action, {
+    required String done,
+  }) async {
+    if (_friendBusy) return;
+    setState(() => _friendBusy = true);
+    try {
+      await action();
+      final link = await FirestoreService.instance
+          .getFriendLinkStatus(widget.rivalUid);
+      if (!mounted) return;
+      setState(() {
+        _friendStatus = link;
+        _friendBusy = false;
+      });
+      _toast(done);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _friendBusy = false);
+      _toast(friendErrorFrom(e), error: true);
+    }
+  }
+
   /// The friend menu: Remove / Block, confirmed in the sheet. Both end the
   /// friendship, so a confirmed action leaves the page and the board (behind
   /// us) reloads from the pop result.
@@ -203,11 +294,7 @@ class _RivalryPageState extends State<RivalryPage> {
       appBar: AppBar(
         backgroundColor: AppColors.surfaceDim,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: const AppBackButton(),
         title: Text(
           'Rivalry',
           style: TextStyle(
@@ -222,7 +309,7 @@ class _RivalryPageState extends State<RivalryPage> {
           // Actions hidden, state visible: the relationship is badged on the
           // face-off card, while Remove / Block live behind this ⋯ so they are
           // never a stray tap between Duel and Spar.
-          if (widget.isFriend)
+          if (_isFriend)
             Padding(
               padding: EdgeInsets.only(right: 8.r),
               child: IconButton(
@@ -247,10 +334,42 @@ class _RivalryPageState extends State<RivalryPage> {
             // ── Face-off: who, and the all-time head-to-head ────────
             _FaceOffCard(
               rivalUsername: widget.rivalUsername,
-              isFriend: widget.isFriend,
+              relationship: _friendStatus,
               h2h: _h2h,
               h2hError: _h2hError,
             ),
+            if (_showFriendPanel) ...[
+              SizedBox(height: 12.h),
+              _FriendLinkPanel(
+                status: _friendStatus,
+                busy: _friendBusy,
+                onAdd: _addFriend,
+                onCancel: () => _runFriendAction(
+                  () => FirestoreService.instance
+                      .cancelFriendRequest(otherUid: widget.rivalUid),
+                  done: 'Request cancelled.',
+                ),
+                onAccept: () => _runFriendAction(
+                  () => FirestoreService.instance.respondFriendRequest(
+                    otherUid: widget.rivalUid,
+                    accept: true,
+                  ),
+                  done: 'You are now friends!',
+                ),
+                onDecline: () => _runFriendAction(
+                  () => FirestoreService.instance.respondFriendRequest(
+                    otherUid: widget.rivalUid,
+                    accept: false,
+                  ),
+                  done: 'Request declined.',
+                ),
+                onUnblock: () => _runFriendAction(
+                  () => FirestoreService.instance
+                      .unblockUser(otherUid: widget.rivalUid),
+                  done: 'Unblocked. They must send a new request.',
+                ),
+              ),
+            ],
             SizedBox(height: 16.h),
 
             // ── Series banner (always shown, even at 0-0) ───────────
@@ -328,7 +447,7 @@ class _RivalryPageState extends State<RivalryPage> {
               onPressed: _goDuel,
               variant: AppButtonVariant.primary,
               size: AppButtonSize.medium,
-              color: AppColors.primary,
+              color: AppColors.readable(AppColors.primary),
               height: 52.h,
             ),
             SizedBox(height: 10.h),
@@ -365,19 +484,34 @@ class _RivalryPageState extends State<RivalryPage> {
 // ─── Face-off card: identity + all-time head-to-head ─────────────────────────
 class _FaceOffCard extends StatelessWidget {
   final String rivalUsername;
-  final bool isFriend;
+
+  /// The caller's friendship link status, or null when there is none. Drives
+  /// the label on the rival's chip, so the state is always visible even when
+  /// the next step lives in the panel below.
+  final String? relationship;
+
   final Map<String, int>? h2h;
   final Object? h2hError;
 
   const _FaceOffCard({
     required this.rivalUsername,
-    required this.isFriend,
+    required this.relationship,
     required this.h2h,
     this.h2hError,
   });
 
+  /// Chip copy + colour for the rival side of the card.
+  ({String label, Color? color}) get _badge => switch (relationship) {
+        'friend' => (label: 'FRIEND', color: AppColors.readable(AppColors.correct)),
+        'outgoing' => (label: 'REQUESTED', color: AppColors.secondary),
+        'incoming' => (label: 'WANTS IN', color: AppColors.readable(AppColors.gold)),
+        'blocked' => (label: 'BLOCKED', color: AppColors.readable(AppColors.wrong)),
+        _ => (label: 'RIVAL', color: null),
+      };
+
   @override
   Widget build(BuildContext context) {
+    final badge = _badge;
     return AppCard(
       tier: AppCardTier.elevated,
       padding: EdgeInsets.fromLTRB(16.r, 18.r, 16.r, 16.r),
@@ -386,22 +520,23 @@ class _FaceOffCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
+              Expanded(
                 child: _Fighter(
                   label: 'YOU',
                   name: 'You',
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                 ),
               ),
               const _VsMedallion(),
               Expanded(
                 child: _Fighter(
                   // The relationship is the one piece of friendship state
-                  // worth showing: the actions themselves stay in the AppBar ⋯.
-                  label: isFriend ? 'FRIEND' : 'RIVAL',
+                  // worth showing: the actions themselves live below the card
+                  // (non-friends) or in the AppBar ⋯ (friends).
+                  label: badge.label,
                   name: rivalUsername,
-                  color: AppColors.accent,
-                  badgeColor: isFriend ? AppColors.correct : null,
+                  color: AppColors.readable(AppColors.accent),
+                  badgeColor: badge.color,
                 ),
               ),
             ],
@@ -410,6 +545,154 @@ class _FaceOffCard extends StatelessWidget {
           Container(height: 1, color: AppColors.divider),
           SizedBox(height: 16.h),
           _HeadToHead(h2h: h2h, h2hError: h2hError),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Friendship panel: the one next step for this pairing ────────────────────
+//
+// Shown only when there is a real relationship to act on (a pending request in
+// either direction, a block) or when the player has actually met this rival.
+// The server accepts a uid request on that same basis, so the panel never
+// offers an action the callable would refuse. Once the two are friends it
+// disappears — the chip says FRIEND and management lives in the AppBar ⋯.
+class _FriendLinkPanel extends StatelessWidget {
+  final String? status;
+  final bool busy;
+  final VoidCallback onAdd;
+  final VoidCallback onCancel;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+  final VoidCallback onUnblock;
+
+  const _FriendLinkPanel({
+    required this.status,
+    required this.busy,
+    required this.onAdd,
+    required this.onCancel,
+    required this.onAccept,
+    required this.onDecline,
+    required this.onUnblock,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (IconData icon, Color accent, String title, String caption,
+        List<Widget> actions) = switch (status) {
+      'outgoing' => (
+          Icons.hourglass_top_rounded,
+          AppColors.secondary,
+          'Friend request sent',
+          'Waiting for them to answer.',
+          [
+            AppButton(
+              label: 'Cancel request',
+              variant: AppButtonVariant.outline,
+              size: AppButtonSize.small,
+              color: AppColors.textSecondary,
+              loading: busy,
+              onPressed: busy ? null : onCancel,
+            ),
+          ],
+        ),
+      'incoming' => (
+          Icons.person_add_alt_1_rounded,
+          AppColors.gold,
+          'They want to be friends',
+          'Accepting adds them to your Friends board.',
+          [
+            AppButton(
+              label: 'Decline',
+              variant: AppButtonVariant.outline,
+              size: AppButtonSize.small,
+              color: AppColors.textSecondary,
+              onPressed: busy ? null : onDecline,
+            ),
+            AppButton(
+              label: 'Accept',
+              size: AppButtonSize.small,
+              loading: busy,
+              onPressed: busy ? null : onAccept,
+            ),
+          ],
+        ),
+      'blocked' => (
+          Icons.block_rounded,
+          AppColors.wrong,
+          'You blocked this player',
+          'Unblock to let them send a new request.',
+          [
+            AppButton(
+              label: 'Unblock',
+              variant: AppButtonVariant.outline,
+              size: AppButtonSize.small,
+              icon: const Icon(Icons.lock_open_rounded),
+              loading: busy,
+              onPressed: busy ? null : onUnblock,
+            ),
+          ],
+        ),
+      _ => (
+          Icons.person_add_alt_1_rounded,
+          AppColors.primary,
+          'Not friends yet',
+          'Add them to spar freely and see each other on the Friends board.',
+          [
+            AppButton(
+              label: 'Add friend',
+              size: AppButtonSize.small,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              loading: busy,
+              onPressed: busy ? null : onAdd,
+            ),
+          ],
+        ),
+    };
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17.r, color: accent),
+              SizedBox(width: 8.w),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 12.5.sp,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 3.h),
+          Text(
+            caption,
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11.sp,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          SizedBox(height: 10.h),
+          Wrap(
+            spacing: 8.w,
+            runSpacing: 8.h,
+            children: actions,
+          ),
         ],
       ),
     );
@@ -559,7 +842,7 @@ class _HeadToHead extends StatelessWidget {
               child: _StatBlock(
                 value: wins,
                 label: 'WINS',
-                color: AppColors.correct,
+                color: AppColors.readable(AppColors.correct),
               ),
             ),
             const _StatDivider(),
@@ -567,7 +850,7 @@ class _HeadToHead extends StatelessWidget {
               child: _StatBlock(
                 value: draws,
                 label: 'DRAWS',
-                color: AppColors.draw,
+                color: AppColors.readable(AppColors.draw),
               ),
             ),
             const _StatDivider(),
@@ -575,7 +858,7 @@ class _HeadToHead extends StatelessWidget {
               child: _StatBlock(
                 value: losses,
                 label: 'LOSSES',
-                color: AppColors.lose,
+                color: AppColors.readable(AppColors.lose),
               ),
             ),
           ],

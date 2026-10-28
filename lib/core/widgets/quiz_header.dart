@@ -50,13 +50,18 @@ class QuizHeader extends StatelessWidget {
           ),
           const Spacer(),
           _CoinPill(balance: ctrl.animeCoins),
-          const SizedBox(width: 8),
-          _HintButton(
-            coins:     ctrl.animeCoins,
-            hintsLeft: ctrl.hintsLeft,
-            exhausted: ctrl.hintsExhausted,
-            onTap:     ctrl.useHint,
-          ),
+          // Hints are disabled in Blitz — hide the button so the header
+          // stays clean during the 90s run.
+          if (!ctrl.isGauntlet) ...[
+            const SizedBox(width: 8),
+            _HintButton(
+              coins:     ctrl.animeCoins,
+              hintsLeft: ctrl.hintsLeft,
+              exhausted: ctrl.hintsExhausted,
+              isLoading: ctrl.isHintLoading,
+              onTap:     ctrl.useHint,
+            ),
+          ],
         ],
       ),
     );
@@ -145,7 +150,7 @@ class _CoinPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = AppColors.coinGold;
+    final accent = AppColors.coinGold;
     return Semantics(
       label: '$balance anime coins',
       child: Container(
@@ -179,7 +184,7 @@ class _CoinPill extends StatelessWidget {
                   // Key forces AnimatedSwitcher to treat each new value as a
                   // different child, triggering the slide-up transition.
                   style: TextStyle(
-                    color:         accent,
+                    color:         AppColors.readable(accent),
                     fontWeight:    FontWeight.w800,
                     fontSize:      14.sp,
                     letterSpacing: -0.3,
@@ -200,26 +205,32 @@ class _HintButton extends StatelessWidget {
   final int          coins;
   final int          hintsLeft;
   final bool         exhausted;
+  final bool         isLoading;
   final VoidCallback onTap;
 
   const _HintButton({
     required this.coins,
     required this.hintsLeft,
     required this.exhausted,
+    this.isLoading = false,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final canAfford = coins >= kHintCost;
-    final active    = !exhausted && canAfford;
-    final accent    = active ? AppColors.secondary : AppColors.textMuted;
+    final active    = !exhausted && canAfford && !isLoading;
+    final accent    = active || isLoading
+        ? AppColors.secondary
+        : AppColors.textMuted;
 
-    final tooltip = exhausted
-        ? 'No hints left this quiz'
-        : !canAfford
-            ? 'Need $kHintCost 🪙'
-            : 'Hint  −$kHintCost 🪙  ($hintsLeft left)';
+    final tooltip = isLoading
+        ? 'Finding a wrong option…'
+        : exhausted
+            ? 'No hints left for this question'
+            : !canAfford
+                ? 'Need $kHintCost 🪙'
+                : 'Hint  −$kHintCost 🪙  ($hintsLeft left)';
 
     return Semantics(
       label:   tooltip,
@@ -235,12 +246,12 @@ class _HintButton extends StatelessWidget {
             curve:    Curves.easeOut,
             padding:  EdgeInsets.symmetric(horizontal: 11, vertical: 7),
             decoration: BoxDecoration(
-              color: active
+              color: active || isLoading
                   ? AppColors.secondary.withValues(alpha: 0.1)
                   : AppColors.surface,
               borderRadius: BorderRadius.circular(AppRadii.md),
               border: Border.all(
-                color: active
+                color: active || isLoading
                     ? AppColors.secondary.withValues(alpha: 0.35)
                     : AppColors.divider,
                 width: 1,
@@ -251,12 +262,22 @@ class _HintButton extends StatelessWidget {
               children: [
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    Icons.lightbulb_rounded,
-                    key:   ValueKey(active),
-                    color: accent,
-                    size:  15,
-                  ),
+                  child: isLoading
+                      ? SizedBox(
+                          key: const ValueKey('hint-loading'),
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: accent,
+                          ),
+                        )
+                      : Icon(
+                          Icons.lightbulb_rounded,
+                          key: ValueKey(active),
+                          color: accent,
+                          size: 15,
+                        ),
                 ),
                 const SizedBox(width: 5),
                 AnimatedSwitcher(
@@ -287,7 +308,7 @@ class _HintButton extends StatelessWidget {
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      '−${kHintCost}🪙',
+                      '−$kHintCost🪙',
                       style: TextStyle(
                         color:
                             accent.withValues(alpha: 0.6),

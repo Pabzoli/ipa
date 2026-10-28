@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sampled from the edge of docs/Designing_app_icons_for_platforms_2K_20261026215747.jpg
+         so the adaptive-icon background blends into the launcher artwork. -->
+    <color name="ic_launcher_background">#FF190C28</color>
+</resources>

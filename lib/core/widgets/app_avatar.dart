@@ -29,7 +29,7 @@ class AppAvatar extends StatelessWidget {
       child: Text(
         label.length > 2 ? label : label.toUpperCase(),
         style: TextStyle(
-          color: color,
+          color: AppColors.readable(color),
           fontSize: emojiLike ? size * 0.4 : size * 0.42,
           fontWeight: FontWeight.w800,
           height: 1,

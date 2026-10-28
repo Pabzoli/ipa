@@ -91,6 +91,9 @@ android {
     versionCode flutterVersionCode.toInteger()
     versionName flutterVersionName
     multiDexEnabled true
+    // App copy is English-only (plain-string literals, no l10n layer):
+    // drop the 100+ locales bundled by GMS/Firebase to save ~1MB.
+    resConfigs 'en'
 }
 
     buildTypes {
@@ -98,6 +101,10 @@ android {
             // Production signing from android/key.properties. Falls back to
             // debug signing ONLY when key.properties is absent (local debug).
             signingConfig loadReleaseSigning() ?: signingConfigs.debug
+            // Direct-APK distribution: strip dead code (R8) and unused
+            // resources so the sideloaded download stays small.
+            minifyEnabled true
+            shrinkResources true
         }
     }
 }
@@ -108,6 +115,7 @@ flutter {
 
 dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
+    implementation 'com.google.android.play:integrity:1.4.0'
 
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }

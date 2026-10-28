@@ -226,7 +226,7 @@ class _YouBadge extends StatelessWidget {
       child: Text(
         'YOU',
         style: TextStyle(
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           fontSize: 8.sp,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.5,
@@ -270,7 +270,7 @@ class _NextRankGap extends StatelessWidget {
 
     return _GapShell(
       icon: Icons.trending_up_rounded,
-      color: AppColors.correct,
+      color: AppColors.readable(AppColors.correct),
       text: text,
     );
   }
@@ -298,13 +298,13 @@ class _GapShell extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 15.r),
+          Icon(icon, color: AppColors.readable(color), size: 15.r),
           SizedBox(width: 8.w),
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                color: color,
+                color: AppColors.readable(color),
                 fontSize: 11.5.sp,
                 fontWeight: FontWeight.w800,
               ),

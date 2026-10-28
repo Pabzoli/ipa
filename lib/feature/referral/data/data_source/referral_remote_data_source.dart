@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/constants/referral_economy.dart';
 import '../../../../core/services/app_update_service.dart';
+import '../../../../core/services/play_integrity_service.dart';
+import '../model/referral_cashout.dart';
 import '../model/referral_entry.dart';
 
 /// Loads the inviter's referral rows.
@@ -93,7 +95,64 @@ class ReferralRemoteDataSource {
       expiresAt: _timestampToDate(data['expiresAt']),
       rewardAmount:
           (data['rewardAmount'] as num?)?.toInt() ?? kReferralReferrerReward,
+      leaderboardEntryPurchased: data['leaderboardEntryPurchased'] == true,
+      leaderboardEntryWeekId: data['leaderboardEntryWeekId'] as String?,
+      leaderboardEntryPurchasedAt:
+          _timestampToDate(data['leaderboardEntryPurchasedAt']),
     );
+  }
+
+  /// The player's own cashout claim, or null when none was submitted.
+  ///
+  /// Owner-read only (rules). A failed read is treated as "no claim" so a
+  /// pending rules deploy never breaks the Referrals page.
+  Future<ReferralCashoutClaim?> getCashoutClaim() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('referralCashouts')
+          .doc(uid)
+          .get();
+      if (!snap.exists) return null;
+      return ReferralCashoutClaim.fromMap(snap.data() ?? const {});
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Submits the cashout destination via `claimReferralCashout`.
+  ///
+  /// The server re-counts qualifying referrals and decides the amount. Returns
+  /// the server's confirmation message; throws [ReferralCashoutException] with
+  /// the server's reason for anything else.
+  Future<String> submitCashoutClaim({
+    required String bankCode,
+    required String accountNumber,
+    required String beneficiaryName,
+  }) async {
+    final integrity = await PlayIntegrityService.instance.tokenFields('cashout');
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('claimReferralCashout')
+          .call<Map<String, dynamic>>({
+        'accountNumber': accountNumber,
+        'bankCode': bankCode,
+        'beneficiaryName': beneficiaryName,
+        ...AppUpdateService.instance.clientBuildStamp,
+        ...integrity,
+      });
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return (data['message'] as String?) ??
+          'Cashout submitted. You will be notified on status change.';
+    } on FirebaseFunctionsException catch (e) {
+      throw ReferralCashoutException(
+        code: e.code,
+        message: (e.message ?? '').trim().isNotEmpty
+            ? e.message!.trim()
+            : 'Could not submit the cashout. Please try again.',
+      );
+    }
   }
 
   Future<List<DateTime>> _referralLedgerDates(String uid) async {
@@ -118,4 +177,16 @@ class ReferralRemoteDataSource {
 
   DateTime? _timestampToDate(Object? value) =>
       value is Timestamp ? value.toDate() : null;
+}
+
+/// Thrown for `claimReferralCashout` rejections so the sheet can show the
+/// server's reason (not yet unlocked / already paid / rejected / bad input).
+class ReferralCashoutException implements Exception {
+  final String code;
+  final String message;
+
+  const ReferralCashoutException({required this.code, required this.message});
+
+  @override
+  String toString() => 'ReferralCashoutException($code): $message';
 }

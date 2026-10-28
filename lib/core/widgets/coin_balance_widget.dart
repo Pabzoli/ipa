@@ -47,7 +47,7 @@ class CoinBalanceWidget extends StatelessWidget {
                 child: Text(
                   _formatCoins(coins),
                   style: TextStyle(
-                    color:      AppColors.accent,
+                    color: AppColors.readable(AppColors.accent),
                     fontWeight: FontWeight.w800,
                     fontSize:   14.sp,
                     fontFamily: AppTypography.fontFamily,

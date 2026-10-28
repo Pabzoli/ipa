@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../../core/theme/app_theme.dart';
+import '../../../../../core/widgets/app_back_button.dart';
 import '../../../data/data_source/support_remote_data_source.dart';
 import '../../../data/model/feedback_category.dart';
 import 'widgets/support_form_body.dart';
@@ -93,15 +94,7 @@ class _SupportScreenState extends State<SupportScreen> {
               padding: EdgeInsets.fromLTRB(8.r, 10.r, 16.r, 4.r),
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: AppColors.textPrimary,
-                      size: 19.r,
-                    ),
-                    splashRadius: 22,
-                  ),
+                  const AppBackButton(),
                   SizedBox(width: 2.w),
                   Expanded(
                     child: Text(

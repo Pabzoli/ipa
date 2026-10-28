@@ -215,14 +215,14 @@ class _BankError extends StatelessWidget {
             width: 64.r,
             height: 64.r,
             decoration: BoxDecoration(
-              color: AppColors.wrong.withOpacity(0.10),
+              color: AppColors.wrong.withValues(alpha: 0.10),
               shape: BoxShape.circle,
-              border: Border.all(color: AppColors.wrong.withOpacity(0.28)),
+              border: Border.all(color: AppColors.wrong.withValues(alpha: 0.28)),
             ),
             alignment: Alignment.center,
             child: Icon(
               Icons.account_balance_outlined,
-              color: AppColors.wrong,
+              color: AppColors.readable(AppColors.wrong),
               size: 28.r,
             ),
           ),
@@ -289,18 +289,18 @@ class _BankList extends StatelessWidget {
             hintText: 'Search banks…',
             hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
             prefixIcon:
-                const Icon(Icons.search_rounded, color: AppColors.textMuted),
+                Icon(Icons.search_rounded, color: AppColors.textMuted),
             filled: true,
             fillColor: AppColors.surfaceAlt,
             contentPadding:
                 EdgeInsets.symmetric(vertical: 12.r, horizontal: 12.r),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(11.r),
-              borderSide: const BorderSide(color: AppColors.divider),
+              borderSide: BorderSide(color: AppColors.divider),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(11.r),
-              borderSide: const BorderSide(color: AppColors.divider),
+              borderSide: BorderSide(color: AppColors.divider),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(11.r),
@@ -337,12 +337,12 @@ class _BankList extends StatelessWidget {
                             horizontal: 14.r, vertical: 12.r),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? AppColors.primary.withOpacity(0.08)
-                              : AppColors.surfaceAlt.withOpacity(0.55),
+                              ? AppColors.primary.withValues(alpha: 0.08)
+                              : AppColors.surfaceAlt.withValues(alpha: 0.55),
                           borderRadius: BorderRadius.circular(12.r),
                           border: Border.all(
                             color: isSelected
-                                ? AppColors.primary.withOpacity(0.45)
+                                ? AppColors.primary.withValues(alpha: 0.45)
                                 : AppColors.divider,
                           ),
                         ),
@@ -352,7 +352,7 @@ class _BankList extends StatelessWidget {
                               width: 38.r,
                               height: 38.r,
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.10),
+                                color: AppColors.primary.withValues(alpha: 0.10),
                                 borderRadius: BorderRadius.circular(10.r),
                               ),
                               alignment: Alignment.center,
@@ -361,7 +361,7 @@ class _BankList extends StatelessWidget {
                                     ? bank.name[0].toUpperCase()
                                     : '?',
                                 style: TextStyle(
-                                  color: AppColors.primary,
+                                  color: AppColors.readable(AppColors.primary),
                                   fontSize: 17.sp,
                                   fontWeight: FontWeight.w900,
                                   height: 1,
@@ -383,7 +383,7 @@ class _BankList extends StatelessWidget {
                             ),
                             if (isSelected)
                               Icon(Icons.check_circle_rounded,
-                                  color: AppColors.primary, size: 20.r),
+                                  color: AppColors.readable(AppColors.primary), size: 20.r),
                           ],
                         ),
                       ),

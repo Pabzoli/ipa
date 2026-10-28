@@ -1,10 +1,10 @@
-// functions/test/payment.test.js — the whole website purchase pipeline with the
+// functions/test/payment.test.js �?the whole website purchase pipeline with the
 // REAL handlers, a fake Firestore and a stubbed Flutterwave API:
 //
-//   requestPaymentLink → paymentIntents
-//   flutterwaveWebhook → redemptionCodes + processedTransactions (idempotent)
-//   getPurchasedCode   → code delivery + self-heal mint
-//   redeemCode         → in-app grant (premium / ac / leaderboard_entry)
+//   requestPaymentLink �?paymentIntents
+//   flutterwaveWebhook �?redemptionCodes + processedTransactions (idempotent)
+//   getPurchasedCode   �?code delivery + self-heal mint
+//   redeemCode         �?in-app grant (premium / ac / leaderboard_entry)
 //
 // No emulator, no network, no real secrets.
 'use strict';
@@ -107,9 +107,9 @@ function signedWebhook(payload, { signature } = {}) {
 // ── Pipeline helpers ───────────────────────────────────────────────────────
 // Server-side amount table (mirrors FLUTTERWAVE_PRODUCTS in index.js).
 const PRODUCTS = {
-  AQ_AC_300:   { txToken: 'AC300',  type: 'ac',                 value: 300,   amount: 500,  currency: 'NGN' },
-  AQ_AC_1100:  { txToken: 'AC1100', type: 'ac',                 value: 990,   amount: 1500, currency: 'NGN' },
-  AQ_AC_3600:  { txToken: 'AC3600', type: 'ac',                 value: 2880,  amount: 4000, currency: 'NGN' },
+  AQ_AC_300:   { txToken: 'AC300',  type: 'ac',                 value: 500,   amount: 500,  currency: 'NGN' },
+  AQ_AC_1100:  { txToken: 'AC1100', type: 'ac',                 value: 1650,  amount: 1500, currency: 'NGN' },
+  AQ_AC_3600:  { txToken: 'AC3600', type: 'ac',                 value: 4800,  amount: 4000, currency: 'NGN' },
   AQ_PREM_31:  { txToken: 'PREM31', type: 'premium',            value: 28,    amount: 2000, currency: 'NGN' },
   AQ_LB_WEEK:  { txToken: 'LBWK',   type: 'leaderboard_entry',  value: 0,     amount: 500,  currency: 'NGN' },
 };
@@ -117,17 +117,35 @@ const PRODUCTS = {
 let ipSeq = 0;
 function nextIp() { return `10.9.0.${++ipSeq}`; }
 
+// ── Verified-ID-token helpers ──────────────────────────────────────────────
+// The website endpoints take the buyer's Firebase ID token; the fake Auth SDK
+// resolves only tokens registered here (see ctx.setIdToken in _fakes.js).
+let tokSeq = 0;
+function authToken(uid, email, emailVerified = true) {
+  const token = `tok-${++tokSeq}`;
+  ctx.setIdToken(token, {
+    uid,
+    email: String(email).trim().toLowerCase(),
+    email_verified: emailVerified,
+  });
+  return token;
+}
+function bearer(uid, email, emailVerified = true) {
+  return `Bearer ${authToken(uid, email, emailVerified)}`;
+}
+
 function newTxRef(productId) {
   const p = PRODUCTS[productId];
   if (!p) throw new Error('unknown product ' + productId);
   return `AQ-${p.txToken}-${randomUUID()}`;
 }
 
-async function createIntent(txRef, { productId, email, status = 'pending' }) {
+async function createIntent(txRef, { productId, email, uid = null, status = 'pending' }) {
   const p = PRODUCTS[productId];
   await db.collection('paymentIntents').doc(txRef).set({
     productId,
     email: String(email).trim().toLowerCase(),
+    ...(uid ? { uid } : {}),
     amount: p.amount,
     currency: p.currency,
     status,
@@ -163,10 +181,18 @@ async function deliverWebhook(txRef, over = {}) {
   return out;
 }
 
-async function fetchCode(txRef, email, { ip } = {}) {
+// Code delivery is account-bound: the caller presents an ID token, and the
+// body carries only the reference (no email field to spoof).
+async function fetchCode(txRef, {
+  uid = 'buyer1',
+  email = 'buyer@example.com',
+} = {}) {
   return runRequest(fns.getPurchasedCode, {
-    body: { tx_ref: txRef, email },
-    headers: { 'x-forwarded-for': ip || nextIp() },
+    body: { tx_ref: txRef },
+    headers: {
+      'x-forwarded-for': nextIp(),
+      authorization: bearer(uid, email),
+    },
   });
 }
 
@@ -197,14 +223,25 @@ describe('website purchase pipeline', () => {
     flwCheckoutCalls = [];
     verifyRefHandler = async () => ({ status: 'success', data: null });
     verifyHandler = async () => [];
-    ipSeq = 0;
   });
 
   // ── requestPaymentLink ───────────────────────────────────────────────────
-  it('creates the checkout link, records the intent and sends the SERVER price', async () => {
+  it('creates the checkout link for the signed-in account and sends the SERVER price', async () => {
+    await H.mkUser(db, 'buyer1', { email: 'buyer@example.com' });
     const out = await runRequest(fns.requestPaymentLink, {
-      body: { productId: 'AQ_PREM_31', email: 'Buyer@Example.com', amount: 1, currency: 'USD' },
-      headers: { 'x-forwarded-for': nextIp(), origin: 'https://anime-quiz-1ab1b.web.app' },
+      // The body's email/amount/currency are all ignored: the ID token is the
+      // identity and the server price table is the amount.
+      body: {
+        productId: 'AQ_PREM_31',
+        email: 'attacker@example.com',
+        amount: 1,
+        currency: 'USD',
+      },
+      headers: {
+        'x-forwarded-for': nextIp(),
+        origin: 'https://anime-quiz-1ab1b.web.app',
+        authorization: bearer('buyer1', 'Buyer@Example.com'),
+      },
     });
     assert.equal(out.status, 200);
     assert.match(out.body.link, /^https:\/\/checkout\.flutterwave\.com/);
@@ -216,38 +253,89 @@ describe('website purchase pipeline', () => {
     assert.equal(sent.currency, 'NGN');
     assert.equal(sent.tx_ref, out.body.tx_ref);
     assert.equal(sent.meta.product_id, 'AQ_PREM_31');
+    assert.equal(sent.customer.email, 'buyer@example.com');
     assert.ok(sent.redirect_url.includes('success.html?email=buyer%40example.com'), sent.redirect_url);
 
     const intent = await H.getDoc(db, `paymentIntents/${out.body.tx_ref}`);
     assert.equal(intent.status, 'pending');
     assert.equal(intent.productId, 'AQ_PREM_31');
+    // Account-bound: the token, never the body, decides who bought this.
+    assert.equal(intent.uid, 'buyer1');
     assert.equal(intent.email, 'buyer@example.com');
     assert.equal(intent.amount, 2000);
   });
 
-  it('rejects unknown products, invalid emails, GET, and foreign origins', async () => {
+  it('allows the Authorization header in the CORS preflight', async () => {
+    // Both endpoints are called with a bearer token from the browser. If the
+    // preflight does not list it, the real request never happens.
+    const out = await runRequest(fns.requestPaymentLink, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://anime-quiz-1ab1b.web.app' },
+    });
+    assert.equal(out.status, 204);
+    assert.match(out.headers['Access-Control-Allow-Headers'], /authorization/i);
+    assert.equal(out.headers['Access-Control-Allow-Origin'], 'https://anime-quiz-1ab1b.web.app');
+  });
+
+  it('requires a signed-in buyer', async () => {
     const ip = nextIp();
-    const unknown = await runRequest(fns.requestPaymentLink, {
-      body: { productId: 'AQ_FREE_MONEY', email: 'buyer@example.com' },
+    const anon = await runRequest(fns.requestPaymentLink, {
+      body: { productId: 'AQ_PREM_31' },
       headers: { 'x-forwarded-for': ip },
+    });
+    assert.equal(anon.status, 401);
+    assert.equal(anon.body.reason, 'unauthenticated');
+
+    const forged = await runRequest(fns.requestPaymentLink, {
+      body: { productId: 'AQ_PREM_31' },
+      headers: {
+        'x-forwarded-for': ip,
+        authorization: 'Bearer not-a-real-token',
+      },
+    });
+    assert.equal(forged.status, 401);
+    assert.equal(flwCheckoutCalls.length, 0);
+  });
+
+  it('refuses a leaderboard entry checkout to an unverified account (email gate)', async () => {
+    await H.mkUser(db, 'unverified', { emailVerified: false });
+    const out = await runRequest(fns.requestPaymentLink, {
+      body: { productId: 'AQ_LB_WEEK' },
+      headers: {
+        'x-forwarded-for': nextIp(),
+        authorization: bearer('unverified', 'unverified@example.com', false),
+      },
+    });
+    assert.equal(out.status, 403);
+    assert.equal(out.body.reason, 'email_not_verified');
+    assert.equal(flwCheckoutCalls.length, 0);
+  });
+
+  it('rejects unknown products, GET and foreign origins', async () => {
+    await H.mkUser(db, 'buyer1', { email: 'buyer@example.com' });
+    const ip = nextIp();
+    const auth = bearer('buyer1', 'buyer@example.com');
+
+    const unknown = await runRequest(fns.requestPaymentLink, {
+      body: { productId: 'AQ_FREE_MONEY' },
+      headers: { 'x-forwarded-for': ip, authorization: auth },
     });
     assert.equal(unknown.status, 400);
 
-    const badEmail = await runRequest(fns.requestPaymentLink, {
-      body: { productId: 'AQ_PREM_31', email: 'not-an-email' },
-      headers: { 'x-forwarded-for': ip },
-    });
-    assert.equal(badEmail.status, 400);
-
     const get = await runRequest(fns.requestPaymentLink, {
-      method: 'GET', body: { productId: 'AQ_PREM_31', email: 'buyer@example.com' },
-      headers: { 'x-forwarded-for': ip },
+      method: 'GET',
+      body: { productId: 'AQ_PREM_31' },
+      headers: { 'x-forwarded-for': ip, authorization: auth },
     });
     assert.equal(get.status, 405);
 
     const foreign = await runRequest(fns.requestPaymentLink, {
-      body: { productId: 'AQ_PREM_31', email: 'buyer@example.com' },
-      headers: { 'x-forwarded-for': ip, origin: 'https://evil.example.com' },
+      body: { productId: 'AQ_PREM_31' },
+      headers: {
+        'x-forwarded-for': ip,
+        authorization: auth,
+        origin: 'https://evil.example.com',
+      },
     });
     assert.equal(foreign.status, 403);
     assert.equal(flwCheckoutCalls.length, 0);
@@ -279,7 +367,10 @@ describe('website purchase pipeline', () => {
     // Audit + idempotency records.
     assert.deepEqual(processedDocs().map((d) => d.code), [doc.code]);
     assert.equal(processedDocs()[0].buyerEmail, 'buyer@example.com');
-    assert.equal((await H.getDoc(db, `paymentIntents/${txRef}`)).status, 'fulfilled');
+    const intent = await H.getDoc(db, `paymentIntents/${txRef}`);
+    assert.equal(intent.status, 'fulfilled');
+    // Denormalised so getMyPurchases needs no N+1 lookup for new purchases.
+    assert.equal(intent.code, doc.code);
   });
 
   it('also accepts the v3 verif-hash header', async () => {
@@ -289,7 +380,7 @@ describe('website purchase pipeline', () => {
     assert.equal(out.status, 200);
     assert.equal(out.body.minted, true);
     assert.equal(allCodes()[0].type, 'ac');
-    assert.equal(allCodes()[0].value, 300);
+    assert.equal(allCodes()[0].value, 500);
   });
 
   it('rejects a bad signature without minting', async () => {
@@ -339,7 +430,7 @@ describe('website purchase pipeline', () => {
     const txRef = newTxRef('AQ_PREM_31');
     await createIntent(txRef, { productId: 'AQ_PREM_31', email: 'buyer@example.com' });
     const tamper = await runRequest(fns.flutterwaveWebhook, signedWebhook(webhookPayload({
-      flwTxnId: 700, txRef, amount: 100, currency: 'NGN',   // paid ₦100 for a ₦2,000 item
+      flwTxnId: 700, txRef, amount: 100, currency: 'NGN',   // paid �?00 for a �?,000 item
     })));
     assert.equal(tamper.status, 400);
     assert.match(tamper.body.error, /mismatch/);
@@ -368,7 +459,7 @@ describe('website purchase pipeline', () => {
   });
 
   it('falls back to the Flutterwave customer email when the intent is missing', async () => {
-    // requestPaymentLink's Firestore write failed/raced — a CONFIRMED payment
+    // requestPaymentLink's Firestore write failed/raced �?a CONFIRMED payment
     // must still deliver a code (see _mintCharge).
     const txRef = newTxRef('AQ_AC_300');
     const out = await deliverWebhook(txRef, { flwTxnId: 512, email: 'flw-buyer@example.com' });
@@ -391,7 +482,7 @@ describe('website purchase pipeline', () => {
     await createIntent(txRef, { productId: 'AQ_PREM_31', email: 'buyer@example.com' });
     const minted = await deliverWebhook(txRef, { flwTxnId: 600 });
 
-    const out = await fetchCode(txRef, 'Buyer@Example.com');
+    const out = await fetchCode(txRef, { email: 'Buyer@Example.com' });
     assert.equal(out.status, 200);
     assert.equal(out.body.code, minted.body.code);
     assert.equal(out.body.type, 'premium');
@@ -403,9 +494,75 @@ describe('website purchase pipeline', () => {
     await createIntent(txRef, { productId: 'AQ_PREM_31', email: 'buyer@example.com' });
     await deliverWebhook(txRef, { flwTxnId: 601 });
 
-    const out = await fetchCode(txRef, 'someone-else@example.com');
+    const out = await fetchCode(txRef, {
+      uid: 'someone-else',
+      email: 'someone-else@example.com',
+    });
     assert.equal(out.status, 403);
     assert.equal(out.body.code, undefined);
+  });
+
+  it('requires a signed-in account to retrieve a code', async () => {
+    const txRef = newTxRef('AQ_PREM_31');
+    await createIntent(txRef, {
+      productId: 'AQ_PREM_31', email: 'buyer@example.com', uid: 'buyer1',
+    });
+    await deliverWebhook(txRef, { flwTxnId: 612 });
+
+    const out = await runRequest(fns.getPurchasedCode, {
+      body: { tx_ref: txRef },
+      headers: { 'x-forwarded-for': nextIp() },
+    });
+    assert.equal(out.status, 401);
+    assert.equal(out.body.code, undefined);
+  });
+
+  it('binds a minted code to the account that bought it', async () => {
+    const txRef = newTxRef('AQ_PREM_31');
+    await createIntent(txRef, {
+      productId: 'AQ_PREM_31', email: 'buyer@example.com', uid: 'buyer1',
+    });
+    const minted = await deliverWebhook(txRef, { flwTxnId: 610 });
+    assert.equal(minted.body.minted, true);
+
+    assert.equal(allCodes()[0].boundUid, 'buyer1');
+    assert.equal(processedDocs()[0].uid, 'buyer1');
+
+    const owner = await fetchCode(txRef, {
+      uid: 'buyer1', email: 'buyer@example.com',
+    });
+    assert.equal(owner.status, 200);
+    assert.equal(owner.body.code, minted.body.code);
+
+    // A different signed-in account holding the same tx_ref gets nothing.
+    const stranger = await fetchCode(txRef, {
+      uid: 'stranger', email: 'stranger@example.com',
+    });
+    assert.equal(stranger.status, 403);
+    assert.equal(stranger.body.code, undefined);
+  });
+
+  it('refuses to redeem a code bound to another account', async () => {
+    const txRef = newTxRef('AQ_AC_300');
+    await createIntent(txRef, {
+      productId: 'AQ_AC_300', email: 'buyer@example.com', uid: 'buyer1',
+    });
+    const minted = await deliverWebhook(txRef, { flwTxnId: 611 });
+
+    await H.mkUser(db, 'stranger');
+    await H.rejectsWith(
+      fns.redeemCode.run(
+        H.req('stranger', { code: minted.body.code, platform: 'web' }),
+      ),
+      'invalid-argument', 'Invalid or expired code',
+    );
+
+    // The owner still redeems it: the code was not consumed by the attempt.
+    await H.mkUser(db, 'buyer1');
+    const ok = await fns.redeemCode.run(
+      H.req('buyer1', { code: minted.body.code, platform: 'web' }),
+    );
+    assert.equal(ok.success, true);
   });
 
   it('self-heals a payment whose webhook never arrived', async () => {
@@ -417,11 +574,11 @@ describe('website purchase pipeline', () => {
       customer: { email: 'buyer@example.com' },
     }];
 
-    const out = await fetchCode(txRef, 'buyer@example.com');
+    const out = await fetchCode(txRef, { email: 'buyer@example.com' });
     assert.equal(out.status, 200);
     assert.match(out.body.code, CODE_RE);
     assert.equal(out.body.type, 'ac');
-    assert.equal(out.body.value, 990);
+    assert.equal(out.body.value, 1650);
     // And it is idempotent with the webhook path.
     const again = await fetchCode(txRef, 'buyer@example.com');
     assert.equal(again.body.code, out.body.code);
@@ -435,7 +592,7 @@ describe('website purchase pipeline', () => {
       id: 778, tx_ref: txRef, amount: 1500, currency: 'NGN', status: 'successful',
       customer: { email: 'buyer@example.com' },
     }];
-    const out = await fetchCode(txRef, 'attacker@example.com');
+    const out = await fetchCode(txRef, { email: 'attacker@example.com' });
     assert.equal(out.status, 403);
     assert.equal(allCodes().length, 0);
   });
@@ -444,13 +601,13 @@ describe('website purchase pipeline', () => {
     const failedRef = newTxRef('AQ_AC_300');
     await createIntent(failedRef, { productId: 'AQ_AC_300', email: 'buyer@example.com' });
     verifyHandler = async () => [{ id: 1, amount: 500, currency: 'NGN', status: 'failed' }];
-    const failed = await fetchCode(failedRef, 'buyer@example.com');
+    const failed = await fetchCode(failedRef, { email: 'buyer@example.com' });
     assert.equal(failed.status, 402);
 
     const pendingRef = newTxRef('AQ_AC_300');
     await createIntent(pendingRef, { productId: 'AQ_AC_300', email: 'buyer@example.com' });
     verifyHandler = async () => [{ id: 2, amount: 500, currency: 'NGN', status: 'pending' }];
-    const pending = await fetchCode(pendingRef, 'buyer@example.com');
+    const pending = await fetchCode(pendingRef, { email: 'buyer@example.com' });
     assert.equal(pending.status, 404);
     assert.equal(allCodes().length, 0);
   });
@@ -469,7 +626,7 @@ describe('website purchase pipeline', () => {
       },
     });
 
-    const out = await fetchCode(txRef, 'buyer@example.com');
+    const out = await fetchCode(txRef, { email: 'buyer@example.com' });
     assert.equal(out.status, 200);
     assert.match(out.body.code, CODE_RE);
     assert.equal(allCodes().length, 1);
@@ -486,7 +643,7 @@ describe('website purchase pipeline', () => {
       status: 'successful', customer_email: 'buyer@example.com',
     }];
 
-    const out = await fetchCode(txRef, 'buyer@example.com');
+    const out = await fetchCode(txRef, { email: 'buyer@example.com' });
     assert.equal(out.status, 200);
     assert.match(out.body.code, CODE_RE);
   });
@@ -536,7 +693,7 @@ describe('website purchase pipeline', () => {
       id: 779, tx_ref: txRef, amount: 100, currency: 'NGN', status: 'successful',
       customer: { email: 'buyer@example.com' },
     }];
-    const out = await fetchCode(txRef, 'buyer@example.com');
+    const out = await fetchCode(txRef, { email: 'buyer@example.com' });
     assert.equal(out.status, 400);
     assert.equal(allCodes().length, 0);
   });
@@ -549,15 +706,15 @@ describe('in-app redemption (redeemCode)', () => {
     flwCheckoutCalls = [];
     verifyRefHandler = async () => ({ status: 'success', data: null });
     verifyHandler = async () => [];
-    ipSeq = 0;
   });
 
-  // Full path: website checkout → webhook → code delivery → in-app grant.
+  // Full path: website checkout �?webhook �?code delivery �?in-app grant.
+  // The checkout is account-bound (uid), so the minted code belongs to `buyer`.
   async function buy(productId, { email = 'buyer@example.com', flwTxnId } = {}) {
     const txRef = newTxRef(productId);
-    await createIntent(txRef, { productId, email });
+    await createIntent(txRef, { productId, email, uid: 'buyer' });
     const minted = await deliverWebhook(txRef, { flwTxnId });
-    return (await fetchCode(txRef, email)).body.code;
+    return (await fetchCode(txRef, { uid: 'buyer', email })).body.code;
   }
 
   it('activates Premium for 28 days and writes the receipt', async () => {
@@ -599,16 +756,16 @@ describe('in-app redemption (redeemCode)', () => {
   it('credits Anime Coins with a transaction log entry', async () => {
     const code = await buy('AQ_AC_1100');
     const result = await fns.redeemCode.run(H.req('buyer', { code, platform: 'web' }));
-    assert.deepEqual(result, { success: true, type: 'ac', value: 990, newBalance: 1990 });
+    assert.deepEqual(result, { success: true, type: 'ac', value: 1650, newBalance: 2650 });
 
     const user = await H.getDoc(db, 'users/buyer');
-    assert.equal(user.animeCoins, 1990);
+    assert.equal(user.animeCoins, 2650);
 
     const logs = await db.collection('users').doc('buyer').collection('coinTransactions').get();
     assert.equal(logs.size, 1);
     assert.equal(logs.docs[0].data().type, 'earn_redemption');
-    assert.equal(logs.docs[0].data().delta, 990);
-    assert.equal(logs.docs[0].data().balanceAfter, 1990);
+    assert.equal(logs.docs[0].data().delta, 1650);
+    assert.equal(logs.docs[0].data().balanceAfter, 2650);
   });
 
   it('activates the weekly leaderboard entry and accrues pool revenue once', async () => {
@@ -640,7 +797,7 @@ describe('in-app redemption (redeemCode)', () => {
     const code = await buy('AQ_AC_300');
     const result = await fns.redeemCode.run(
       H.req('buyer', { code: `  ${code.toLowerCase()}  `, platform: 'web' }));
-    assert.equal(result.value, 300);
+    assert.equal(result.value, 500);
   });
 
   it('rejects an unknown code and unauthenticated callers', async () => {

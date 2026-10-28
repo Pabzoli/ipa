@@ -103,7 +103,7 @@ class _TimerPauseButtonState extends State<TimerPauseButton>
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      'Pause  \u00b7  ${kTimerPauseCost} AC',
+                      'Pause  \u00b7  $kTimerPauseCost AC',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

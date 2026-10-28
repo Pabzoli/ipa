@@ -405,7 +405,23 @@ function installFakes() {
   const db = new FakeDb(store);
   const sentPush = [];
   const deletedAuthUsers = [];
+  const idTokens = new Map();
   const pushFlags = { failPush: false };
+  // uid -> { email, emailVerified, metadata } for the Admin Auth reads
+  // (getUser / listUsers / deleteUsers). Tests seed it through ctx.authUsers.
+  const authUsers = new Map();
+  const describeUser = (uid) => {
+    const u = authUsers.get(uid) || {};
+    return {
+      uid,
+      email: u.email ?? null,
+      emailVerified: u.emailVerified === true,
+      metadata: u.metadata || {},
+    };
+  };
+  // Exposed on the db so test factories (helpers.mkUser) can register a
+  // matching Admin Auth identity without importing the fake twice.
+  db.authUsers = authUsers;
 
   intercept('firebase-admin/app', {
     initializeApp: () => ({}),
@@ -422,6 +438,44 @@ function installFakes() {
         deletedAuthUsers.push(uid);
       },
       updateUser: async (uid) => ({ uid }),
+      // Website endpoints verify the buyer's ID token. Tests register the
+      // tokens they expect with ctx.setIdToken(token, claims).
+      verifyIdToken: async (token) => {
+        const claims = idTokens.get(token);
+        if (!claims) {
+          const err = new Error('Decoding Firebase ID token failed');
+          err.code = 'auth/argument-error';
+          throw err;
+        }
+        return { ...claims };
+      },
+      getUser: async (uid) => {
+        if (!authUsers.has(uid)) {
+          const err = new Error('no user record');
+          err.code = 'auth/user-not-found';
+          throw err;
+        }
+        return describeUser(uid);
+      },
+      listUsers: async (maxResults = 1000, pageToken) => {
+        const all = [...authUsers.keys()].map(describeUser);
+        const start = pageToken ? Number(pageToken) : 0;
+        const page = all.slice(start, start + maxResults);
+        const next = start + maxResults < all.length
+          ? String(start + maxResults)
+          : undefined;
+        return { users: page, pageToken: next };
+      },
+      deleteUsers: async (uids) => {
+        let successCount = 0;
+        let failureCount = 0;
+        for (const uid of uids) {
+          if (authUsers.delete(uid)) successCount += 1;
+          else failureCount += 1;
+          deletedAuthUsers.push(uid);
+        }
+        return { successCount, failureCount };
+      },
     }),
   });
   intercept('firebase-admin/messaging', {
@@ -472,7 +526,12 @@ function installFakes() {
     onUserDeleted: (handler) => ({ run: (e) => handler(e) }),
   });
 
-  return { db, store, sentPush, pushFlags, deletedAuthUsers, HttpsError, FakeTimestamp };
+  return {
+    db, store, sentPush, pushFlags, deletedAuthUsers, HttpsError, FakeTimestamp,
+    authUsers,
+    // Registers a fake verified ID token for the website endpoints.
+    setIdToken: (token, claims) => idTokens.set(token, claims),
+  };
 }
 
 module.exports = { installFakes, FakeTimestamp };

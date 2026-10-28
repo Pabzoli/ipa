@@ -28,6 +28,7 @@ import '../../core/constants/rival_economy.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/device_id_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
@@ -155,6 +156,10 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage>
 
   @override
   Widget build(BuildContext context) {
+    return _buildGated(context);
+  }
+
+  Widget _buildGated(BuildContext context) {
     final udp = context.watch<UserDataProvider>();
 
     return Scaffold(
@@ -168,7 +173,7 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage>
               end: Offset.zero,
             ).animate(_fade),
             child: RefreshIndicator(
-              color: AppColors.primary,
+              color: AppColors.readable(AppColors.primary),
               backgroundColor: AppColors.surface,
               onRefresh: () async => _bump(),
               child: ListView(
@@ -263,7 +268,7 @@ class _MyChallengesEntry extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadii.md),
             ),
             child: Icon(Icons.assignment_outlined,
-                color: AppColors.primary, size: 20.r),
+                color: AppColors.readable(AppColors.primary), size: 20.r),
           ),
           SizedBox(width: 12.w),
           Expanded(
@@ -391,6 +396,7 @@ class _SearchingDialogState extends State<_SearchingDialog>
           .httpsCallable('joinMatchmakingQueue');
       final result = await callable
           .call<Map<Object?, Object?>>({
+        'deviceId': await DeviceIdService.instance.value(),
         ...AppUpdateService.instance.clientBuildStamp,
       });
       if (!mounted || _leaving || _done) return;
@@ -696,7 +702,7 @@ class _YourMoveSectionState extends State<_YourMoveSection> {
                     borderRadius: BorderRadius.circular(AppRadii.md),
                   ),
                   child: Icon(Icons.play_arrow_rounded,
-                      color: AppColors.primary, size: 22.r),
+                      color: AppColors.readable(AppColors.primary), size: 22.r),
                 ),
                 SizedBox(width: 12.w),
                 Expanded(
@@ -730,13 +736,14 @@ class _YourMoveSectionState extends State<_YourMoveSection> {
                                 borderRadius:
                                     BorderRadius.circular(AppRadii.sm),
                                 border: Border.all(
-                                    color: AppColors.primary
+                                    color: AppColors.readable(AppColors.primary)
                                         .withValues(alpha: 0.33)),
                               ),
                               child: Text(
                                 '$count',
                                 style: TextStyle(
-                                  color: AppColors.crimsonBright,
+                                  color: AppColors.readable(
+                                      AppColors.crimsonBright),
                                   fontSize: 11.sp,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -783,7 +790,7 @@ class _YourMoveSectionState extends State<_YourMoveSection> {
               child: Text(
                 'See all',
                 style: TextStyle(
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                   fontSize: 12.sp,
                   fontWeight: FontWeight.w700,
                 ),
@@ -925,7 +932,7 @@ class _RecentRivalrySectionState extends State<_RecentRivalrySection> {
                 child: AppEmptyState(
                   icon: Icons.sports_kabaddi_rounded,
                   title: 'No rivalries yet',
-                  color: AppColors.rival,
+                  color: AppColors.readable(AppColors.rival),
                   action: AppButton(
                     label: 'Find a rival',
                     icon: const Icon(Icons.person_search_rounded),
@@ -956,7 +963,7 @@ class _RecentRivalrySectionState extends State<_RecentRivalrySection> {
               RivalAvatar(
                 name: rival.username,
                 size: 48.r,
-                color: AppColors.rival,
+                color: AppColors.readable(AppColors.rival),
                 highlight: true,
               ),
               SizedBox(width: 12.w),
@@ -1023,14 +1030,14 @@ class _RecentRivalrySectionState extends State<_RecentRivalrySection> {
                 Text(
                   'View more',
                   style: TextStyle(
-                    color: AppColors.primary,
+                    color: AppColors.readable(AppColors.primary),
                     fontSize: 12.sp,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 SizedBox(width: 4.w),
                 Icon(Icons.arrow_forward_rounded,
-                    color: AppColors.primary, size: 14.r),
+                    color: AppColors.readable(AppColors.primary), size: 14.r),
               ],
             ),
           ),
@@ -1169,7 +1176,7 @@ class _QuickMatchSectionState extends State<_QuickMatchSection> {
                   borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
                 child: Icon(Icons.bolt_rounded,
-                    color: AppColors.primary, size: 24.r),
+                    color: AppColors.readable(AppColors.primary), size: 24.r),
               ),
               SizedBox(width: 12.w),
               Expanded(
@@ -1212,7 +1219,7 @@ class _QuickMatchSectionState extends State<_QuickMatchSection> {
                 child: Text(
                   '$qmTokens/$dailyMax',
                   style: TextStyle(
-                    color: AppColors.primary,
+                    color: AppColors.readable(AppColors.primary),
                     fontSize: 12.sp,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1230,7 +1237,7 @@ class _QuickMatchSectionState extends State<_QuickMatchSection> {
             onPressed: _watchingAd ? null : _handleWatchAd,
             variant: AppButtonVariant.outline,
             size: AppButtonSize.small,
-            color: AppColors.accent,
+            color: AppColors.readable(AppColors.accent),
             width: double.infinity,
           ),
         ] else if (outOfTokens && qmAdTokenUsed) ...[
@@ -1304,7 +1311,7 @@ class _MatchedDialogState extends State<_MatchedDialog> {
           children: [
             Text('GHOST FOUND!',
                 style: TextStyle(
-                    color: AppColors.crimsonBright,
+                    color: AppColors.readable(AppColors.crimsonBright),
                     fontSize: 12.sp,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 2.5)),
@@ -1324,7 +1331,8 @@ class _MatchedDialogState extends State<_MatchedDialog> {
               Text('Beat their score to win',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      color: AppColors.crimsonBright,
+                      color:
+                          AppColors.readable(AppColors.crimsonBright),
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w700)),
             ],
@@ -1358,7 +1366,7 @@ class _BattlePremiumChip extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+        AppPageRoute(builder: (_) => const PremiumUpsellScreen()),
       ),
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 6.r),
@@ -1375,7 +1383,7 @@ class _BattlePremiumChip extends StatelessWidget {
             Text(
               premiumActive ? 'PREMIUM' : 'GET',
               style: TextStyle(
-                color: gold,
+                color: AppColors.readable(gold),
                 fontWeight: FontWeight.w800,
                 fontSize: 11.sp,
                 letterSpacing: 0.4,

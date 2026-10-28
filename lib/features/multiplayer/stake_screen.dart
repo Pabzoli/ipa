@@ -6,8 +6,11 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/constants/rival_economy.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_page_route.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/device_id_service.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../quiz/questions_page.dart';
 import '../premium/premium_upsell_screen.dart';
@@ -395,6 +398,7 @@ class _StakeScreenState extends State<StakeScreen> {
 
       // Forced-update gate stamp (server rejects outdated Android builds).
       payload.addAll(AppUpdateService.instance.clientBuildStamp);
+      payload['deviceId'] = await DeviceIdService.instance.value();
 
       debugPrint(
         '══════════════════════════════════════',
@@ -574,6 +578,10 @@ ${e.details}
 
   @override
   Widget build(BuildContext context) {
+    return _buildGated(context);
+  }
+
+  Widget _buildGated(BuildContext context) {
     final userData = context.watch<UserDataProvider>();
 
     final animeCoins = userData.animeCoins;
@@ -773,14 +781,7 @@ class _StakeAppBar extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(6.r, 10.r, 16.r, 8.r),
       child: Row(
         children: [
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            splashRadius: 20,
-            icon: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary,
-              size: 19.r,
-            ),
+          AppBackButton(
             onPressed: enabled ? () => Navigator.pop(context) : null,
           ),
           SizedBox(width: 2.w),
@@ -830,14 +831,14 @@ class _StakeAppBar extends StatelessWidget {
                 children: [
                   Icon(
                     Icons.bolt_rounded,
-                    color: AppColors.primary,
+                    color: AppColors.readable(AppColors.primary),
                     size: 13.r,
                   ),
                   SizedBox(width: 4.w),
                   Text(
                     'RIVAL',
                     style: TextStyle(
-                      color: AppColors.primary,
+                      color: AppColors.readable(AppColors.primary),
                       fontSize: 9.sp,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.6,
@@ -964,7 +965,7 @@ class _LimitBanner extends StatelessWidget {
         children: [
           Icon(
             Icons.block_rounded,
-            color: AppColors.wrong,
+            color: AppColors.readable(AppColors.wrong),
             size: 17.r,
           ),
           SizedBox(width: 8.w),
@@ -972,7 +973,7 @@ class _LimitBanner extends StatelessWidget {
             child: Text(
               'Daily challenge limit reached.',
               style: TextStyle(
-                color: AppColors.wrong,
+                color: AppColors.readable(AppColors.wrong),
                 fontSize: 11.5.sp,
                 fontWeight: FontWeight.w700,
                 height: 1.3,
@@ -982,7 +983,7 @@ class _LimitBanner extends StatelessWidget {
           Text(
             '$createdToday/$dailyLimit',
             style: TextStyle(
-              color: AppColors.wrong,
+              color: AppColors.readable(AppColors.wrong),
               fontSize: 11.sp,
               fontWeight: FontWeight.w900,
             ),
@@ -1062,16 +1063,16 @@ class _StakePanel extends StatelessWidget {
                     vertical: 4.r,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFD700).withValues(alpha: 0.10),
+                    color: AppColors.gold.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(7.r),
                     border: Border.all(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.22),
+                      color: AppColors.gold.withValues(alpha: 0.22),
                     ),
                   ),
                   child: Text(
                     'PREMIUM',
                     style: TextStyle(
-                      color: Color(0xFFFFD700),
+                      color: AppColors.readable(AppColors.gold),
                       fontSize: 8.sp,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.6,
@@ -1103,7 +1104,7 @@ class _StakePanel extends StatelessWidget {
               ),
               suffixText: suffix,
               suffixStyle: TextStyle(
-                color: AppColors.primary,
+                color: AppColors.readable(AppColors.primary),
                 fontSize: 14.sp,
                 fontWeight: FontWeight.w900,
               ),
@@ -1120,14 +1121,14 @@ class _StakePanel extends StatelessWidget {
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13.r),
-                borderSide: const BorderSide(
+                borderSide: BorderSide(
                   color: AppColors.divider,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(13.r),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
+                borderSide: BorderSide(
+                  color: AppColors.readable(AppColors.primary),
                   width: 1.2,
                 ),
               ),
@@ -1146,7 +1147,7 @@ class _StakePanel extends StatelessWidget {
               children: [
                 Icon(
                   Icons.error_outline_rounded,
-                  color: AppColors.wrong,
+                  color: AppColors.readable(AppColors.wrong),
                   size: 15.r,
                 ),
                 SizedBox(width: 6.w),
@@ -1154,7 +1155,7 @@ class _StakePanel extends StatelessWidget {
                   child: Text(
                     inlineError!,
                     style: TextStyle(
-                      color: AppColors.wrong,
+                      color: AppColors.readable(AppColors.wrong),
                       fontSize: 10.5.sp,
                       fontWeight: FontWeight.w700,
                       height: 1.25,
@@ -1498,7 +1499,7 @@ class _CreatingOverlay extends StatelessWidget {
                 Text(
                   animeTitle,
                   style: TextStyle(
-                    color: AppColors.primary,
+                    color: AppColors.readable(AppColors.primary),
                     fontWeight: FontWeight.w800,
                     fontSize: 12.sp,
                   ),
@@ -1527,7 +1528,7 @@ class _PremiumStakeBanner extends StatelessWidget {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+        AppPageRoute(builder: (_) => const PremiumUpsellScreen()),
       ),
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
@@ -1550,7 +1551,8 @@ class _PremiumStakeBanner extends StatelessWidget {
                 ),
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, color: gold, size: 14.r),
+            Icon(Icons.arrow_forward_ios_rounded,
+                color: AppColors.readable(gold), size: 14.r),
           ],
         ),
       ),

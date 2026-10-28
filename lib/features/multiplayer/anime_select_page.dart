@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/services/firestore_service.dart';
 import 'stake_screen.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_page_route.dart';
 
@@ -94,7 +95,8 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
     }
 
     try {
-      final titles = await FirestoreService.instance.fetchAnimeTitles();
+      // Same 9 as the home grid — the rest of the catalogue stays hidden.
+      final titles = await FirestoreService.instance.fetchFeaturedShelf();
       if (!mounted) return;
       setState(() {
         _titles = titles;
@@ -159,7 +161,7 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
                       : _titles.isEmpty
                           ? const _EmptyState()
                           : RefreshIndicator(
-                              color: AppColors.primary,
+                              color: AppColors.readable(AppColors.primary),
                               backgroundColor: AppColors.surface,
                               strokeWidth: 2.2,
                               onRefresh: _fetchTitles,
@@ -216,16 +218,7 @@ class _TopBar extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(6.r, 8.r, 16.r, 8.r),
       child: Row(
         children: [
-          IconButton(
-            onPressed: enabled ? onBack : null,
-            splashRadius: 20,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary,
-              size: 19.r,
-            ),
-          ),
+          AppBackButton(onPressed: enabled ? onBack : null),
           SizedBox(width: 2.w),
           Expanded(
             child: Column(
@@ -326,7 +319,7 @@ class _AnimeTile extends StatelessWidget {
                       child: selected
                           ? Icon(
                               Icons.check_circle_rounded,
-                              color: AppColors.primary,
+                              color: AppColors.readable(AppColors.primary),
                               size: 18.r,
                             )
                           : null,

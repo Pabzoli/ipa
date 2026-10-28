@@ -558,6 +558,87 @@ class AdminPayoutService {
     }
   }
 
+  // ── Referral cashout queue (separate budget from the prize pool) ─────────
+  //
+  // The referral cashout is real money paid by hand. Its budget lives in
+  // `referralCashoutReserve/ledger`, NOT in `prize_pool`, so paying a few
+  // claimants at once never reduces weekly leaderboard prizes. These callables
+  // are ADMIN_UIDS-gated server-side, exactly like listPayoutClaims.
+
+  /// Loads referral cashout claims plus the separate budget state.
+  ///
+  /// [status] may be `pending`, `paid`, `rejected`, `anonymized` or null for
+  /// all. Full bank details are returned for manual transfers — never log them.
+  Future<AdminReferralCashoutSnapshot> listReferralCashouts({
+    String? status,
+    int limit = 200,
+  }) async {
+    try {
+      final res = await _functions.httpsCallable('listReferralCashoutClaims').call({
+        if (status != null) 'status': status,
+        'limit': limit,
+      });
+      return AdminReferralCashoutSnapshot.fromMap(
+        Map<String, dynamic>.from(res.data as Map),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      throw AdminPayoutException(
+          code: e.code, message: _adminErrorMessage(e));
+    }
+  }
+
+  /// Records a referral cashout as paid or rejected, or re-opens a mis-tap.
+  ///
+  /// Call this ONLY after checking your own bank transfer. The server moves the
+  /// earmark (`encumbered`) into `paidTotal` or back into `available`.
+  Future<void> markReferralCashout({
+    required String claimId,
+    required String status,
+    String? payoutReference,
+    String? reason,
+  }) async {
+    try {
+      final res =
+          await _functions.httpsCallable('markReferralCashoutPaid').call({
+        'claimId': claimId,
+        'status': status,
+        if (payoutReference != null && payoutReference.trim().isNotEmpty)
+          'payoutReference': payoutReference.trim(),
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      });
+      final data = Map<String, dynamic>.from(res.data as Map);
+      if (data['success'] != true) {
+        throw AdminPayoutException(
+            code: 'internal', message: (data['message'] as String?) ?? 'Failed');
+      }
+    } on FirebaseFunctionsException catch (e) {
+      throw AdminPayoutException(
+          code: e.code, message: _adminErrorMessage(e));
+    }
+  }
+
+  /// Tops up the referral cashout budget. This is bookkeeping for money you
+  /// have set aside — it never touches the weekly prize pool or entry sales.
+  Future<AdminReferralCashoutReserve> fundReferralCashoutReserve(
+    int amount, {
+    String? note,
+  }) async {
+    try {
+      final res =
+          await _functions.httpsCallable('fundReferralCashoutReserve').call({
+        'amount': amount,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      });
+      final data = Map<String, dynamic>.from(res.data as Map);
+      return AdminReferralCashoutReserve.fromMap(
+        Map<String, dynamic>.from((data['reserve'] as Map?) ?? const {}),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      throw AdminPayoutException(
+          code: e.code, message: _adminErrorMessage(e));
+    }
+  }
+
   /// Maps backend callable errors to clear human-readable admin messages.
   /// Every known backend state is covered; nothing is retried here.
   static String _adminErrorMessage(FirebaseFunctionsException e) {
@@ -588,4 +669,185 @@ class AdminPayoutService {
         return fallback('Request failed (${e.code}).');
     }
   }
+}
+
+// ─── Referral cashout models ────────────────────────────────────────────────
+
+DateTime? _parseIso(Object? value) {
+  if (value is! String || value.isEmpty) return null;
+  return DateTime.tryParse(value);
+}
+
+int _intOf(Object? value) => (value as num?)?.toInt() ?? 0;
+double _doubleOf(Object? value) => (value as num?)?.toDouble() ?? 0.0;
+
+/// The separate referral cashout budget.
+///   * [available]  — funded and not yet committed. Negative means the admin
+///                    needs to top up.
+///   * [encumbered] — submitted claims fully earmarked, not yet paid.
+///   * [paidTotal]  — already transferred.
+///   * [shortfall]  — `-available` when negative, else 0.
+class AdminReferralCashoutReserve {
+  final double available;
+  final double encumbered;
+  final double paidTotal;
+  final double totalFunded;
+  final double shortfall;
+  final DateTime? updatedAt;
+  final DateTime? lastFundedAt;
+  final String? lastFundedBy;
+
+  const AdminReferralCashoutReserve({
+    required this.available,
+    required this.encumbered,
+    required this.paidTotal,
+    required this.totalFunded,
+    required this.shortfall,
+    required this.updatedAt,
+    required this.lastFundedAt,
+    required this.lastFundedBy,
+  });
+
+  const AdminReferralCashoutReserve.empty()
+      : available = 0,
+        encumbered = 0,
+        paidTotal = 0,
+        totalFunded = 0,
+        shortfall = 0,
+        updatedAt = null,
+        lastFundedAt = null,
+        lastFundedBy = null;
+
+  factory AdminReferralCashoutReserve.fromMap(Map<String, dynamic> map) {
+    return AdminReferralCashoutReserve(
+      available: _doubleOf(map['available']),
+      encumbered: _doubleOf(map['encumbered']),
+      paidTotal: _doubleOf(map['paidTotal']),
+      totalFunded: _doubleOf(map['totalFunded']),
+      shortfall: _doubleOf(map['shortfall']),
+      updatedAt: _parseIso(map['updatedAt']),
+      lastFundedAt: _parseIso(map['lastFundedAt']),
+      lastFundedBy: map['lastFundedBy'] as String?,
+    );
+  }
+
+  bool get needsTopUp => shortfall > 0 || available <= 0;
+}
+
+/// One referral cashout claim as returned by `listReferralCashoutClaims`.
+class AdminReferralCashoutClaim {
+  final String claimId;
+  final String uid;
+  final String? username;
+  final String? email;
+  final int amount;
+  final String status;
+  final int qualifiedCount;
+  final int inviteeCount;
+  final String? accountNumber;
+  final String? bankCode;
+  final String? bankName;
+  final String? beneficiaryName;
+  final List<String> riskFlags;
+  final DateTime? submittedAt;
+  final DateTime? paidAt;
+  final DateTime? markedAt;
+  final String? markedBy;
+  final String? payoutReference;
+  final DateTime? rejectedAt;
+  final String? rejectionReason;
+
+  const AdminReferralCashoutClaim({
+    required this.claimId,
+    required this.uid,
+    required this.username,
+    required this.email,
+    required this.amount,
+    required this.status,
+    required this.qualifiedCount,
+    required this.inviteeCount,
+    required this.accountNumber,
+    required this.bankCode,
+    required this.bankName,
+    required this.beneficiaryName,
+    required this.riskFlags,
+    required this.submittedAt,
+    required this.paidAt,
+    required this.markedAt,
+    required this.markedBy,
+    required this.payoutReference,
+    required this.rejectedAt,
+    required this.rejectionReason,
+  });
+
+  factory AdminReferralCashoutClaim.fromMap(Map<String, dynamic> map) {
+    final invitees = (map['qualifiedInvitees'] as List?) ?? const [];
+    return AdminReferralCashoutClaim(
+      claimId: (map['claimId'] as String?) ?? '',
+      uid: (map['uid'] as String?) ?? '',
+      username: map['username'] as String?,
+      email: map['email'] as String?,
+      amount: _intOf(map['amount']),
+      status: (map['status'] as String?) ?? 'pending',
+      qualifiedCount: _intOf(map['qualifiedCount']),
+      inviteeCount: invitees.length,
+      accountNumber: map['accountNumber'] as String?,
+      bankCode: map['bankCode'] as String?,
+      bankName: map['bankName'] as String?,
+      beneficiaryName: map['beneficiaryName'] as String?,
+      riskFlags: ((map['riskFlags'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      submittedAt: _parseIso(map['submittedAt']),
+      paidAt: _parseIso(map['paidAt']),
+      markedAt: _parseIso(map['markedAt']),
+      markedBy: map['markedBy'] as String?,
+      payoutReference: map['payoutReference'] as String?,
+      rejectedAt: _parseIso(map['rejectedAt']),
+      rejectionReason: map['rejectionReason'] as String?,
+    );
+  }
+
+  bool get isPending => status == 'pending';
+  bool get isPaid => status == 'paid';
+  bool get isRejected => status == 'rejected';
+
+  /// `****1234` for display in lists; the payment dialog shows the full number
+  /// because the admin must type it into a banking app.
+  String get maskedAccount {
+    final digits = (accountNumber ?? '').replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 4) return '****';
+    return '****${digits.substring(digits.length - 4)}';
+  }
+}
+
+/// The admin referral cashout queue plus its budget.
+class AdminReferralCashoutSnapshot {
+  final List<AdminReferralCashoutClaim> claims;
+  final AdminReferralCashoutReserve reserve;
+
+  const AdminReferralCashoutSnapshot({
+    required this.claims,
+    required this.reserve,
+  });
+
+  factory AdminReferralCashoutSnapshot.fromMap(Map<String, dynamic> map) {
+    final raw = (map['claims'] as List?) ?? const [];
+    return AdminReferralCashoutSnapshot(
+      claims: raw
+          .map((c) => AdminReferralCashoutClaim.fromMap(
+              Map<String, dynamic>.from(c as Map)))
+          .toList(),
+      reserve: AdminReferralCashoutReserve.fromMap(
+        Map<String, dynamic>.from((map['reserve'] as Map?) ?? const {}),
+      ),
+    );
+  }
+
+  List<AdminReferralCashoutClaim> get pending =>
+      claims.where((c) => c.isPending).toList();
+
+  /// Total cash still owed across pending claims (each is fully earmarked).
+  double get pendingAmount =>
+      pending.fold<double>(0, (sum, c) => sum + c.amount);
 }

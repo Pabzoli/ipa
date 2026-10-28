@@ -27,6 +27,7 @@ import '../../core/constants/rivalries_paging.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/weekly_points_pill.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_empty_state.dart';
@@ -283,11 +284,7 @@ class _RivalriesPageState extends State<RivalriesPage>
       appBar: AppBar(
         backgroundColor: AppColors.surfaceDim,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: const AppBackButton(),
         title: Text(
           'Rivalries',
           style: TextStyle(
@@ -307,7 +304,7 @@ class _RivalriesPageState extends State<RivalriesPage>
       body: FadeTransition(
         opacity: _fade,
         child: RefreshIndicator(
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           backgroundColor: AppColors.surface,
           onRefresh: () => _load(reset: true),
           child: ListView(
@@ -358,7 +355,7 @@ class _RivalriesPageState extends State<RivalriesPage>
         child: AppEmptyState(
           icon: Icons.cloud_off_rounded,
           title: 'Couldn’t load rivalries',
-          color: AppColors.wrong,
+          color: AppColors.readable(AppColors.wrong),
           action: AppButton(
             label: 'Retry',
             icon: const Icon(Icons.refresh_rounded),
@@ -377,7 +374,7 @@ class _RivalriesPageState extends State<RivalriesPage>
           icon: Icons.sports_kabaddi_rounded,
           title: 'No rivals yet',
           message: 'Duel someone and they land here.',
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           action: AppButton(
             label: 'Find a rival',
             icon: const Icon(Icons.person_search_rounded),
@@ -445,7 +442,7 @@ class _SummaryCard extends StatelessWidget {
 
     return AppCard(
       tier: AppCardTier.elevated,
-      gradient: const LinearGradient(
+      gradient: LinearGradient(
         colors: AppColors.cardGradient,
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
@@ -478,7 +475,7 @@ class _SummaryCard extends StatelessWidget {
                   ),
                 ),
               ),
-              _Tag(label: leading, color: AppColors.primary),
+              _Tag(label: leading, color: AppColors.primaryText),
             ],
           ),
           SizedBox(height: 16.h),
@@ -496,7 +493,7 @@ class _SummaryCard extends StatelessWidget {
                 child: _SummaryStat(
                   value: '$live',
                   label: 'SERIES LIVE',
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                 ),
               ),
               const _StatDivider(),
@@ -550,7 +547,7 @@ class _SummaryStat extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: color,
+            color: AppColors.readable(color),
             fontSize: 22.sp,
             fontWeight: FontWeight.w900,
             height: 1,
@@ -703,7 +700,7 @@ class _RivalRow extends StatelessWidget {
             RivalAvatar(
               name: data.username,
               size: 46.r,
-              color: AppColors.primary,
+              color: AppColors.readable(AppColors.primary),
             ),
             SizedBox(width: 12.w),
             Expanded(
@@ -728,7 +725,7 @@ class _RivalRow extends StatelessWidget {
                       ),
                       if (data.lastWasLoss) ...[
                         SizedBox(width: 8.w),
-                        const _Tag(label: 'REVENGE', color: AppColors.primary),
+                        _Tag(label: 'REVENGE', color: AppColors.primaryText),
                       ],
                     ],
                   ),
@@ -891,7 +888,7 @@ class _CampusCard extends StatelessWidget {
                 RivalAvatar(
                   name: name,
                   size: 42.r,
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                 ),
               ],
             ),

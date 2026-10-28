@@ -1,95 +1,77 @@
-// ── Gauntlet v4.8 economy ────────────────────────────────────────────────────
-// Mirrors GAUNTLET_MILESTONES, GAUNTLET_RETRY_COST_* and GAUNTLET_MAX_RETRIES
-// in functions/index.js. Change both together. Single source of truth for all
-// Gauntlet reward labels and retry UI.
+// ── Gauntlet economy (deprecated) ────────────────────────────────────────────
+// The Daily Gauntlet is now Gauntlet Blitz (90s time-attack, no streak).
+// This file only keeps the old identifiers so existing imports keep
+// compiling; all values live in blitz_economy.dart. Do not add new uses —
+// import blitz_economy.dart directly.
+export 'blitz_economy.dart';
 
-/// Streak-day → reward label, mirroring GAUNTLET_MILESTONES (functions/index.js).
-/// Awarded once per streak run at the listed day counts. Keep this the ONLY
-/// client copy so the home card and the confirm dialog can never disagree.
-const Map<int, String> kGauntletMilestones = {
-  3: '40🪙',
-  7: '100🪙 + 50 WP',
-  14: '200🪙 + 100 WP + 🖼️',
-  30: '500🪙 + Premium',
-};
+import 'blitz_economy.dart';
 
-/// Maximum paid retries per WAT day (index 0..5 → 6 retries).
-const int kGauntletMaxRetries = 6;
+/// No milestones exist anymore. Kept (empty) so old iteration code
+/// compiles; every loop over it simply does nothing.
+@Deprecated('Blitz has no streak milestones')
+const Map<int, String> kGauntletMilestones = <int, String>{};
 
-/// FREE curve — always paid, escalates 40 → 756.
-const List<int> kGauntletRetryCostFree = [40, 72, 130, 234, 420, 756];
+/// Old positional tiers, removed with the 7-question format.
+@Deprecated('Use kBlitzWpByDifficulty')
+const List<int> kGauntletTiersShim = <int>[];
 
-/// PREMIUM curve — first retry (index 0) is free, then 40 → 203.
-const List<int> kGauntletRetryCostPremium = [0, 40, 60, 90, 135, 203];
+@Deprecated('Use kBlitzMaxRetries')
+const int kGauntletMaxRetries = kBlitzMaxRetries;
 
-/// Returns the AC cost for the current retry, or null when no retries remain.
-/// [retryIndex] is the 0-based paid-retry index for today (0 = next retry is
-/// retry number 1). [isPremium] selects the curve. [isFreeAttempt] is true
-/// when the free daily attempt has NOT yet been consumed today.
+@Deprecated('Use kBlitzRetryCostFree')
+const List<int> kGauntletRetryCostFree = kBlitzRetryCostFree;
+
+@Deprecated('Use kBlitzRetryCostPremium')
+const List<int> kGauntletRetryCostPremium = kBlitzRetryCostPremium;
+
+@Deprecated('Use blitzRetryCost')
 int? gauntletRetryCost({
   required int retryIndex,
   required bool isPremium,
   required bool isFreeAttempt,
-}) {
-  if (isFreeAttempt) return 0; // first run is always free
-  if (retryIndex >= kGauntletMaxRetries) return null; // cap reached
-  return isPremium
-      ? kGauntletRetryCostPremium[retryIndex]
-      : kGauntletRetryCostFree[retryIndex];
-}
+}) =>
+    blitzRetryCost(
+      retryIndex: retryIndex,
+      isPremium: isPremium,
+      isFreeAttempt: isFreeAttempt,
+    );
 
-/// Human label for the current retry state.
-///
-/// - isFreeAttempt is true → "FREE" (start)
-///
-/// - premium retry 1 (retryIndex is 0, isPremium is true) → "FREE"
-/// - otherwise → "[cost] AC" or "No retries left"
+@Deprecated('Use blitzRetryLabel')
 String gauntletRetryLabel({
   required int retryIndex,
   required bool isPremium,
   required bool isFreeAttempt,
-}) {
-  final cost = gauntletRetryCost(
-    retryIndex: retryIndex,
-    isPremium: isPremium,
-    isFreeAttempt: isFreeAttempt,
-  );
-  if (cost == null) return 'No retries left today';
-  if (cost == 0) return 'FREE';
-  return '$cost AC';
-}
+}) =>
+    blitzRetryLabel(
+      retryIndex: retryIndex,
+      isPremium: isPremium,
+      isFreeAttempt: isFreeAttempt,
+    );
 
-/// Button label variant — includes "Retry" prefix except for the free start.
+@Deprecated('Use blitzRetryButtonLabel')
 String gauntletRetryButtonLabel({
   required int retryIndex,
   required bool isPremium,
   required bool isFreeAttempt,
-}) {
-  if (isFreeAttempt) return 'Start \u00b7 Free';
-  final cost = gauntletRetryCost(
-    retryIndex: retryIndex,
-    isPremium: isPremium,
-    isFreeAttempt: isFreeAttempt,
-  );
-  if (cost == null) return 'No retries left';
-  if (cost == 0) return 'Retry \u00b7 FREE';
-  return 'Retry \u00b7 $cost AC';
-}
+}) =>
+    blitzRetryButtonLabel(
+      retryIndex: retryIndex,
+      isPremium: isPremium,
+      isFreeAttempt: isFreeAttempt,
+    );
 
-/// Returns effective retryIndex for today: 0 if the stored date mismatches [todayWAT].
+@Deprecated('Use effectiveBlitzRetryIndex')
 int effectiveGauntletRetryIndex({
   required int storedIndex,
   required String storedDate,
   required String todayWAT,
-}) {
-  if (storedDate != todayWAT) return 0;
-  return storedIndex;
-}
+}) =>
+    effectiveBlitzRetryIndex(
+      storedIndex: storedIndex,
+      storedDate: storedDate,
+      todayWAT: todayWAT,
+    );
 
-/// WAT date string helper (mirrors FirestoreService._watDateString).
-String gauntletTodayWAT() {
-  final wat = DateTime.now().toUtc().add(const Duration(hours: 1));
-  final m = wat.month.toString().padLeft(2, '0');
-  final d = wat.day.toString().padLeft(2, '0');
-  return '${wat.year}-$m-$d';
-}
+@Deprecated('Use blitzTodayWAT')
+String gauntletTodayWAT() => blitzTodayWAT();

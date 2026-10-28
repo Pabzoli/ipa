@@ -9,6 +9,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_page_route.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/shared_widgets.dart';
@@ -21,9 +22,8 @@ import '../../core/services/prize_pool_service.dart';
 import '../admin/admin_payout_dashboard.dart';
 import '../auth/auth_service.dart';
 import '../quiz/questions_page.dart';
-import '../quiz/quiz_controller.dart'
-    show kGauntletQuestionCount, kGauntletTiers;
-import '../../core/constants/gauntlet_economy.dart';
+import '../quiz/quiz_controller.dart' show kBlitzQuestionCount;
+import '../../core/constants/blitz_economy.dart';
 import '../../core/constants/solo_economy.dart';
 import '../../core/constants/anime_catalog.dart';
 import '../player/pi_page.dart';
@@ -55,7 +55,7 @@ class _HomePageState extends State<HomePage> {
   // afterwards, which is the point of the IndexedStack. (The widget objects are
   // cheap to build; it is the State, and its reads, that the visit gate defers.)
   late final List<Widget> _pages = <Widget>[
-    _HomeTab(onOpenRankings: () => setState(() => _tab = 2)),
+    const _HomeTab(),
     const MultiplayerHubPage(),
     const WeeklyLeaderboardPage(),
     const PInform(),
@@ -113,8 +113,8 @@ class _AppBottomNav extends StatelessWidget {
             bottom: MediaQuery.of(context).padding.bottom + 8.h,
           ),
           decoration: BoxDecoration(
-            color: AppColors.surfaceDim.withOpacity(0.92),
-            border: const Border(top: BorderSide(color: AppColors.divider)),
+            color: AppColors.surfaceDim.withValues(alpha: 0.92),
+            border: Border(top: BorderSide(color: AppColors.divider)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -133,7 +133,7 @@ class _AppBottomNav extends StatelessWidget {
                           horizontal: 14.w, vertical: 5.h),
                       decoration: BoxDecoration(
                         color: active
-                            ? AppColors.primary.withOpacity(0.14)
+                            ? AppColors.primary.withValues(alpha: 0.14)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(14.r),
                       ),
@@ -166,20 +166,19 @@ class _AppBottomNav extends StatelessWidget {
 // Home tab
 // ═══════════════════════════════════════════════════════════════════════════
 class _HomeTab extends StatefulWidget {
-  /// Switches the bottom-nav shell to the Rankings tab. The prize-pool card is
-  /// the natural tap-through to it; without this the only way to Rankings was
-  /// the nav bar itself, and the pool card looked interactive but was not.
-  final VoidCallback onOpenRankings;
-
-  const _HomeTab({required this.onOpenRankings});
+  const _HomeTab();
 
   @override
   State<_HomeTab> createState() => _HomeTabState();
 }
 
 class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
-  /// Live catalogue (app_config/anime_catalog), starting from the bundled list.
-  List<String> _animeTitles = kAnimeCatalog;
+  /// Server-rotated shelf (app_config/featured_rotation). Same 9 for every
+  /// user; rotates every 6/12/18/24/48h server-side. Null until first event.
+  /// The full catalogue doc is server-only (denied to clients in
+  /// firestore.rules), so the shelf renders as-is — never filtered against
+  /// or expanded to a catalogue client-side.
+  List<String>? _featuredTitles;
 
   final Set<String> _selected = {};
   final Map<String, DateTime> _locks = {};
@@ -190,7 +189,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   late Animation<double> _entranceFade;
   late StreamSubscription<User?> _authSub;
   StreamSubscription<Map<String, DateTime>>? _cooldownSub;
-  StreamSubscription<List<String>>? _catalogSub;
+  StreamSubscription<Map<String, dynamic>>? _featuredSub;
 
   /// Bumped once per second while any cooldown lock is active, so only the
   /// countdown pills rebuild rather than the whole tab.
@@ -224,12 +223,16 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       }
     });
 
-    _catalogSub = FirestoreService.instance.animeCatalogStream().listen(
-      (titles) {
-        if (mounted) setState(() => _animeTitles = titles);
+    _featuredSub = FirestoreService.instance.featuredRotationStream().listen(
+      (featured) {
+        if (!mounted) return;
+        setState(() {
+          final titles = (featured['titles'] as List<String>);
+          _featuredTitles = titles.isNotEmpty ? titles : null;
+        });
       },
       onError: (Object e) =>
-          debugPrint('[HomeTab] anime catalog error (keeping bundled list): $e'),
+          debugPrint('[HomeTab] featured rotation error (fallback used): $e'),
     );
 
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
@@ -264,7 +267,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     _entranceCtrl.dispose();
     _authSub.cancel();
     _cooldownSub?.cancel();
-    _catalogSub?.cancel();
+    _featuredSub?.cancel();
     _lockTick.dispose();
     super.dispose();
   }
@@ -290,7 +293,19 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
         : _selected.add(title));
   }
 
-  List<String> get _unlockedTitles => _animeTitles
+  /// The 9 the user is allowed to see: the server rotation as-is, bundled
+  /// head while offline. Membership is decided server-side (the rotation
+  /// scheduler draws from the catalogue via the Admin SDK); the catalogue
+  /// doc itself is unreadable by clients. The grid, the filter counts,
+  /// surprise-me and selection all read this.
+  List<String> get _shelfTitles {
+    if (_featuredTitles != null && _featuredTitles!.isNotEmpty) {
+      return List<String>.from(_featuredTitles!);
+    }
+    return kAnimeCatalog.take(9).toList();
+  }
+
+  List<String> get _unlockedTitles => _shelfTitles
       .where(
           (t) => !_locks.containsKey(t) || _locks[t]!.isBefore(DateTime.now()))
       .toList();
@@ -301,13 +316,17 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   }
 
   List<String> get _visibleTitles {
+    // The shelf is the whole app as far as the user knows: the
+    // server-rotated 9. Selection/locks are untouched by rotation. Unknown
+    // featured entries (catalogue lag) are dropped.
+    final shelf = _shelfTitles;
     switch (_filter) {
       case _AnimeFilter.ready:
-        return _animeTitles.where((t) => !_isTitleLocked(t)).toList();
+        return shelf.where((t) => !_isTitleLocked(t)).toList();
       case _AnimeFilter.cooldown:
-        return _animeTitles.where(_isTitleLocked).toList();
+        return shelf.where(_isTitleLocked).toList();
       case _AnimeFilter.all:
-        return List<String>.from(_animeTitles);
+        return shelf;
     }
   }
 
@@ -323,19 +342,27 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   }
 
   // ── Start Quiz ─────────────────────────────────────────────────────────
+  /// True from the tap on Start until the `startSoloCooldowns` call resolves.
+  ///
+  /// The cooldown call is a network round-trip, so on a slow connection the
+  /// Start button stays live for seconds. Without this flag every extra tap
+  /// ran its own launch and pushed its own quiz page — leaving the player with
+  /// two live solo sessions at once (each one submitting its own score).
+  bool _startingSolo = false;
+
   Future<void> _startQuiz({
     bool isGauntlet = false,
     List<String>? titles,
-    List<String>? questionIds,
     String? gauntletTicketId,
+    String? gauntletRunId,
   }) async {
     if (isGauntlet) {
-      if (questionIds == null || questionIds.length < kGauntletQuestionCount) {
+      if (gauntletRunId == null || gauntletRunId.isEmpty) {
         // Never fail silently — the user just confirmed + may have paid.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-                "Couldn't load the Daily Gauntlet — please try again."),
+                "Couldn't load Gauntlet Blitz — please try again."),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppColors.wrong,
           ),
@@ -348,10 +375,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
             opacity: a,
             child: QuestionsPage(
               selectedTitles: const [],
-              questionIds: questionIds,
               mode: QuizMode.gauntlet,
               isGauntlet: true,
               gauntletTicketId: gauntletTicketId,
+              gauntletRunId: gauntletRunId,
             ),
           ),
           transitionDuration: const Duration(milliseconds: 400),
@@ -363,6 +390,11 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     final titlesToPlay = titles ?? _selected.toList();
     if (titlesToPlay.length < 2) return;
 
+    // One launch at a time — see [_startingSolo]. A gauntlet entry in flight
+    // counts too: its confirm/charge sequence must not race a solo push.
+    if (_startingSolo || _gauntletBusy) return;
+    setState(() => _startingSolo = true);
+
     // Capture the difficulty from the shared settings now — the tray clears
     // _selected but must not reset the difficulty choice.
     final difficultyToPlay = normalizeSoloDifficulty(
@@ -370,26 +402,43 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     );
 
     // The server records the cooldown (and refuses titles still locked), so
-    // the lock can't be skipped by clearing app data. Nothing navigates unless
+    // the lock can't be skipped by clearing app data. It also mints the run's
+    // session id, which the submission must present. Nothing navigates unless
     // the lock was recorded.
-    final Map<String, int> expiries;
+    final SoloRunStart start;
     try {
-      expiries =
-          await FirestoreService.instance.startSoloCooldowns(titlesToPlay);
+      start = await FirestoreService.instance.startSoloCooldowns(titlesToPlay);
     } catch (e) {
       debugPrint('[HomeTab] startSoloCooldowns error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_cooldownStartErrorMessage(e))),
-        );
+        if (e is FirebaseFunctionsException &&
+            e.code == 'failed-precondition' &&
+            e.message == 'run_in_progress') {
+          // The quiz page is gone but the server lock is still held (quit
+          // raced the background cancel, app killed, etc.). Show a live
+          // countdown and a way out instead of a dead end. Solo runs are
+          // free to abandon.
+          _showStuckRunRecovery(
+            fallback: 'Finish your current run before starting another.',
+            feeWarning: false,
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_cooldownStartErrorMessage(e))),
+          );
+        }
       }
       return;
+    } finally {
+      // No tap can slip in between this and the push below: the success path
+      // navigates synchronously after the await resolves.
+      if (mounted && _startingSolo) setState(() => _startingSolo = false);
     }
     if (!mounted) return;
 
     setState(() {
       _selected.clear();
-      expiries.forEach(
+      start.expiresAt.forEach(
         (t, ms) => _locks[t] = DateTime.fromMillisecondsSinceEpoch(ms),
       );
     });
@@ -401,6 +450,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           child: QuestionsPage(
             selectedTitles: titlesToPlay,
             soloDifficulty: difficultyToPlay,
+            soloSessionId: start.sessionId,
           ),
         ),
         transitionDuration: const Duration(milliseconds: 400),
@@ -408,10 +458,144 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     );
   }
 
+  /// Recovery for a run whose quiz page is gone but whose server lock is still
+  /// held (quit raced the background cancel, the app was killed, etc.). Asks
+  /// the server what is actually holding the lock and shows a live countdown
+  /// ("Your solo run ends in ~4 min") with a Clear action — never a generic
+  /// dead end. Abandoning a solo run is free; a paid Gauntlet retry forfeits
+  /// its entry fee, so that path ([feeWarning]) confirms first.
+  Future<void> _showStuckRunRecovery({
+    required String fallback,
+    required bool feeWarning,
+  }) async {
+    String message = fallback;
+    bool hasStuckRun = true;
+    try {
+      final status = await FirestoreService.instance.getActiveRunStatus();
+      if (status['active'] != true) {
+        // The server already released it (expired/settled self-heal) — just
+        // say so; the next start will go through.
+        message = 'Your old run was already cleared — try starting again.';
+        hasStuckRun = false;
+      } else {
+        final kind = _friendlyRunKind(status['kind'] as String?);
+        final secs = (status['secondsLeft'] as num?)?.toInt();
+        message = secs == null
+            ? 'Your $kind is still in progress. Clear it now to start fresh?'
+            : 'Your $kind ends in ${_formatCountdown(secs)}. '
+                'Clear it now to start fresh?';
+      }
+    } catch (e) {
+      debugPrint('[HomeTab] getActiveRunStatus failed, generic message: $e');
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 8),
+        action: hasStuckRun
+            ? SnackBarAction(
+                label: 'Clear run',
+                onPressed: () => _clearStuckRun(feeWarning: feeWarning),
+              )
+            : null,
+      ),
+    );
+  }
+
+  /// Server run kinds (`solo`, `gauntlet`, `challenge`, `quickmatch`) in
+  /// player-facing words.
+  String _friendlyRunKind(String? kind) {
+    return switch (kind) {
+      'gauntlet' => 'Blitz run',
+      'challenge' => 'challenge run',
+      'quickmatch' => 'Quick Match run',
+      _ => 'solo run',
+    };
+  }
+
+  /// 90 → '~2 min'; anything under a minute says so instead of '~0 min'.
+  String _formatCountdown(int secondsLeft) {
+    if (secondsLeft < 60) return 'less than a minute';
+    final mins = (secondsLeft / 60).ceil();
+    return '~$mins min';
+  }
+
+  Future<void> _clearStuckRun({required bool feeWarning}) async {
+    if (feeWarning && mounted) {
+      final confirmed = await showAppDialog<bool>(
+        context,
+        barrierDismissible: true,
+        builder: (ctx) => AppDialog(
+          icon: Icons.warning_amber_rounded,
+          title: 'Clear current run?',
+          content:
+              'This abandons your unfinished run so you can start a new one.\n\n'
+              'A paid entry fee is non-refundable.',
+          actions: [
+            AppButton(
+              label: 'Keep run',
+              variant: AppButtonVariant.text,
+              onPressed: () => Navigator.pop(ctx, false),
+            ),
+            AppButton(
+              label: 'Clear run',
+              variant: AppButtonVariant.text,
+              color: AppColors.errorText,
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || !mounted) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final activeRunId =
+          (snap.data()?['activeRunId'] as String?)?.trim() ?? '';
+      if (!mounted) return;
+      if (activeRunId.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No stuck run found — try starting again.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      await FirestoreService.instance.cancelRun(activeRunId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Stuck run cleared — start again.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[HomeTab] clearStuckRun failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't clear the run — check connection, try again."),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   String _cooldownStartErrorMessage(Object e) {
     if (e is FirebaseFunctionsException) {
       if (e.code == 'failed-precondition' && e.message == 'cooldown_active') {
         return 'Some anime are still on cooldown — pick again.';
+      }
+      if (e.code == 'failed-precondition' && e.message == 'run_in_progress') {
+        return 'Finish your current run before starting another.';
       }
       if (e.code == 'failed-precondition' &&
           (e.message ?? '').startsWith('App update required')) {
@@ -421,31 +605,49 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     return 'Something went wrong — please try again.';
   }
 
-  // ── Daily Gauntlet entry point ──────────────────────────────────────────
+  // ── Gauntlet Blitz entry point ────────────────────────────────────────────
   // Flow: preview (live stream, no charge) → confirm dialog → loading →
-  // fetch question IDs (free, validated) → enterDailyGauntlet (authoritative
-  // deduction + ticket) → quiz page. Charging happens ONLY after the user
-  // confirms AND content is available, so a content failure never burns coins.
+  // enterDailyGauntlet (authoritative deduction + ticket + 30Q run) →
+  // quiz page. Charging happens ONLY after the user confirms AND content
+  // is available, so a content failure never burns coins.
   bool _gauntletBusy = false;
 
   Future<void> _startDailyGauntlet() async {
-    if (_gauntletBusy) return;
+    // A solo launch still in flight will push its own quiz page in a moment;
+    // entering the Gauntlet on top of it would stack two sessions (and charge
+    // for the Gauntlet entry at the same time).
+    if (_gauntletBusy || _startingSolo) return;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please sign in to play the Daily Gauntlet.'),
+          content: Text('Please sign in to play Gauntlet Blitz.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
       return;
     }
 
+    // Claim the entry before the first await. The preview read below can take
+    // up to 6 s on a slow connection while nothing covers the screen, and a
+    // second tap used to run a whole second entry: two confirm dialogs, two
+    // `enterDailyGauntlet` charges (each minting its own ticket) and two
+    // stacked quiz pages. The finally releases the gate on every exit path.
+    _gauntletBusy = true;
+    try {
+      await _enterDailyGauntlet();
+    } finally {
+      _gauntletBusy = false;
+    }
+  }
+
+  /// Preview → confirm → fetch → authoritative entry. Split out of
+  /// [_startDailyGauntlet] so its re-entrancy gate wraps the whole sequence.
+  Future<void> _enterDailyGauntlet() async {
     // ── 1. Preview (no charge, same source as the home card) ──────────
     // Capture premium BEFORE any async gap.
     final isPremiumCached = context.read<UserDataProvider>().premiumActive;
-    int streak = 0;
     bool isFreeAttempt = true;
     int? retryCost = 0;
     try {
@@ -453,11 +655,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           .gauntletProgressStream()
           .first
           .timeout(const Duration(seconds: 6));
-      streak = (progress['streak'] as int?) ?? 0;
       final usedToday = (progress['usedToday'] as bool?) ?? false;
       final retryIndex = (progress['retryIndex'] as int?) ?? 0;
       isFreeAttempt = !usedToday;
-      retryCost = gauntletRetryCost(
+      retryCost = blitzRetryCost(
         retryIndex: retryIndex,
         isPremium: isPremiumCached,
         isFreeAttempt: isFreeAttempt,
@@ -466,7 +667,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       // Offline / slow stream — fall back to a free preview so the dialog
       // still opens; the server remains authoritative at enter time.
       debugPrint('[HomeTab] gauntlet preview fallback (free): $e');
-      streak = 0;
       isFreeAttempt = true;
       retryCost = 0;
     }
@@ -477,7 +677,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     if (!isFreeAttempt && retryCost == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No Gauntlet retries left today — come back tomorrow.'),
+          content: Text('No Blitz retries left today — come back tomorrow.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -486,36 +686,28 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
 
     // ── 2. Confirm (redesigned to match the app) ───────────────────────
     final confirmed = await _showGauntletConfirmDialog(
-      streak: streak,
       isFreeAttempt: isFreeAttempt,
       retryCost: retryCost ?? 0,
     );
     if (confirmed != true || !mounted) return;
 
     // ── 3. Load + enter with visible feedback ──────────────────────────
-    _gauntletBusy = true;
-    if (mounted) setState(() {});
     _showGauntletLoading();
     try {
-      // Content first (free): a content failure must never burn coins.
-      final pool = _animeTitles.toSet()..addAll(_unlockedForever);
-      final questionIds =
-          await FirestoreService.instance.fetchGauntletQuestionIds(
-        unlockedTitles: pool.toList(),
-        count: kGauntletQuestionCount,
-      );
-
-      // Then the authoritative deduction + ticket.
+      // The server picks the 30 questions and mints the run BEFORE charging,
+      // so a content failure still never burns coins. It returns the runId;
+      // the quiz page resolves the sanitized questions from it.
       final entryResult =
           await FirestoreService.instance.enterDailyGauntlet();
       final String? ticketId = entryResult['ticketId'] as String?;
+      final String? runId = entryResult['runId'] as String?;
 
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(); // close loading
       _startQuiz(
         isGauntlet: true,
-        questionIds: questionIds,
         gauntletTicketId: ticketId,
+        gauntletRunId: runId,
       );
     } on FirebaseFunctionsException catch (e) {
       debugPrint('[HomeTab] enterDailyGauntlet error: ${e.code} ${e.message}');
@@ -528,10 +720,37 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
         return;
       }
       if (e.code == 'failed-precondition') {
+        final raw = e.message ?? '';
+        if (raw.startsWith('App update required')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(raw),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: AppColors.wrong,
+            ),
+          );
+          return;
+        }
+        if (raw == 'run_in_progress') {
+          _showStuckRunRecovery(
+            fallback: 'Finish your current run before starting Blitz.',
+            // A paid retry forfeits its entry fee when cleared.
+            feeWarning: !isFreeAttempt,
+          );
+          return;
+        }
+        final message = switch (raw) {
+          'not_enough_questions' =>
+            'Not enough questions for Blitz yet — try another anime.',
+          'max_retries_exceeded' =>
+            'No Blitz retries left today — come back tomorrow.',
+          'gauntlet_free_entry_limit' =>
+            'Free Blitz entries used up for today — come back tomorrow.',
+          _ => "Couldn't start Gauntlet Blitz — please try again.",
+        };
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:
-                Text('No Gauntlet retries left today — come back tomorrow.'),
+          SnackBar(
+            content: Text(message),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -548,7 +767,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-                'Daily Gauntlet is updating on the server — '
+                'Gauntlet Blitz is updating on the server — '
                 'please try again in a minute.'),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppColors.wrong,
@@ -559,7 +778,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
-              "Couldn't start the Daily Gauntlet — please try again."),
+              "Couldn't start Gauntlet Blitz — please try again."),
           behavior: SnackBarBehavior.floating,
           backgroundColor: AppColors.wrong,
         ),
@@ -575,9 +794,6 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
           backgroundColor: AppColors.wrong,
         ),
       );
-    } finally {
-      _gauntletBusy = false;
-      if (mounted) setState(() {});
     }
   }
 
@@ -587,7 +803,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     if (msg.contains('Not enough questions')) {
       return 'Not enough questions yet — try a normal quiz first.';
     }
-    return "Couldn't load the Daily Gauntlet — please try again.";
+    return "Couldn't load Gauntlet Blitz — please try again.";
   }
 
   /// Non-dismissible loading indicator shown while fetching + entering.
@@ -595,44 +811,41 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     showAppDialog<void>(
       context,
       barrierDismissible: false,
-      builder: (_) => const AppDialog(
+      builder: (_) => AppDialog(
         icon: Icons.hourglass_top_rounded,
-        iconColor: AppColors.amber,
-        title: 'Preparing Gauntlet…',
+        iconColor: AppColors.readable(AppColors.amber),
+        title: 'Preparing Blitz…',
         content: 'Fetching questions and reserving your entry.',
       ),
     );
   }
 
-  /// Confirm dialog for the Daily Gauntlet.
+  /// Confirm dialog for Gauntlet Blitz.
   ///
-  /// Built on [AppDialog] for the app's dialog shell, then styled to mirror the
-  /// home tile: the same amber streak medallion and milestone rail, the WP
-  /// ladder as chips read from [kGauntletTiers] (never a hardcoded copy of the
-  /// server curve), and the entry cost as a plain fact row. Nothing is charged
-  /// until this resolves true.
+  /// Built on [AppDialog] for the app's dialog shell: a clock hero with the
+  /// entry cost as a pill, the AC payout grid read from [kBlitzAcTiers]
+  /// (never a hardcoded copy of the server curve) with the break-even tier
+  /// highlighted, one verdict line connecting cost to payout, and one rules
+  /// note. Nothing is charged until this resolves true.
   Future<bool?> _showGauntletConfirmDialog({
-    required int streak,
     required bool isFreeAttempt,
     required int retryCost,
   }) {
     const amber = AppColors.amber;
     final isFreeEntry = isFreeAttempt || retryCost == 0;
 
-    // Milestone days ascend (3, 7, 14, 30); the first past the streak is what
-    // the rail walks toward.
-    int? nextDay;
-    for (final day in kGauntletMilestones.keys) {
-      if (streak < day) {
-        nextDay = day;
-        break;
+    // Lowest payout covering this run's entry fee. Null for free entries
+    // (everything is profit) and for deep retries no tier can cover.
+    BlitzAcTier? breakEven;
+    if (!isFreeEntry) {
+      for (final tier in kBlitzAcTiers) {
+        if (tier.ac >= retryCost) {
+          breakEven = tier;
+          break;
+        }
       }
     }
-    final milestoneLabel = nextDay == null
-        ? 'All milestones claimed'
-        : '${nextDay - streak}d → ${kGauntletMilestones[nextDay]}';
-    final progress = _milestoneProgress(streak, nextDay);
-    final totalWP = kGauntletTiers.fold<int>(0, (acc, t) => acc + t);
+    final covered = breakEven;
 
     final confirmLabel = isFreeAttempt
         ? 'Start · Free'
@@ -641,14 +854,14 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     return showAppDialog<bool>(
       context,
       builder: (ctx) => AppDialog(
-        icon: Icons.emoji_events_rounded,
+        icon: Icons.bolt_rounded,
         iconColor: amber,
-        title: 'Daily Gauntlet',
+        title: 'Gauntlet Blitz',
         contentWidget: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── Streak + milestone progress banner ──────────────────
+            // ── Hero: clock + entry ─────────────────────────────────
             Container(
               padding: EdgeInsets.all(14.r),
               decoration: BoxDecoration(
@@ -671,149 +884,84 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                   width: isFreeEntry ? 1.5 : 1,
                 ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      // Streak medallion — the same shape as the home tile.
-                      Container(
-                        width: 52.r,
-                        height: 52.r,
-                        decoration: BoxDecoration(
-                          color: amber
-                              .withValues(alpha: isFreeEntry ? 0.16 : 0.07),
-                          borderRadius: BorderRadius.circular(14.r),
-                          border: Border.all(
-                            color: amber.withValues(
-                                alpha: isFreeEntry ? 0.34 : 0.16),
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.local_fire_department_rounded,
-                              color: isFreeEntry ? amber : AppColors.textMuted,
-                              size: 15.r,
-                            ),
-                            Text(
-                              '$streak',
-                              style: TextStyle(
-                                color:
-                                    isFreeEntry ? amber : AppColors.textMuted,
-                                fontSize: 18.sp,
-                                fontWeight: FontWeight.w900,
-                                height: 1.0,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            Text(
-                              'DAY STREAK',
-                              style: TextStyle(
-                                color: amber.withValues(
-                                    alpha: isFreeEntry ? 0.75 : 0.45),
-                                fontSize: 6.sp,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.4,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(width: 12.w),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              streak == 1
-                                  ? '1 day in a row'
-                                  : '$streak days in a row',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 14.sp,
-                                fontWeight: FontWeight.w900,
-                                height: 1.1,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                            SizedBox(height: 4.h),
-                            Text(
-                              isFreeEntry
-                                  ? 'Your free attempt is ready'
-                                  : 'Your extra attempt today',
-                              style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 11.sp,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 14.h),
-                  // Milestone rail — fills toward the next reward.
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadii.full),
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween<double>(begin: 0, end: progress),
-                      duration: const Duration(milliseconds: 320),
-                      curve: Curves.easeOutCubic,
-                      builder: (_, value, __) => Container(
-                        width: double.infinity,
-                        height: 5.r,
-                        color: AppColors.divider,
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: value.clamp(0.0, 1.0).toDouble(),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  amber.withValues(alpha: 0.55),
-                                  amber,
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                  Container(
+                    width: 52.r,
+                    height: 52.r,
+                    decoration: BoxDecoration(
+                      color: amber
+                          .withValues(alpha: isFreeEntry ? 0.16 : 0.07),
+                      borderRadius: BorderRadius.circular(14.r),
+                      border: Border.all(
+                        color: amber.withValues(
+                            alpha: isFreeEntry ? 0.34 : 0.16),
                       ),
                     ),
-                  ),
-                  SizedBox(height: 7.h),
-                  Row(
-                    children: [
-                      Text(
-                        'NEXT MILESTONE',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 8.sp,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.7,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.timer_rounded,
+                          color: isFreeEntry ? amber : AppColors.textMuted,
+                          size: 15.r,
                         ),
-                      ),
-                      const Spacer(),
-                      Flexible(
-                        child: Text(
-                          milestoneLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
+                        Text(
+                          '90s',
+                          style: AppTypography.titleLarge.copyWith(
                             color:
-                                isFreeEntry ? amber : AppColors.textSecondary,
-                            fontSize: 10.sp,
-                            fontWeight: FontWeight.w800,
+                                isFreeEntry ? amber : AppColors.textMuted,
+                            fontWeight: FontWeight.w900,
+                            height: 1.0,
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Answer as many as you can',
+                          style: AppTypography.titleMedium.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        SizedBox(height: 6.h),
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8.r,
+                            vertical: 4.r,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isFreeEntry
+                                ? amber.withValues(alpha: 0.16)
+                                : AppColors.surface,
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.full),
+                            border: Border.all(
+                              color: isFreeEntry
+                                  ? amber.withValues(alpha: 0.4)
+                                  : AppColors.divider,
+                            ),
+                          ),
+                          child: Text(
+                            isFreeEntry
+                                ? 'FREE ENTRY'
+                                : '$retryCost AC ENTRY',
+                            style: AppTypography.labelSmall.copyWith(
+                              color: isFreeEntry
+                                  ? amber
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -821,60 +969,76 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
 
             SizedBox(height: AppSpacing.lg),
 
-            // ── WP ladder (read from kGauntletTiers) ────────────────
-            Row(
+            // ── Payout grid (read from kBlitzAcTiers) ───────────────
+            Text('PAYOUT', style: AppTypography.labelSmall),
+            SizedBox(height: 8.h),
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Text(
-                    'WP PER QUESTION',
-                    style: TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: 9.sp,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
+                for (var row = 0; row < 2; row++)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: row == 0 ? 6.h : 0),
+                    child: Row(
+                      children: [
+                        for (var col = 0; col < 3; col++)
+                          Expanded(
+                            child: Padding(
+                              padding:
+                                  EdgeInsets.only(right: col < 2 ? 6.w : 0),
+                              child: _BlitzPayoutChip(
+                                tier: kBlitzAcTiers[row * 3 + col],
+                                breakEven: covered ==
+                                    kBlitzAcTiers[row * 3 + col],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-                Text(
-                  'up to $totalWP WP',
-                  style: TextStyle(
-                    color: amber,
-                    fontSize: 10.sp,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
               ],
             ),
             SizedBox(height: 8.h),
-            Row(
-              children: [
-                for (var i = 0; i < kGauntletTiers.length; i++)
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: i == kGauntletTiers.length - 1 ? 0 : 5.w,
-                      ),
-                      child: _WpChip(tier: kGauntletTiers[i]),
-                    ),
-                  ),
-              ],
+            Text(
+              isFreeEntry
+                  ? 'Every run pays — '
+                      '${kBlitzAcTiers.last.minCorrect}+ correct takes '
+                      'the full $kBlitzMaxAc AC.'
+                  : covered != null
+                      ? '${covered.minCorrect}+ correct covers '
+                          'your $retryCost AC entry.'
+                      : 'Top payout is $kBlitzMaxAc AC — below this entry. '
+                          'Play for WP.',
+              textAlign: TextAlign.center,
+              style: AppTypography.bodySmall.copyWith(
+                color: isFreeEntry || covered != null
+                    ? AppColors.readable(amber)
+                    : AppColors.textMuted,
+                fontWeight: FontWeight.w700,
+              ),
             ),
 
             SizedBox(height: AppSpacing.lg),
 
-            // ── Facts ───────────────────────────────────────────────
-            _GauntletDialogRow(
-              icon: Icons.quiz_rounded,
-              text: '$kGauntletQuestionCount mixed-anime questions',
-            ),
-            SizedBox(height: 8.h),
-            _GauntletDialogRow(
-              icon: isFreeEntry
-                  ? Icons.card_giftcard_rounded
-                  : Icons.monetization_on_rounded,
-              text: isFreeEntry
-                  ? 'Free entry — no coins needed'
-                  : 'Entry: $retryCost AC · non-refundable if you quit',
+            // ── One-line rules ──────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.block_rounded,
+                  size: 13.r,
+                  color: AppColors.textMuted,
+                ),
+                SizedBox(width: 6.w),
+                Flexible(
+                  child: Text(
+                    isFreeEntry
+                        ? 'No hints or pauses · up to $kBlitzQuestionCount questions'
+                        : 'No hints or pauses · quitting forfeits the entry',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.bodySmall,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.xl),
             // ── Actions (full-width, app-consistent) ────────────────
@@ -920,7 +1084,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text(
+        title: Text(
           'Skip Cooldown?',
           style: TextStyle(
               color: AppColors.textPrimary, fontWeight: FontWeight.w800),
@@ -939,7 +1103,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
             child: Text(
               '⏩ Skip  −$cost🪙',
               style: TextStyle(
-                  color: AppColors.accent, fontWeight: FontWeight.w700),
+                  color: AppColors.readable(AppColors.accent),
+                  fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -959,6 +1124,39 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       setState(() => _locks.remove(title));
     } on InsufficientCoinsException {
       if (mounted) await showInsufficientCoinsSheet(context, needed: cost);
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('[HomeTab] _skipCooldown CF error: ${e.code} ${e.message}');
+      if (e.code == 'failed-precondition' &&
+          (e.message ?? '') == 'cooldown_not_active') {
+        // The lock already lapsed between tap and spend — nothing was
+        // charged, so just drop the stale lock locally instead of erroring.
+        if (mounted) {
+          setState(() => _locks.remove(title));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('That cooldown already expired — pick again.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+      if (e.code == 'unauthenticated' && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Your session expired — sign in again, then retry.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Something went wrong — please try again.')),
+        );
+      }
     } catch (e) {
       debugPrint('[HomeTab] _skipCooldown error: $e');
       if (mounted) {
@@ -987,7 +1185,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text(
+        title: Text(
           'Unlock Early?',
           style: TextStyle(
               color: AppColors.textPrimary, fontWeight: FontWeight.w800),
@@ -1007,8 +1205,9 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
             onPressed: () => Navigator.pop(context, true),
             child: Text(
               '🔓 Unlock  −$cost🪙',
-              style: const TextStyle(
-                  color: AppColors.accent, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  color: AppColors.readable(AppColors.accent),
+                  fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -1061,14 +1260,15 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final username = AuthService.instance.currentUser?.displayName ?? 'Trainer';
     final hasSelection = _selected.isNotEmpty;
-    // Client-side filter counts (no backend calls).
+    // Client-side filter counts over the visible shelf (never the full
+    // catalogue — its size stays unknown to the user).
     final now = DateTime.now();
-    final cooldownCount =
-        _animeTitles.where((t) {
-          final lock = _locks[t];
-          return lock != null && lock.isAfter(now);
-        }).length;
-    final readyCount = _animeTitles.length - cooldownCount;
+    final shelfTitles = _shelfTitles;
+    final cooldownCount = shelfTitles.where((t) {
+      final lock = _locks[t];
+      return lock != null && lock.isAfter(now);
+    }).length;
+    final readyCount = shelfTitles.length - cooldownCount;
     final visibleTitles = _visibleTitles;
     // Responsive columns: fall back to 2 on very narrow screens (<360px)
     // so poster cards never squeeze below ~100px.
@@ -1137,7 +1337,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                       children: [
                         _TodayGauntletCard(onTap: _startDailyGauntlet),
                         SizedBox(width: 12.w),
-                        _TodayPrizeCard(onTap: widget.onOpenRankings),
+                        const _TodayPrizeCard(),
                         SizedBox(width: 8.w),
                       ],
                     ),
@@ -1166,10 +1366,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                           padding: EdgeInsets.symmetric(
                               horizontal: 12.w, vertical: 7.h),
                           decoration: BoxDecoration(
-                            color: AppColors.secondary.withOpacity(0.14),
+                            color: AppColors.secondary.withValues(alpha: 0.14),
                             borderRadius: BorderRadius.circular(20.r),
                             border: Border.all(
-                                color: AppColors.secondary.withOpacity(0.4)),
+                                color: AppColors.secondary.withValues(alpha: 0.4)),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -1200,14 +1400,13 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
-
                 // ── Filter chips ───────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 0),
                     child: _FilterChips(
                       current: _filter,
-                      totalCount: _animeTitles.length,
+                      totalCount: shelfTitles.length,
                       readyCount: readyCount,
                       cooldownCount: cooldownCount,
                       onChanged: (f) => setState(() => _filter = f),
@@ -1274,6 +1473,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 child: _LineupTray(
                   selected: _selected.toList(),
                   difficulty: context.watch<SoloDifficultyProvider>().difficulty,
+                  starting: _startingSolo,
                   onStart: () => _startQuiz(),
                   onClearAll: () => setState(() => _selected.clear()),
                 ),
@@ -1286,82 +1486,60 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
   }
 }
 
-// ─── Gauntlet confirm dialog detail row ────────────────────────────────────
-class _GauntletDialogRow extends StatelessWidget {
-  final IconData icon;
-  final String text;
+// ─── Blitz payout chip ───────────────────────────────────────────────────────
+/// One AC payout tier. The break-even tier (lowest payout covering this
+/// run's entry fee) renders highlighted so the gamble reads at a glance.
+class _BlitzPayoutChip extends StatelessWidget {
+  final BlitzAcTier tier;
+  final bool breakEven;
 
-  const _GauntletDialogRow({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 32.r,
-          height: 32.r,
-          decoration: BoxDecoration(
-            color: AppColors.amber.withValues(alpha: 0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: AppColors.amber, size: 16.r),
-        ),
-        SizedBox(width: 10.w),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13.sp,
-              fontWeight: FontWeight.w600,
-              height: 1.4,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Gauntlet WP tier chip ──────────────────────────────────────────────────
-/// One rung of the Daily Gauntlet's per-question WP ladder. The fill darkens as
-/// the tier climbs, so the escalation reads at a glance without a legend. Tiers
-/// are the same values the submitDailyGauntlet CF applies.
-class _WpChip extends StatelessWidget {
-  final int tier;
-  const _WpChip({required this.tier});
+  const _BlitzPayoutChip({required this.tier, required this.breakEven});
 
   @override
   Widget build(BuildContext context) {
-    final lowest = kGauntletTiers.reduce((a, b) => a < b ? a : b);
-    final highest = kGauntletTiers.reduce((a, b) => a > b ? a : b);
-    final t = highest == lowest
-        ? 1.0
-        : (tier - lowest) / (highest - lowest).toDouble();
-
+    const amber = AppColors.amber;
     return Container(
-      height: 28.r,
-      alignment: Alignment.center,
+      padding: EdgeInsets.symmetric(vertical: 8.r, horizontal: 4.r),
       decoration: BoxDecoration(
-        color: AppColors.amber.withValues(alpha: 0.10 + 0.16 * t),
+        color: breakEven
+            ? amber.withValues(alpha: 0.20)
+            : AppColors.surfaceAlt.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(AppRadii.sm),
         border: Border.all(
-          color: AppColors.amber.withValues(alpha: 0.22 + 0.20 * t),
+          color: breakEven
+              ? amber.withValues(alpha: 0.6)
+              : AppColors.divider.withValues(alpha: 0.7),
+          width: breakEven ? 1.5 : 1,
         ),
       ),
-      child: Text(
-        '$tier',
-        style: TextStyle(
-          color: AppColors.amber,
-          fontSize: 12.sp,
-          fontWeight: FontWeight.w900,
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${tier.minCorrect}+',
+            style: AppTypography.labelMedium.copyWith(
+              color: breakEven
+                  ? AppColors.readable(amber)
+                  : AppColors.textMuted,
+            ),
+          ),
+          SizedBox(height: 2.h),
+          Text(
+            '+${tier.ac}',
+            style: AppTypography.labelLarge.copyWith(
+              color: breakEven
+                  ? AppColors.readable(amber)
+                  : AppColors.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ─── Today: Daily Gauntlet card ──────────────────────────────────────────────
+// ─── Today: Gauntlet Blitz card ──────────────────────────────────────────────
 class _TodayGauntletCard extends StatelessWidget {
   final VoidCallback onTap;
   const _TodayGauntletCard({required this.onTap});
@@ -1375,28 +1553,16 @@ class _TodayGauntletCard extends StatelessWidget {
       stream: FirestoreService.instance.gauntletProgressStream(),
       builder: (context, snap) {
         final data = snap.data ?? const {};
-        final streak = (data['streak'] as int?) ?? 0;
         final usedToday = (data['usedToday'] as bool?) ?? false;
         final retryIndex = (data['retryIndex'] as int?) ?? 0;
         final isPremium = context.watch<UserDataProvider>().premiumActive;
         final isFreeAttempt = !usedToday;
-        final retryCost = gauntletRetryCost(
+        final retryCost = blitzRetryCost(
           retryIndex: retryIndex,
           isPremium: isPremium,
           isFreeAttempt: isFreeAttempt,
         );
         final atCap = retryCost == null;
-
-        int? nextDay;
-        for (final day in kGauntletMilestones.keys) {
-          if (streak < day) {
-            nextDay = day;
-            break;
-          }
-        }
-        final milestoneLabel = nextDay == null
-            ? 'All milestones claimed'
-            : '${nextDay - streak}d to ${kGauntletMilestones[nextDay]}';
 
         String retryLabel;
         if (isFreeAttempt) {
@@ -1420,8 +1586,8 @@ class _TodayGauntletCard extends StatelessWidget {
                   ? null
                   : LinearGradient(
                       colors: [
-                        AppColors.amber.withOpacity(0.20),
-                        AppColors.amber.withOpacity(0.05)
+                        AppColors.amber.withValues(alpha: 0.20),
+                        AppColors.amber.withValues(alpha: 0.05)
                       ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -1431,7 +1597,7 @@ class _TodayGauntletCard extends StatelessWidget {
               border: Border.all(
                 color: usedToday
                     ? AppColors.divider
-                    : AppColors.amber.withOpacity(0.45),
+                    : AppColors.amber.withValues(alpha: 0.45),
                 width: usedToday ? 1 : 1.5,
               ),
             ),
@@ -1442,21 +1608,22 @@ class _TodayGauntletCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '$streak',
+                      '90s',
                       style: TextStyle(
                         color:
-                            usedToday ? AppColors.textMuted : AppColors.amber,
+                            usedToday ? AppColors.textMuted : AppColors.readable(AppColors.amber),
                         fontSize: 22.sp,
                         fontWeight: FontWeight.w900,
                         height: 1.0,
                       ),
                     ),
                     Text(
-                      streak == 1 ? 'day' : 'days',
+                      'blitz',
                       style: TextStyle(
                         color: usedToday
-                            ? AppColors.textMuted.withOpacity(0.6)
-                            : AppColors.amber.withOpacity(0.7),
+                            ? AppColors.textMuted.withValues(alpha: 0.6)
+                            : AppColors.readable(AppColors.amber)
+                                .withValues(alpha: 0.8),
                         fontSize: 9.sp,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1470,10 +1637,10 @@ class _TodayGauntletCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'DAILY GAUNTLET',
+                        'GAUNTLET BLITZ',
                         style: TextStyle(
                           color:
-                              usedToday ? AppColors.textMuted : AppColors.amber,
+                              usedToday ? AppColors.textMuted : AppColors.readable(AppColors.amber),
                           fontSize: 8.sp,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.7,
@@ -1494,7 +1661,7 @@ class _TodayGauntletCard extends StatelessWidget {
                       ),
                       SizedBox(height: 2.h),
                       Text(
-                        milestoneLabel,
+                        'Up to $kBlitzMaxAc AC · no streak',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1512,26 +1679,9 @@ class _TodayGauntletCard extends StatelessWidget {
   }
 }
 
-/// Fraction (0–1) of the way from the previous milestone to [nextDay].
-/// Returns 1 once every milestone has been claimed.
-double _milestoneProgress(int streak, int? nextDay) {
-  if (nextDay == null) return 1;
-  var previous = 0;
-  for (final day in kGauntletMilestones.keys) {
-    if (day < nextDay) previous = day;
-  }
-  final span = nextDay - previous;
-  if (span <= 0) return 0;
-  return ((streak - previous) / span).clamp(0.0, 1.0).toDouble();
-}
-
-// ─── Today: Prize Pool card ────────────────────────────────────────────────
+// ─── Today: Prize Pool card (display-only, not tappable) ────────────────────
 class _TodayPrizeCard extends StatefulWidget {
-  /// Opens the Rankings tab. The card advertises this week's pool, so making it
-  /// the way to the board is the obvious affordance it never had.
-  final VoidCallback onTap;
-
-  const _TodayPrizeCard({required this.onTap});
+  const _TodayPrizeCard();
 
   @override
   State<_TodayPrizeCard> createState() => _TodayPrizeCardState();
@@ -1575,62 +1725,59 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
           guaranteedFloor: _guaranteedFloor,
         );
 
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: Container(
-            width: 120.w,
-            height: 88.h,
-            padding: EdgeInsets.symmetric(
-              horizontal: 12.w,
-              vertical: 10.h,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(18.r),
-              border: Border.all(color: AppColors.divider),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.emoji_events_rounded,
-                      size: 11.r,
-                      color: AppColors.accent,
-                    ),
-                    SizedBox(width: 4.w),
-                    Text(
-                      'PRIZE POOL',
-                      style: TextStyle(
-                        color: AppColors.accent.withValues(alpha: 0.9),
-                        fontSize: 7.5.sp,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 5.h),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    PrizePoolService.formatNaira(projection.amount),
-                    maxLines: 1,
+        return Container(
+          width: 120.w,
+          height: 88.h,
+          padding: EdgeInsets.symmetric(
+            horizontal: 12.w,
+            vertical: 10.h,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(18.r),
+            border: Border.all(color: AppColors.divider),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.emoji_events_rounded,
+                    size: 11.r,
+                    color: AppColors.readable(AppColors.accent),
+                  ),
+                  SizedBox(width: 4.w),
+                  Text(
+                    'PRIZE POOL',
                     style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20.sp,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.3,
+                      color: AppColors.readable(AppColors.accent)
+                          .withValues(alpha: 0.9),
+                      fontSize: 7.5.sp,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
                     ),
                   ),
+                ],
+              ),
+              SizedBox(height: 5.h),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  PrizePoolService.formatNaira(projection.amount),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 20.sp,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                  ),
                 ),
-                SizedBox(height: 4.h),
-              ],
-            ),
+              ),
+              SizedBox(height: 4.h),
+            ],
           ),
         );
       },
@@ -1653,21 +1800,21 @@ class _PremiumBanner extends StatelessWidget {
       child: GestureDetector(
         onTap: () => Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => const PremiumUpsellScreen()),
+          AppPageRoute(builder: (_) => const PremiumUpsellScreen()),
         ),
         child: Container(
           padding: EdgeInsets.all(16.r),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                AppColors.accent.withOpacity(0.18),
-                AppColors.secondary.withOpacity(0.10),
+                AppColors.accent.withValues(alpha: 0.18),
+                AppColors.secondary.withValues(alpha: 0.10),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(18.r),
-            border: Border.all(color: AppColors.accent.withOpacity(0.35)),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.35)),
           ),
           child: Row(
             children: [
@@ -1675,9 +1822,9 @@ class _PremiumBanner extends StatelessWidget {
                 width: 48.r,
                 height: 48.r,
                 decoration: BoxDecoration(
-                  color: AppColors.accent.withOpacity(0.20),
+                  color: AppColors.accent.withValues(alpha: 0.20),
                   borderRadius: BorderRadius.circular(14.r),
-                  border: Border.all(color: AppColors.accent.withOpacity(0.40)),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.40)),
                 ),
                 child: Center(
                     child: Text('👑', style: TextStyle(fontSize: 24.sp))),
@@ -1710,7 +1857,7 @@ class _PremiumBanner extends StatelessWidget {
                     ),
                     SizedBox(height: 6.h),
                     Text(
-                      '1.20× eligible WP · Extra Quick Match · Free Gauntlet retry',
+                      '1.20× eligible WP · Extra Quick Match · Free Blitz retry',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1726,13 +1873,13 @@ class _PremiumBanner extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(8.r),
                 decoration: BoxDecoration(
-                  color: AppColors.accent.withOpacity(0.15),
+                  color: AppColors.accent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12.r),
-                  border: Border.all(color: AppColors.accent.withOpacity(0.3)),
+                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
                 ),
                 child: Icon(
                   Icons.arrow_forward_ios_rounded,
-                  color: AppColors.accent,
+                  color: AppColors.readable(AppColors.accent),
                   size: 16.sp,
                 ),
               ),
@@ -1808,25 +1955,81 @@ class _AnimeCardState extends State<_AnimeCard>
       _secs >= 60 ? '${_secs ~/ 60}m ${_secs % 60}s' : '${_secs}s';
 
   // ── Tile art (original franchise artwork) ─────────────────────────────
-  // Poster path is derived from the title (assets/<title>.jpg, the exact
-  // filenames in assets/), with the emoji+gradient pattern as a fallback only
-  // when the image is missing. Emoji + colour per title are derived
-  // deterministically.
+  // Exact poster filenames per title (dark, light). Mixed extensions because
+  // some dark posters were supplied as PNG — keep this map in sync with the
+  // assets list in pubspec.yaml. Unknown titles fall back to emoji+gradient.
+  static const Map<String, List<String>> _posterFiles = {
+    'attack on titan': [
+      'assets/attack on titan.jpg',
+      'assets/attack on titan1.jpg'
+    ],
+    'berserk': ['assets/berserk.jpg', 'assets/berserk1.jpg'],
+    'black clover': ['assets/black clover.jpg', 'assets/black clover1.jpg'],
+    'bleach': ['assets/bleach.jpg', 'assets/bleach1.jpg'],
+    'blue lock': ['assets/blue lock.jpg', 'assets/blue lock1.jpg'],
+    'chainsaw man': ['assets/chainsaw man.jpg', 'assets/chainsaw man1.jpg'],
+    'classroom of the elite': [
+      'assets/classroom of the elite.jpg',
+      'assets/classroom of the elite1.jpg'
+    ],
+    'death note': ['assets/death note.jpg', 'assets/death note1.jpg'],
+    'demon slayer': ['assets/demon slayer.jpg', 'assets/demon slayer1.jpg'],
+    'dragon ball z': ['assets/dragon ball z.jpg', 'assets/dragon ball z1.jpg'],
+    'dr stone': ['assets/dr stone.jpg', 'assets/dr stone1.jpg'],
+    'fairy tail': ['assets/fairy tail.jpg', 'assets/fairy tail1.jpg'],
+    'fire force': ['assets/fire force.jpg', 'assets/fire force1.jpg'],
+    "hell's paradise": [
+      "assets/hell's paradise.jpg",
+      "assets/hell's paradise1.jpg"
+    ],
+    'hunter x hunter': [
+      'assets/hunter x hunter.jpg',
+      'assets/hunter x hunter1.jpg'
+    ],
+    "jojo's bizarre adventure": [
+      "assets/jojo's bizarre adventure.jpg",
+      "assets/jojo's bizarre adventure1.jpg"
+    ],
+    'jujutsu kaisen': ['assets/jujutsu kaisen.jpg', 'assets/jujutsu kaisen1.jpg'],
+    "kuroko's basketball": [
+      "assets/kuroko's basketball.jpg",
+      "assets/kuroko's basketball1.jpg"
+    ],
+    'mushoku tensei': [
+      'assets/mushoku tensei.jpg',
+      'assets/mushoku tensei1.jpg'
+    ],
+    'my hero academia': [
+      'assets/my hero academia.jpg',
+      'assets/my hero academia1.jpg'
+    ],
+    'naruto': ['assets/naruto.jpg', 'assets/naruto1.jpg'],
+    'one piece': ['assets/one piece.jpg', 'assets/one piece1.jpg'],
+    'one punch man': ['assets/one punch man.jpg', 'assets/one punch man1.jpg'],
+    're zero': ['assets/re zero.jpg', 'assets/re zero1.jpg'],
+    'solo leveling': ['assets/solo leveling.jpg', 'assets/solo leveling1.jpg'],
+    'sword art online': [
+      'assets/sword art online.jpg',
+      'assets/sword art online1.jpg'
+    ],
+    'that time i got reincarnated as a slime': [
+      'assets/that time i got reincarnated as a slime.jpg',
+      'assets/that time i got reincarnated as a slime1.jpg'
+    ],
+    'tokyo ghoul': ['assets/tokyo ghoul.jpg', 'assets/tokyo ghoul1.jpg'],
+    'tokyo revengers': [
+      'assets/tokyo revengers.jpg',
+      'assets/tokyo revengers1.jpg'
+    ],
+    'tower of god': ['assets/tower of god.jpg', 'assets/tower of god1.jpg'],
+    'vinland saga': ['assets/vinland saga.jpg', 'assets/vinland saga1.jpg'],
+    'wind breaker': ['assets/wind breaker.jpg', 'assets/wind breaker1.jpg'],
+  };
+
   static String? _assetPathFor(String title) {
-    final key = title.toLowerCase().trim();
-    const available = {
-      'attack on titan',
-      'bleach',
-      'death note',
-      'demon slayer',
-      'dragon ball z',
-      'jujutsu kaisen',
-      'my hero academia',
-      'naruto',
-      'one piece',
-      'one punch man',
-    };
-    return available.contains(key) ? 'assets/$key.jpg' : null;
+    final pair = _posterFiles[title.toLowerCase().trim()];
+    if (pair == null) return null;
+    return AppColors.isDark ? pair[0] : pair[1];
   }
 
   static const Map<String, String> _emojiMap = {
@@ -1848,6 +2051,21 @@ class _AnimeCardState extends State<_AnimeCard>
     'tokyo ghoul': '👁️',
     'vinland saga': '🪓',
     'chainsaw man': '🔪',
+    "jojo's bizarre adventure": '🕺',
+    'blue lock': '⚽',
+    'solo leveling': '🗡️',
+    "kuroko's basketball": '🏀',
+    'mushoku tensei': '🔮',
+    'that time i got reincarnated as a slime': '💧',
+    'fire force': '🔥',
+    'classroom of the elite': '🎓',
+    'dr stone': '🪨',
+    "hell's paradise": '⛩️',
+    're zero': '🔁',
+    'tower of god': '🗼',
+    'tokyo revengers': '🏍️',
+    'wind breaker': '🌪️',
+    'berserk': '🌑',
   };
 
   static const List<List<Color>> _palettes = [
@@ -1865,7 +2083,7 @@ class _AnimeCardState extends State<_AnimeCard>
       _emojiMap[widget.title.toLowerCase().trim()] ?? '✨';
 
   List<Color> get _palette {
-    final index = widget.title.codeUnits.fold<int>(0, (sum, value) => sum + value) %
+    final index = widget.title.codeUnits.fold<int>(0, (total, value) => total + value) %
         _palettes.length;
     return _palettes[index];
   }
@@ -1930,7 +2148,7 @@ class _AnimeCardState extends State<_AnimeCard>
             boxShadow: widget.isSelected
                 ? [
                     BoxShadow(
-                      color: AppColors.primary.withOpacity(0.25),
+                      color: AppColors.primary.withValues(alpha: 0.25),
                       blurRadius: 16,
                       spreadRadius: 0,
                       offset: const Offset(0, 4),
@@ -1945,27 +2163,6 @@ class _AnimeCardState extends State<_AnimeCard>
               children: [
                 // ── Tile art (original franchise artwork) ────────────────
                 _tileArt(),
-                // ── Bottom scrim for text contrast ───────────────────
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  top: null,
-                  child: Container(
-                    height: 110.h,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.0),
-                          Colors.black.withOpacity(0.55),
-                          Colors.black.withOpacity(0.85),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
                 // ── Status pill (top-left, cooldown/NEW only) ────────
                 if (_isLocked)
                   Positioned(
@@ -1977,7 +2174,7 @@ class _AnimeCardState extends State<_AnimeCard>
                       valueListenable: widget.lockTick,
                       builder: (_, __, ___) => _StatusPill(
                         label: _timerLabel,
-                        background: Colors.black.withOpacity(0.65),
+                        background: Colors.black.withValues(alpha: 0.65),
                         foreground: Colors.white,
                         icon: Icons.lock_rounded,
                       ),
@@ -2002,7 +2199,7 @@ class _AnimeCardState extends State<_AnimeCard>
                   ),
                 // ── Locked overlay ───────────────────────────────────
                 if (_isLocked)
-                  Container(color: Colors.black.withOpacity(0.55)),
+                  Container(color: Colors.black.withValues(alpha: 0.55)),
                 if (_isLocked)
                   Center(
                     child: Padding(
@@ -2020,7 +2217,7 @@ class _AnimeCardState extends State<_AnimeCard>
                               padding: EdgeInsets.symmetric(
                                   horizontal: 8.w, vertical: 4.h),
                               decoration: BoxDecoration(
-                                color: AppColors.secondary.withOpacity(0.9),
+                                color: AppColors.secondary.withValues(alpha: 0.9),
                                 borderRadius: BorderRadius.circular(8.r),
                               ),
                               child: Text(
@@ -2040,7 +2237,7 @@ class _AnimeCardState extends State<_AnimeCard>
                               padding: EdgeInsets.symmetric(
                                   horizontal: 8.w, vertical: 4.h),
                               decoration: BoxDecoration(
-                                color: AppColors.accent.withOpacity(0.9),
+                                color: AppColors.accent.withValues(alpha: 0.9),
                                 borderRadius: BorderRadius.circular(8.r),
                               ),
                               child: Text('🔓 $kEarlyUnlockCost',
@@ -2066,9 +2263,16 @@ class _AnimeCardState extends State<_AnimeCard>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.85),
+                        color: Colors.white.withValues(alpha: 0.85),
                         fontSize: 10.5.sp,
                         fontWeight: FontWeight.w700,
+                        shadows: const [
+                          Shadow(
+                            color: Colors.black54,
+                            blurRadius: 4,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -2225,12 +2429,17 @@ class _FilterChip extends StatelessWidget {
 class _LineupTray extends StatelessWidget {
   final List<String> selected;
   final String difficulty;
+
+  /// True while the start request is in flight — the button shows a spinner and
+  /// ignores taps so lag can't stack a second quiz session.
+  final bool starting;
   final VoidCallback onStart;
   final VoidCallback onClearAll;
 
   const _LineupTray({
     required this.selected,
     this.difficulty = 'easy',
+    this.starting = false,
     required this.onStart,
     required this.onClearAll,
   });
@@ -2246,10 +2455,13 @@ class _LineupTray extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
-        border: const Border(top: BorderSide(color: AppColors.divider)),
+        border: Border(top: BorderSide(color: AppColors.divider)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.35),
+            // Dark keeps the original 35% lift; light needs the soft token.
+            color: AppColors.isDark
+                ? Colors.black.withValues(alpha: 0.35)
+                : AppColors.shadow,
             blurRadius: 24,
             offset: const Offset(0, -6),
           ),
@@ -2311,6 +2523,7 @@ class _LineupTray extends StatelessWidget {
                 ? 'Start $diffName Quiz  (${selected.length} picked)'
                 : 'Pick ${2 - selected.length} more to begin',
             onTap: ready ? onStart : null,
+            isLoading: starting,
             icon: ready ? Icons.play_arrow_rounded : null,
             height: 54.h,
           ),

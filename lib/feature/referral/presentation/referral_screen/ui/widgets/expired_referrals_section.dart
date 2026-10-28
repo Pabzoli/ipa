@@ -22,7 +22,7 @@ class ExpiredReferralsSection extends StatelessWidget {
         children: [
           for (final (index, entry) in entries.indexed) ...[
             if (index > 0)
-              const Divider(
+              Divider(
                 height: 24,
                 thickness: 1,
                 color: AppColors.divider,

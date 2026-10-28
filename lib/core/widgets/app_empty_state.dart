@@ -8,7 +8,7 @@ class AppEmptyState extends StatelessWidget {
   final String title;
   final String? message;
   final Widget? action;
-  final Color color;
+  final Color? color;
 
   const AppEmptyState({
     super.key,
@@ -16,11 +16,12 @@ class AppEmptyState extends StatelessWidget {
     required this.title,
     this.message,
     this.action,
-    this.color = AppColors.textMuted,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
+    final accent = color ?? AppColors.textMuted;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -32,10 +33,10 @@ class AppEmptyState extends StatelessWidget {
               height: 72,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
+                color: accent.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: color, size: 32.r),
+              child: Icon(icon, color: accent, size: 32.r),
             ),
             const SizedBox(height: AppSpacing.lg),
             FittedBox(

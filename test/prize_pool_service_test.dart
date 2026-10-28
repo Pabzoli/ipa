@@ -191,11 +191,11 @@ void main() {
       // CF: parseFloat((prizePool * prizePct(rank)).toFixed(2))
       const pool = 12345.67;
       double cfShare(int rank) {
-        const pcts = {1: 0.40, 2: 0.25, 3: 0.15, 4: 0.10, 5: 0.10};
+        const pcts = {1: 0.50, 2: 0.30, 3: 0.20};
         return double.parse((pool * pcts[rank]!).toStringAsFixed(2));
       }
 
-      for (var rank = 1; rank <= 5; rank++) {
+      for (var rank = 1; rank <= 3; rank++) {
         expect(
           PrizePoolService.roundShare(
             PrizePoolService.prizeForRank(rank, pool),
@@ -206,17 +206,19 @@ void main() {
       }
     });
 
-    test('rank 6+ wins nothing', () {
-      expect(PrizePoolService.prizeForRank(6, 100000), 0);
-      expect(PrizePoolService.percentLabel(6), '');
+    test('rank 4+ wins nothing', () {
+      expect(PrizePoolService.prizeForRank(4, 100000), 0);
+      expect(PrizePoolService.percentLabel(4), '');
     });
 
     test('percent labels come from the same table as the maths', () {
-      expect(PrizePoolService.percentLabel(1), '40%');
-      expect(PrizePoolService.percentLabel(2), '25%');
-      expect(PrizePoolService.percentLabel(3), '15%');
-      expect(PrizePoolService.percentLabel(4), '10%');
-      expect(PrizePoolService.percentLabel(5), '10%');
+      expect(PrizePoolService.percentLabel(1), '50%');
+      expect(PrizePoolService.percentLabel(2), '30%');
+      expect(PrizePoolService.percentLabel(3), '20%');
+    });
+
+    test('exactly three ranks share the pool', () {
+      expect(PrizePoolService.prizePercentages.keys, [1, 2, 3]);
     });
   });
 

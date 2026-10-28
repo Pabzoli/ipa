@@ -7,12 +7,16 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/solo_economy.dart';
 import '../../core/providers/solo_difficulty_provider.dart';
+import '../../core/providers/theme_provider.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_page_route.dart';
 import '../../feature/support/presentation/support_screen/ui/support_screen.dart';
+import '../auth/auth_service.dart';
+import 'purchases_page.dart';
 
 /// Central settings hub reached from Profile → Account → Settings.
 ///
@@ -38,6 +42,20 @@ class SettingsPage extends StatelessWidget {
               child: ListView(
                 padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 36.r),
                 children: [
+                  if (kThemeControlEnabled) ...[
+                    const _SectionLabel('Appearance'),
+                    SizedBox(height: 8.h),
+                    const _AppearanceSettingsCard(),
+                    SizedBox(height: 6.h),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4.r),
+                      child: Text(
+                        'System follows your device appearance.',
+                        style: AppTypography.bodySmall,
+                      ),
+                    ),
+                    SizedBox(height: 22.h),
+                  ],
                   const _SectionLabel('Difficulty'),
                   SizedBox(height: 8.h),
                   const _DifficultySettingsCard(),
@@ -45,6 +63,10 @@ class SettingsPage extends StatelessWidget {
                   const _SectionLabel('Campus'),
                   SizedBox(height: 8.h),
                   const _CampusSettingsCard(),
+                  SizedBox(height: 22.h),
+                  const _SectionLabel('Account'),
+                  SizedBox(height: 8.h),
+                  const _AccountSettingsCard(),
                   SizedBox(height: 22.h),
                   const _SectionLabel('Help & support'),
                   SizedBox(height: 8.h),
@@ -114,15 +136,7 @@ class _SettingsHeader extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(8.r, 10.r, 20.r, 6.r),
       child: Row(
         children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary,
-              size: 19.r,
-            ),
-            splashRadius: 22,
-          ),
+          const AppBackButton(),
           SizedBox(width: 2.w),
           Expanded(
             child: Text(
@@ -140,6 +154,119 @@ class _SettingsHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─── Appearance picker ──────────────────────────────────────────────────────
+/// System / Light / Dark, persisted instantly by [ThemeProvider].
+///
+/// Rendered only while [kThemeControlEnabled] is true — i.e. in debug builds
+/// until every screen has been audited in light mode.
+class _AppearanceSettingsCard extends StatelessWidget {
+  const _AppearanceSettingsCard();
+
+  static const List<_AppearanceOption> _options = [
+    _AppearanceOption(
+      mode: ThemeMode.system,
+      label: 'System',
+      icon: Icons.brightness_auto_rounded,
+      accent: AppColors.secondary,
+    ),
+    _AppearanceOption(
+      mode: ThemeMode.light,
+      label: 'Light',
+      icon: Icons.light_mode_rounded,
+      accent: AppColors.amber,
+    ),
+    _AppearanceOption(
+      mode: ThemeMode.dark,
+      label: 'Dark',
+      icon: Icons.dark_mode_rounded,
+      accent: AppColors.primary,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<ThemeProvider>();
+    return AppCard(
+      padding: EdgeInsets.all(4.r),
+      child: Row(
+        children: [
+          for (final option in _options)
+            Expanded(child: _option(option, provider)),
+        ],
+      ),
+    );
+  }
+
+  Widget _option(_AppearanceOption option, ThemeProvider provider) {
+    final selected = provider.mode == option.mode;
+    final color = option.accent;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: option.label,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => provider.setMode(option.mode),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.symmetric(vertical: 12.h),
+          decoration: BoxDecoration(
+            color:
+                selected ? color.withValues(alpha: 0.14) : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            border: Border.all(
+              color: selected
+                  ? color.withValues(alpha: 0.4)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                option.icon,
+                size: 18.r,
+                color: selected
+                    ? AppColors.readable(color)
+                    : AppColors.textMuted,
+              ),
+              SizedBox(height: 5.h),
+              Text(
+                option.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: AppTypography.fontFamily,
+                  color: selected
+                      ? AppColors.readable(color)
+                      : AppColors.textSecondary,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppearanceOption {
+  final ThemeMode mode;
+  final String label;
+  final IconData icon;
+  final Color accent;
+
+  const _AppearanceOption({
+    required this.mode,
+    required this.label,
+    required this.icon,
+    required this.accent,
+  });
 }
 
 // ─── Difficulty picker ──────────────────────────────────────────────────────
@@ -205,7 +332,9 @@ class _DifficultySettingsCard extends StatelessWidget {
               Icon(
                 _icons[id],
                 size: 18.r,
-                color: selected ? color : AppColors.textMuted,
+                color: selected
+                    ? AppColors.readable(color)
+                    : AppColors.textMuted,
               ),
               SizedBox(height: 5.h),
               Text(
@@ -214,7 +343,9 @@ class _DifficultySettingsCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontFamily: AppTypography.fontFamily,
-                  color: selected ? color : AppColors.textSecondary,
+                  color: selected
+                      ? AppColors.readable(color)
+                      : AppColors.textSecondary,
                   fontSize: 12.sp,
                   fontWeight: FontWeight.w800,
                 ),
@@ -386,7 +517,7 @@ class _CampusSettingsCardState extends State<_CampusSettingsCard> {
                         value: u,
                         child: Text(
                           u,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: AppColors.textPrimary,
                           ),
                         ),
@@ -437,6 +568,38 @@ class _SettingsGroup extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.lg),
         child: Column(children: rows),
       ),
+    );
+  }
+}
+
+/// Account-level facts and destinations: the sign-in email (read-only; only a
+/// verified account can reach Settings) and the purchase/code history.
+class _AccountSettingsCard extends StatelessWidget {
+  const _AccountSettingsCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final email = AuthService.instance.accountEmail;
+    return _SettingsGroup(
+      children: [
+        _SettingsTile(
+          icon: Icons.mark_email_read_rounded,
+          accent: AppColors.correct,
+          title: 'Email',
+          subtitle: email.isEmpty ? 'Verified' : '$email · Verified',
+          onTap: () {},
+        ),
+        _SettingsTile(
+          icon: Icons.receipt_long_rounded,
+          accent: AppColors.secondary,
+          title: 'Purchases',
+          subtitle: 'Codes and receipts',
+          onTap: () => Navigator.push(
+            context,
+            AppPageRoute(builder: (_) => const PurchasesPage()),
+          ),
+        ),
+      ],
     );
   }
 }

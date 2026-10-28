@@ -148,7 +148,7 @@ class _FriendManageSheetState extends State<_FriendManageSheet> {
           icon: Icons.block_rounded,
           label: 'Block',
           hint: 'They can\'t send you requests or duels.',
-          color: AppColors.wrong,
+          color: AppColors.readable(AppColors.wrong),
           onTap: _busy ? null : () => setState(() => _confirm = _Action.block),
         ),
       ],
@@ -179,7 +179,8 @@ class _FriendManageSheetState extends State<_FriendManageSheet> {
                 children: [
                   Text(
                     label,
-                    style: AppTypography.labelLarge.copyWith(color: color),
+                    style: AppTypography.labelLarge
+                  .copyWith(color: AppColors.readable(color)),
                   ),
                   SizedBox(height: 2.h),
                   Text(
@@ -248,7 +249,7 @@ class _FriendManageSheetState extends State<_FriendManageSheet> {
                 child: AppButton(
                   label: isBlock ? 'Block' : 'Remove',
                   size: AppButtonSize.small,
-                  color: AppColors.wrong,
+                  color: AppColors.readable(AppColors.wrong),
                   loading: _busy,
                   onPressed: _busy ? null : () => _run(action),
                 ),

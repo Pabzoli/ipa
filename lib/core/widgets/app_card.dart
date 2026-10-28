@@ -82,11 +82,14 @@ class AppCard extends StatelessWidget {
       borderRadius: effectRadius,
       border: _border,
       boxShadow: tier == AppCardTier.elevated
-          ? const [
+          ? [
               BoxShadow(
-                color: Colors.black26,
+                // Dark keeps the original black26; light gets a much softer
+                // tinted shadow, since 15% black reads as a hard drop shadow
+                // on a white surface.
+                color: AppColors.isDark ? Colors.black26 : AppColors.shadow,
                 blurRadius: 20,
-                offset: Offset(0, 8),
+                offset: const Offset(0, 8),
               ),
             ]
           : null,

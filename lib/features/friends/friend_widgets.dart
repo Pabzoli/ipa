@@ -96,7 +96,7 @@ class RankBadge extends StatelessWidget {
         child: Text(
           rank?.toString() ?? '–',
           style: AppTypography.labelLarge.copyWith(
-            color: color,
+            color: AppColors.readable(color),
             fontSize: 12.5.sp,
             fontWeight: FontWeight.w900,
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../theme/app_theme.dart';
+import 'app_back_button.dart';
 
 class AppHeader extends StatelessWidget {
   final String title;
@@ -44,12 +45,7 @@ class AppHeader extends StatelessWidget {
           if (leading != null)
             leading!
           else if (showBack)
-            IconButton(
-              onPressed: onBack ?? () => Navigator.of(context).maybePop(),
-              icon: Icon(Icons.arrow_back_ios_new, size: 20.r),
-              color: AppColors.textPrimary,
-              tooltip: 'Back',
-            )
+            AppBackButton(onPressed: onBack, tooltip: 'Back')
           else if (showClose)
             IconButton(
               onPressed: onClose ?? () => Navigator.of(context).maybePop(),

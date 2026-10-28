@@ -148,10 +148,10 @@ service cloud.firestore {
 
     // ── Users ─────────────────────────────────────────────────────────────
     match /users/{userId} {
+      // Own profile, or other players' docs for cohort members / the payout admin.
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
-        isPayoutAdmin() ||
-        isSameWeekEntrant(resource.data)
+        isPayoutAdmin() || isSameWeekEntrant(resource.data)
       );
 
       // TRANSITIONAL: see isLegacyStarterProfile above. New clients create the
@@ -290,19 +290,25 @@ service cloud.firestore {
     }
 
     // ── Questions ─────────────────────────────────────────────────────────
-    // Client-read-only: all writes go through the Admin SDK (seed script /
-    // Cloud Functions), which bypasses security rules. The difficulty
-    // contract below documents the schema for reviewers and is enforced in
-    // scripts/seed_questions.js; it is also conjunctively attached to the
-    // (still false) write rule so that if client writes are ever opened,
-    // invalid difficulty values are rejected by default.
-    function isValidQuestionDifficulty(data) {
-      return data.get('difficulty', '') in ['easy', 'medium', 'hard'];
-    }
+    // HARDENED (anti-cheat P0): questions are SERVER-ONLY. The docs contain
+    // `correctAnswerIndex`, and any authenticated read was a complete answer
+    // key. Clients now receive sanitized questions from the getQuizRun
+    // callable; all writes remain Admin-SDK only.
+    //
+    // DEPLOY ORDER: ship the new app build first, then deploy this rule. The
+    // currently installed build reads `questions` directly and will lose quiz
+    // loading the moment this rule lands.
     match /questions/{questionId} {
-      allow read:  if request.auth != null;
-      allow create, update: if false && isValidQuestionDifficulty(request.resource.data);
-      allow delete: if false;
+      allow read:  if false;
+      allow create, update, delete: if false;
+    }
+
+    // ── Server-minted quiz runs (anti-cheat P0) ───────────────────────────
+    // quizRuns/{runId} holds the authoritative question set and answer key.
+    // Only Cloud Functions (Admin SDK) may read or write it. The client gets
+    // a runId and a sanitized question list, never this document.
+    match /quizRuns/{runId} {
+      allow read, write: if false;
     }
 
     // ── Prize Pool ────────────────────────────────────────────────────────
@@ -327,6 +333,16 @@ service cloud.firestore {
       }
     }
 
+    // ── Referral cashout claims (manual NGN payouts) ──────────────────────
+    // One doc per claimant (doc id = uid). Owner reads their own claim so the
+    // Referrals page can show "submitted / paid"; every write is CF-only
+    // (claimReferralCashout / markReferralCashoutPaid). The eligibility count
+    // and amount are server-derived — a client can never forge either.
+    match /referralCashouts/{uid} {
+      allow read:  if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
     // ── Matchmaking Queue ─────────────────────────────────────────────────
     match /matchmaking_queue/{docId} {
       // Managed entirely by Cloud Functions (matchmaking CFs). Clients must
@@ -336,9 +352,12 @@ service cloud.firestore {
     }
 
     // ── Ghost Sessions ────────────────────────────────────────────────────
+    // HARDENED (anti-cheat P0): ghost sessions contain the ghost's answers for
+    // the exact question set a Quick Match uses. A client read was an answer
+    // key for that match. Only the matchmaking/submit Cloud Functions read it
+    // (Admin SDK); the client receives only the ghost's name and score.
     match /ghost_sessions/{animeId} {
-      allow read:  if request.auth != null;
-      allow write: if false;
+      allow read, write: if false;
     }
 
     // ── House Fees ────────────────────────────────────────────────────────
@@ -347,13 +366,29 @@ service cloud.firestore {
     }
 
     // ── App Config ────────────────────────────────────────────────────────
-    // Default: authenticated read, never client-writable (CF via Admin SDK).
-    // This covers the sensitive tunables: app_config/antifraud holds the
-    // fraud-scoring weights/thresholds, and app_config/leaderboard_entry_config
-    // holds the entry floor. Neither should be readable anonymously.
+    // Public client config only (leaderboard floor, featured shelf, etc.).
+    // The fraud weights/thresholds and security switches moved to
+    // server_config/** and are denied to every client. The FULL anime
+    // catalogue (anime_catalog) is server-only too — clients render just the
+    // rotated 9 from featured_rotation, so its size and contents stay unknown
+    // to the user. Rules are OR-ed, so the exclusions must live in this
+    // condition — a narrower `deny` block would not override this allow.
+    //
+    // `android` is still publicly readable via its own block below (the
+    // forced-update wall must render before sign-in).
     match /app_config/{docId} {
-      allow read:  if request.auth != null;
+      allow read:  if request.auth != null
+                   && docId != 'antifraud'
+                   && docId != 'security'
+                   && docId != 'anime_catalog';
       allow write: if false;
+    }
+
+    // ── Server-only config ────────────────────────────────────────────────
+    // Fraud scoring weights, security switches, decay curves. Read by Cloud
+    // Functions via the Admin SDK; never exposed to a client.
+    match /server_config/{docId=**} {
+      allow read, write: if false;
     }
 
     // Android forced-update gate config (minBuild / latestBuild / apkUrl).
@@ -409,6 +444,8 @@ service cloud.firestore {
     //   adSessionRate/{uid}    per-uid session mint rate limiter
     //   redeemAttempts/{uid}   failed-code counter / lockout state
     //   payoutDetailAudit/{id} before/after trail of every bank-detail change
+    //   referralCashoutReserve/{id} the SEPARATE referral cashout budget
+    //   referralCashoutAudit/{id}   admin funding / status-transition trail
     // All written only by Cloud Functions via the Admin SDK. Sealed explicitly
     // rather than relying on default-deny, so a future edit cannot silently
     // open one of them.
@@ -416,6 +453,25 @@ service cloud.firestore {
     match /adSessions/{token}     { allow read, write: if false; }
     match /adSessionRate/{uid}    { allow read, write: if false; }
     match /redeemAttempts/{uid}   { allow read, write: if false; }
+    // Email-verification + abuse state (B1–B5). Server-only.
+    match /emailIdentities/{hash} { allow read, write: if false; }
+    match /rate_limits/{key}      { allow read, write: if false; }
+    match /authFailures/{key}     { allow read, write: if false; }
+    match /emailResend/{uid}      { allow read, write: if false; }
+    match /abuse_log/{id}         { allow read, write: if false; }
+    match /challengePairs/{pair}  { allow read, write: if false; }
     match /payoutDetailAudit/{id} { allow read, write: if false; }
+    // Referral cashout budget + admin audit trail. The budget is deliberately
+    // separate from prize_pool and is readable only by the admin callables.
+    match /referralCashoutReserve/{id} { allow read, write: if false; }
+    match /referralCashoutAudit/{id}   { allow read, write: if false; }
+
+    // P1 anti-cheat state: silent enforcement, evidence, payout-account graph,
+    // and Play Integrity nonces. All are server-only. Never expose the ladder
+    // to the client (that would be a "cheat detected" signal).
+    match /enforcement/{uid}        { allow read, write: if false; }
+    match /flaggedAccounts/{uid}    { allow read, write: if false; }
+    match /payoutAccounts/{hash}    { allow read, write: if false; }
+    match /integrityChallenges/{nonce} { allow read, write: if false; }
   }
 }

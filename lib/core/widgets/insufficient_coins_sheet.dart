@@ -8,7 +8,6 @@ import '../../features/coins/earn_coins_screen.dart';
 import 'app_button.dart';
 import 'app_page_route.dart';
 import 'app_sheet.dart';
-import 'no_refunds_note.dart';
 
 Future<void> showInsufficientCoinsSheet(
   BuildContext context, {
@@ -71,7 +70,7 @@ class _InsufficientCoinsSheet extends StatelessWidget {
                 const TextSpan(text: 'You have '),
                 TextSpan(
                   text: '$balance 🪙',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w700,
                   ),
@@ -79,8 +78,8 @@ class _InsufficientCoinsSheet extends StatelessWidget {
                 const TextSpan(text: ' but need '),
                 TextSpan(
                   text: '$needed 🪙',
-                  style: const TextStyle(
-                    color: AppColors.accent,
+                  style: TextStyle(
+                    color: AppColors.readable(AppColors.accent),
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -120,7 +119,7 @@ class _InsufficientCoinsSheet extends StatelessWidget {
               label: 'Coin Packs on Website',
               icon: Text('\ud83d\uded2', style: TextStyle(fontSize: 18.sp)),
               variant: AppButtonVariant.outline,
-              color: AppColors.accent,
+              color: AppColors.readable(AppColors.accent),
               size: AppButtonSize.large,
               onPressed: () {
                 Navigator.of(context).pop();
@@ -130,8 +129,6 @@ class _InsufficientCoinsSheet extends StatelessWidget {
               },
             ),
           ),
-          const SizedBox(height: 12),
-          const NoRefundsNote(compact: true, showPolicyLink: true),
         ],
       ),
     );

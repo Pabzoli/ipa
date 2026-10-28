@@ -1,16 +1,15 @@
 {
-  "version": "1.2.0",
-  "build": 4,
-  "file": "animequiz-4.apk",
-  "size": 69879525,
-  "released": "2026-10-20",
-  "minAndroid": "Android 6.0 (Marshmallow) or newer",
+  "version": "1.2.2",
+  "build": 7,
+  "file": "animequiz-7.apk",
+  "size": 67775199,
+  "released": "2026-10-28",
+  "minAndroid": "Android 7.0 (Nougat) or newer",
   "notes": [
-    "Friends and rivalries: spar a friend directly, track your rivalry record, and see who is online.",
-    "New referral centre: share your invite code and follow pending, rewarded and expired referrals.",
-    "Weekly leaderboard rebuilt: the correct prize pool, your live rank, and a clear no-entry state.",
-    "New in-app help and feedback screen.",
-    "Premium pass now runs 28 days, matching the shop and the refund policy.",
-    "Security hardening: App Check, plus server-authoritative profile, payout, ad and redemption writes."
+    "Email verification unlocks multiplayer, challenges, the leaderboard and payouts. Solo quizzes and gauntlets stay open while you verify.",
+    "Phone verification has been retired: no SMS step.",
+    "Referral rewards now require a verified email and the existing 3-quiz / 2-day activity rule.",
+    "Money calls need an account that is at least 7 days old, plus a verified email.",
+    "Security: account limits, disposable-email blocking and challenge farming caps are enforced on the server."
   ]
 }

@@ -3,7 +3,7 @@
 // Admin accounts are GHOSTS: never ranked, never paid, never notified, never
 // counted on any player-facing board or query. The reported bug was that an
 // admin who redeemed a weekly leaderboard-entry code was counted for the prize
-// split (ranked[]/eligibleCount/top-5 winners) even though the client only hid
+// split (ranked[]/eligibleCount/top-3 winners) even though the client only hid
 // the row from display. These tests exercise the REAL handlers:
 //   1. runWeeklyReset excludes the admin from the cycle, the winner snapshot
 //      and the push broadcast, and clears the admin's stale entry state.
@@ -76,12 +76,12 @@ describe('ghost admin isolation', () => {
       'admin must have no payout row'
     );
 
-    // ── Winner snapshot on the pool: admin absent, 5 real winners kept ──────
+    // ── Winner snapshot on the pool: admin absent, 3 real winners kept ──────
     const pool = await H.getDoc(db, `prize_pool/${weekId}`);
     const winnerUids = (pool.winners || []).map((w) => w.uid);
-    assert.equal(winnerUids.length, 5, 'removing the ghost still yields 5 winners');
+    assert.equal(winnerUids.length, 3, 'removing the ghost still yields 3 winners');
     assert.ok(!winnerUids.includes(ADMIN), 'admin must not be a winner');
-    assert.deepEqual(winnerUids, ['P1', 'P2', 'P3', 'P4', 'P5']);
+    assert.deepEqual(winnerUids, ['P1', 'P2', 'P3']);
 
     // ── Admin state cleared by the ghost sweep (self-heals legacy dirt) ─────
     const adminDoc = await user(ADMIN);

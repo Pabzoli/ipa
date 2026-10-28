@@ -124,7 +124,7 @@ class PodiumCard extends StatelessWidget {
               child: Text(
                 '#$rank',
                 style: TextStyle(
-                  color: color,
+                  color: AppColors.readable(color),
                   fontSize: 12.sp,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0.3,
@@ -147,7 +147,7 @@ class PodiumCard extends StatelessWidget {
               child: Text(
                 entry.initial,
                 style: TextStyle(
-                  color: color,
+                  color: AppColors.readable(color),
                   fontSize: 20.sp,
                   fontWeight: FontWeight.w900,
                   height: 1,
@@ -187,7 +187,7 @@ class PodiumCard extends StatelessWidget {
                 child: Text(
                   PrizePoolService.formatCompact(prize!),
                   style: TextStyle(
-                    color: color,
+                    color: AppColors.readable(color),
                     fontSize: 10.sp,
                     fontWeight: FontWeight.w900,
                   ),
@@ -316,7 +316,7 @@ class RankRow extends StatelessWidget {
                     // Three digits still fit the badge.
                     rank != null && rank > 0 ? '$rank' : '—',
                     style: TextStyle(
-                      color: accent,
+                      color: AppColors.readable(accent),
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w900,
                       height: 1,
@@ -338,7 +338,7 @@ class RankRow extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: accent,
+                              color: AppColors.readable(accent),
                               fontSize: 13.sp,
                               fontWeight: FontWeight.w800,
                               letterSpacing: -0.1,
@@ -348,8 +348,8 @@ class RankRow extends StatelessWidget {
                         ),
                         if (isMe) ...[
                           SizedBox(width: 5.w),
-                          const _MiniTag(
-                              label: 'YOU', color: AppColors.primary),
+                          _MiniTag(
+                              label: 'YOU', color: AppColors.primaryText),
                         ],
                         if (isRival) ...[
                           SizedBox(width: 5.w),
@@ -361,9 +361,9 @@ class RankRow extends StatelessWidget {
                         // Tells the player which single row matters most.
                         if (isNextRank) ...[
                           SizedBox(width: 5.w),
-                          const _MiniTag(
+                          _MiniTag(
                             label: 'PASS ME',
-                            color: AppColors.correct,
+                            color: AppColors.readable(AppColors.correct),
                           ),
                         ],
                       ],
@@ -399,7 +399,7 @@ class RankRow extends StatelessWidget {
                   child: Text(
                     PrizePoolService.formatCompact(prize!),
                     style: TextStyle(
-                      color: AppColors.correct,
+                      color: AppColors.readable(AppColors.correct),
                       fontSize: 11.sp,
                       fontWeight: FontWeight.w900,
                     ),
@@ -453,7 +453,7 @@ class RankGroupHeader extends StatelessWidget {
             ),
           ),
           SizedBox(width: 8.w),
-          const Expanded(
+          Expanded(
             child: Divider(height: 1, color: AppColors.divider),
           ),
         ],
@@ -486,7 +486,7 @@ class RowGap extends StatelessWidget {
       padding: EdgeInsets.symmetric(vertical: 6.h),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Divider(height: 1, color: AppColors.divider),
           ),
           Padding(
@@ -501,7 +501,7 @@ class RowGap extends StatelessWidget {
               ),
             ),
           ),
-          const Expanded(
+          Expanded(
             child: Divider(height: 1, color: AppColors.divider),
           ),
         ],
@@ -612,7 +612,7 @@ class _MiniTag extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: color,
+          color: AppColors.readable(color),
           fontSize: 7.sp,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.5,
@@ -650,7 +650,7 @@ class _PlayerPageCue extends StatelessWidget {
         ),
         child: Icon(
           Icons.chevron_right_rounded,
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           size: 18.r,
         ),
       );

@@ -63,9 +63,15 @@ class ShareCard extends StatelessWidget {
     return Container(
       width: kShareCardSize.width,
       height: kShareCardSize.height,
+      // Brand-locked: the share image is exported and must keep the dark
+      // gradient in both themes, so it does NOT use AppColors.heroGradient.
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: AppColors.heroGradient,
+          colors: [
+            Color(0xFF1D1D2C),
+            Color(0xFF2D1B3D),
+            Color(0xFF1A0A2E),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),

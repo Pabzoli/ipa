@@ -52,7 +52,7 @@ class ShopLinkNote extends StatelessWidget {
                 child: Icon(
                   Icons.storefront_rounded,
                   size: (compact ? 17 : 20).r,
-                  color: AppColors.accent,
+                  color: AppColors.readable(AppColors.accent),
                 ),
               ),
               SizedBox(width: 12.w),
@@ -126,7 +126,7 @@ class ShopLinkNote extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: AppColors.primary,
+                      color: AppColors.readable(AppColors.primary),
                       fontFamily: 'Nunito',
                       fontSize: (compact ? 10 : 11).sp,
                       fontWeight: FontWeight.w800,

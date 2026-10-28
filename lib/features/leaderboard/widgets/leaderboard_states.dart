@@ -34,7 +34,7 @@ class LeaderboardSectionHeader extends StatelessWidget {
             color: color.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(8.r),
           ),
-          child: Icon(icon, color: color, size: 15.r),
+          child: Icon(icon, color: AppColors.readable(color), size: 15.r),
         ),
         SizedBox(width: 9.w),
         Expanded(
@@ -263,7 +263,7 @@ class BoardEmptyState extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Icon(Icons.lock_outline_rounded,
-                  color: AppColors.accent, size: 36.r),
+                  color: AppColors.readable(AppColors.accent), size: 36.r),
             ),
             SizedBox(height: 16.h),
             Text(
@@ -307,7 +307,7 @@ class WeekClosingState extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppEmptyState(
       icon: Icons.hourglass_top_rounded,
-      color: AppColors.accent,
+      color: AppColors.readable(AppColors.accent),
       title: 'Week closing',
       message: 'Scores are locked for this week and results are published on '
           'Monday.',
@@ -346,7 +346,7 @@ class BoardErrorState extends StatelessWidget {
           ? Icons.build_outlined
           : Icons.cloud_off_rounded,
       title: 'Could not load the leaderboard',
-      color: AppColors.accent,
+      color: AppColors.readable(AppColors.accent),
       message: _looksLikeMissingIndex
           ? 'This leaderboard needs a Firestore composite index before it can '
               'load. It has been reported - please try again shortly.'

@@ -11,8 +11,10 @@ import '../../core/constants/rival_economy.dart';
 import '../../core/constants/share_links.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/weekly_points_pill.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/device_id_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/share_service.dart';
 import '../../core/widgets/app_button.dart';
@@ -56,11 +58,7 @@ class _MyChallengesPageState extends State<MyChallengesPage>
       appBar: AppBar(
         backgroundColor: AppColors.surfaceDim,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: const AppBackButton(),
         title: const Text('My Challenges'),
         actions: [
           Padding(
@@ -70,7 +68,7 @@ class _MyChallengesPageState extends State<MyChallengesPage>
         ],
         bottom: TabBar(
           controller: _tabCtrl,
-          indicatorColor: AppColors.primary,
+          indicatorColor: AppColors.readable(AppColors.primary),
           indicatorWeight: 3,
           dividerColor: AppColors.divider,
           labelColor: AppColors.textPrimary,
@@ -239,6 +237,7 @@ class _InviteTicketState extends State<_InviteTicket> {
           .httpsCallable('joinChallenge')
           .call({
         'challengeId': c.challengeId,
+        'deviceId': await DeviceIdService.instance.value(),
         ...AppUpdateService.instance.clientBuildStamp,
       });
 
@@ -247,7 +246,7 @@ class _InviteTicketState extends State<_InviteTicket> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Challenge accepted! Get ready to play.'),
-          backgroundColor: AppColors.correct,
+          backgroundColor: AppColors.successSurface,
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 1),
         ),
@@ -426,7 +425,7 @@ class _PendingDeclineButtonState extends State<_PendingDeclineButton> {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text('Decline',
                 style: AppTypography.labelLarge
-                    .copyWith(color: AppColors.wrong)),
+                    .copyWith(color: AppColors.readable(AppColors.wrong))),
           ),
         ],
       ),
@@ -470,7 +469,7 @@ class _PendingDeclineButtonState extends State<_PendingDeclineButton> {
       label: 'Decline',
       size: AppButtonSize.small,
       variant: AppButtonVariant.outline,
-      color: AppColors.wrong,
+      color: AppColors.readable(AppColors.wrong),
       loading: _busy,
       onPressed: _busy ? null : _onDecline,
     );

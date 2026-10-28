@@ -48,7 +48,7 @@ class _RowDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Divider(
+    return Divider(
       height: AppSpacing.lg,
       thickness: 1,
       color: AppColors.divider,

@@ -7,10 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
-import '../../core/widgets/no_refunds_note.dart';
 import '../../core/widgets/shop_link_note.dart';
 
 /// Premium Pass upsell screen. Premium is currently sold on the website as a
@@ -60,15 +60,7 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
               padding: EdgeInsets.fromLTRB(8.r, 10.r, 16.r, 8.r),
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: AppColors.textPrimary,
-                      size: 19.r,
-                    ),
-                    splashRadius: 22,
-                  ),
+                  const AppBackButton(),
                   SizedBox(width: 2.w),
                   Expanded(
                     child: Text(
@@ -84,9 +76,9 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
                   ),
                   if (premium) ...[
                     SizedBox(width: 8.w),
-                    const AppBadge(
+                    AppBadge(
                       label: 'Active',
-                      color: AppColors.correct,
+                      color: AppColors.readable(AppColors.correct),
                       icon: Icons.workspace_premium_rounded,
                       dot: false,
                     ),
@@ -115,7 +107,7 @@ class _PremiumUpsellScreenState extends State<PremiumUpsellScreen> {
                     _SectionHeader(
                       icon: Icons.auto_awesome_rounded,
                       title: 'What you get',
-                      color: AppColors.accent,
+                      color: AppColors.readable(AppColors.accent),
                     ),
                     SizedBox(height: AppSpacing.md),
                     const _PerksList(),
@@ -161,7 +153,8 @@ class _SectionHeader extends StatelessWidget {
                 color: color.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(9.r),
               ),
-              child: Icon(icon, color: color, size: 15.r),
+              child: Icon(icon,
+                  color: AppColors.readable(color), size: 15.r),
             ),
             SizedBox(width: 10.w),
             Expanded(
@@ -272,7 +265,7 @@ class _PremiumHero extends StatelessWidget {
               children: [
                 Icon(
                   Icons.check_circle_rounded,
-                  color: AppColors.correct,
+                  color: AppColors.readable(AppColors.correct),
                   size: 15.r,
                 ),
                 SizedBox(width: 6.w),
@@ -317,7 +310,7 @@ class _PricePill extends StatelessWidget {
       child: Text(
         price,
         style: AppTypography.titleLarge.copyWith(
-          color: AppColors.accent,
+          color: AppColors.readable(AppColors.accent),
           fontWeight: FontWeight.w900,
           letterSpacing: -0.3,
         ),
@@ -381,8 +374,8 @@ class _StatDivider extends StatelessWidget {
 ///                                 dailyCap 500 (vs 300), 8 creates+joins/day (vs 5)
 ///   - rival rematches:            same-rival WP-staked cooldown 6h (vs 12h);
 ///                                 spars have no cooldown for anyone
-///   - submitDailyGauntlet:        Premium first retry FREE, then 40/60/90/…
-///   - solo_summary_page.dart:     instant solo retry (40 AC) is Premium-only
+///   - submitDailyGauntlet (Blitz): Premium first retry FREE, then 40/60/90/…
+///   - solo_summary_page.dart:     instant solo retry (80 AC) is Premium-only
 ///   - awardPremiumMonday/Monthly: +75 WP Mondays + 100 WP monthly (flat grants)
 ///   - challenge/WP settlement:    1.20× eligible WP (flat grants excluded)
 ///   - Quick Match:                8 daily battles (vs 5), open 24/7
@@ -406,14 +399,14 @@ const List<({IconData icon, String title, String detail})> _kPerks = [
   ),
   (
     icon: Icons.sports_martial_arts_rounded,
-    title: 'Gauntlet first retry FREE',
+    title: 'Blitz first retry FREE',
     detail:
-        'Premium first retry each day costs 0 AC, then 40 · 60 · 90 · 135 · 203 AC.',
+        'Premium first Gauntlet Blitz retry each day costs 0 AC, then 40 · 60 · 90 · 135 · 203 AC.',
   ),
   (
     icon: Icons.replay_rounded,
     title: 'Instant solo retry',
-    detail: 'Replay a finished solo lineup right away — 40 AC clears the '
+    detail: 'Replay a finished solo lineup right away — 80 AC clears the '
         'cooldown. Free players can\'t retry.',
   ),
   (
@@ -447,7 +440,7 @@ class _PerksList extends StatelessWidget {
           for (int i = 0; i < _kPerks.length; i++) ...[
             _PerkRow(perk: _kPerks[i]),
             if (i != _kPerks.length - 1)
-              const Divider(
+              Divider(
                 height: AppSpacing.lg,
                 thickness: 1,
                 color: AppColors.divider,
@@ -480,7 +473,7 @@ class _PerkRow extends StatelessWidget {
                 color: AppColors.accent.withValues(alpha: 0.22),
               ),
             ),
-            child: Icon(perk.icon, color: AppColors.accent, size: 19.r),
+            child: Icon(perk.icon, color: AppColors.readable(AppColors.accent), size: 19.r),
           ),
           SizedBox(width: 12.w),
           Expanded(
@@ -540,8 +533,6 @@ class _ShopPremiumCard extends StatelessWidget {
           Container(height: 1, color: AppColors.divider),
           SizedBox(height: AppSpacing.md),
           const ShopLinkNote(),
-          SizedBox(height: AppSpacing.sm),
-          const NoRefundsMiniNote(),
         ],
       ),
     );
@@ -566,7 +557,7 @@ class _CardTitle extends StatelessWidget {
             color: AppColors.accent.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(9.r),
           ),
-          child: Icon(icon, color: AppColors.accent, size: 15.r),
+          child: Icon(icon, color: AppColors.readable(AppColors.accent), size: 15.r),
         ),
         SizedBox(width: 10.w),
         Expanded(
@@ -609,7 +600,7 @@ class _NumberedStep extends StatelessWidget {
           child: Text(
             '${index + 1}',
             style: AppTypography.labelMedium.copyWith(
-              color: AppColors.primary,
+              color: AppColors.readable(AppColors.primary),
               fontWeight: FontWeight.w900,
             ),
           ),

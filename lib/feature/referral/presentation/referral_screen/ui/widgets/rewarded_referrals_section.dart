@@ -26,7 +26,7 @@ class RewardedReferralsSection extends StatelessWidget {
               children: [
                 for (final (index, entry) in entries.indexed) ...[
                   if (index > 0)
-                    const Divider(
+                    Divider(
                       height: AppSpacing.lg,
                       thickness: 1,
                       color: AppColors.divider,

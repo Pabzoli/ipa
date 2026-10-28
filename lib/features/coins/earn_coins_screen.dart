@@ -5,9 +5,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/coin_earn_animation.dart';
-import '../../core/widgets/no_refunds_note.dart';
 import '../../core/widgets/shop_link_note.dart';
 
 /// Rewarded-ad rate and daily cap. Kept in sync with `AdService` (`_dailyMax`)
@@ -148,15 +148,9 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
               padding: EdgeInsets.fromLTRB(8.r, 10.r, 16.r, 8.r),
               child: Row(
                 children: [
-                  IconButton(
+                  AppBackButton(
                     onPressed:
                         _adLoading ? null : () => Navigator.pop(context),
-                    icon: Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: AppColors.textPrimary,
-                      size: 19.r,
-                    ),
-                    splashRadius: 22,
                   ),
                   SizedBox(width: 2.w),
                   Expanded(
@@ -243,7 +237,7 @@ class _CoinPill extends StatelessWidget {
             child: Text(
               _format(animeCoins),
               style: TextStyle(
-                color: AppColors.accent,
+                color: AppColors.readable(AppColors.accent),
                 fontFamily: AppTypography.fontFamily,
                 fontWeight: FontWeight.w800,
                 fontSize: 14.sp,
@@ -387,7 +381,9 @@ class _WatchAdHero extends StatelessWidget {
               Text(
                 '$watched / $_kDailyAdCap',
                 style: AppTypography.labelLarge.copyWith(
-                  color: full ? AppColors.accent : AppColors.textPrimary,
+                  color: full
+                      ? AppColors.readable(AppColors.accent)
+                      : AppColors.textPrimary,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -480,7 +476,7 @@ class _RewardBadge extends StatelessWidget {
   switch (id) {
     case 'animequiz_coins_300':
       return (
-        ac: 300,
+        ac: 500,
         bonus: '',
         bestValue: false,
         price: '₦500',
@@ -488,7 +484,7 @@ class _RewardBadge extends StatelessWidget {
       );
     case 'animequiz_coins_1100':
       return (
-        ac: 990,
+        ac: 1650,
         bonus: 'Includes a 10% bonus',
         bestValue: false,
         price: '₦1,500',
@@ -497,7 +493,7 @@ class _RewardBadge extends StatelessWidget {
       );
     case 'animequiz_coins_3600':
       return (
-        ac: 2880,
+        ac: 4800,
         bonus: 'Includes a 20% bonus',
         bestValue: true,
         price: '₦4,000',
@@ -542,7 +538,7 @@ class _CoinPacksSection extends StatelessWidget {
               ),
               child: Icon(
                 Icons.shopping_bag_rounded,
-                color: AppColors.accent,
+                color: AppColors.readable(AppColors.accent),
                 size: 15.r,
               ),
             ),
@@ -560,8 +556,6 @@ class _CoinPacksSection extends StatelessWidget {
 
         // ── Shop link ────────────────────────────────────────────
         const ShopLinkNote(),
-        SizedBox(height: AppSpacing.sm),
-        const NoRefundsMiniNote(),
         SizedBox(height: 10.h),
 
         // ── Pack cards ───────────────────────────────────────────
@@ -656,7 +650,7 @@ class _CoinPackCard extends StatelessWidget {
                         child: Text(
                           'BEST VALUE',
                           style: AppTypography.labelSmall.copyWith(
-                            color: AppColors.accent,
+                            color: AppColors.readable(AppColors.accent),
                             fontSize: 8.sp,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.5,

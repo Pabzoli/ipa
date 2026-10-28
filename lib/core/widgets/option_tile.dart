@@ -60,7 +60,6 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
     final i       = widget.optionIndex;
     final label   = i < _labels.length ? _labels[i] : '${i + 1}';
     final elim    = ctrl.currentEliminated;
-    final correct = q.correctAnswerIndex;
 
     // ── Eliminated option ──────────────────────────────────────────────────
     if (elim.contains(i)) {
@@ -88,25 +87,55 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
     }
 
     // ── Derive visual state ────────────────────────────────────────────────
+    final revealed = ctrl.revealedCorrectForCurrent;
     final colors = _resolveColors(
-      i:              i,
-      correct:        correct,
+      i: i,
       selectedOption: ctrl.selectedOption,
-      showResult:     ctrl.showResult,
+      showResult: ctrl.showResult,
+      result: ctrl.lastAnswerCorrect,
+      revealedCorrect: revealed,
     );
 
-    final isInteractive = !ctrl.showResult && !ctrl.isNavigating;
+    final isInteractive =
+        !ctrl.showResult && !ctrl.isNavigating && !ctrl.isLockingAnswer;
 
-    final semanticSuffix = ctrl.showResult
-        ? (i == correct
-            ? ' — correct'
-            : i == ctrl.selectedOption
-                ? ' — wrong'
-                : '')
-        : '';
+    String semanticSuffix = '';
+    if (ctrl.showResult) {
+      if (i == ctrl.selectedOption) {
+        semanticSuffix = ctrl.lastAnswerCorrect == null
+            ? ''
+            : (ctrl.lastAnswerCorrect! ? ' — correct' : ' — wrong');
+      } else if (revealed != null &&
+          i == revealed &&
+          ctrl.lastAnswerCorrect == false) {
+        semanticSuffix = ' — correct answer';
+      }
+    }
+
+    // While the solo lock is in flight the tapped tile already highlights
+    // (optimistic select) — swap the trailing for a spinner so the wait reads
+    // as "checking", not a frozen tap.
+    final lockingThis =
+        ctrl.isLockingAnswer && i == ctrl.selectedOption && !ctrl.showResult;
+    final semanticLabel = lockingThis ? '$semanticSuffix — checking' : semanticSuffix;
+    final tileColors = lockingThis
+        ? _TileColors(
+            border: colors.border,
+            bg: colors.bg,
+            text: colors.text,
+            badge: colors.badge,
+            badgeFill: colors.badgeFill,
+            shadows: colors.shadows,
+            trailing: const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        : colors;
 
     return Semantics(
-      label:    'Option $label: ${q.options[i]}$semanticSuffix',
+      label:    'Option $label: ${q.options[i]}$semanticLabel',
       button:   isInteractive,
       selected: i == ctrl.selectedOption,
       enabled:  isInteractive,
@@ -128,7 +157,7 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
           duration: const Duration(milliseconds: 150),
           curve:    Curves.easeOut,
           child: _TileContent(
-            colors:        colors,
+            colors:        tileColors,
             label:         label,
             text:          q.options[i],
             strikethrough: false,
@@ -141,62 +170,121 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
   // ── Color resolver ─────────────────────────────────────────────────────────
 
   _TileColors _resolveColors({
-    required int  i,
-    required int  correct,
-    required int  selectedOption,
+    required int i,
+    required int selectedOption,
     required bool showResult,
+    required bool? result,
+    int? revealedCorrect,
   }) {
     if (showResult) {
-      if (i == correct) {
+      // Solo wrong answer with server-revealed key: the missed pick stays red
+      // and the true answer goes green. The key is only known for the locked
+      // question, so later questions cannot be probed.
+      if (revealedCorrect != null &&
+          i == revealedCorrect &&
+          i != selectedOption &&
+          result == false) {
         return _TileColors(
-          border:    AppColors.correct,
-          bg:        AppColors.correct.withValues(alpha: 0.13),
-          text:      AppColors.correct,
-          badge:     AppColors.correct,
+          border: AppColors.correct,
+          bg: AppColors.correct.withValues(alpha: 0.13),
+          text: AppColors.successText,
+          badge: AppColors.successText,
           badgeFill: true,
           shadows: [
             BoxShadow(
               color: AppColors.correct.withValues(alpha: 0.2),
               blurRadius: 20,
-              offset:     const Offset(0, 4),
+              offset: const Offset(0, 4),
             ),
           ],
           trailing: Icon(
             Icons.check_circle_rounded,
-            color: AppColors.correct,
-            size:  22,
+            color: AppColors.successText,
+            size: 22,
           ),
         );
       }
-
+      // Only the option the player chose is highlighted. For solo misses the
+      // server reveals the locked question's correct option (shown green
+      // above); Gauntlet / challenge answers stay withheld until settlement.
       if (i == selectedOption) {
-        return _TileColors(
-          border:    AppColors.wrong,
-          bg:        AppColors.wrong.withValues(alpha: 0.11),
-          text:      AppColors.wrong,
-          badge:     AppColors.wrong,
-          badgeFill: true,
-          shadows: [
-            BoxShadow(
-              color: AppColors.wrong.withValues(alpha: 0.15),
-              blurRadius: 14,
-              offset:     const Offset(0, 3),
+        if (result == true) {
+          return _TileColors(
+            border:    AppColors.correct,
+            bg:        AppColors.correct.withValues(alpha: 0.13),
+            text:      AppColors.successText,
+            badge:     AppColors.successText,
+            badgeFill: true,
+            shadows: [
+              BoxShadow(
+                color: AppColors.correct.withValues(alpha: 0.2),
+                blurRadius: 20,
+                offset:     const Offset(0, 4),
+              ),
+            ],
+            trailing: Icon(
+              Icons.check_circle_rounded,
+              color: AppColors.successText,
+              size:  22,
             ),
-          ],
-          trailing: Icon(
-            Icons.cancel_rounded,
-            color: AppColors.wrong,
-            size:  22,
+          );
+        }
+        if (result == false) {
+          return _TileColors(
+            border:    AppColors.wrong,
+            bg:        AppColors.wrong.withValues(alpha: 0.11),
+            text:      AppColors.errorText,
+            badge:     AppColors.errorText,
+            badgeFill: true,
+            shadows: [
+              BoxShadow(
+                color: AppColors.wrong.withValues(alpha: 0.15),
+                blurRadius: 14,
+                offset:     const Offset(0, 3),
+              ),
+            ],
+            trailing: Icon(
+              Icons.cancel_rounded,
+              color: AppColors.errorText,
+              size:  22,
+            ),
+          );
+        }
+        // Gauntlet / challenge: correctness is withheld until settlement.
+        return _TileColors(
+          border:    AppColors.secondary,
+          bg:        AppColors.secondary.withValues(alpha: 0.1),
+          text:      AppColors.secondary,
+          badge:     AppColors.secondary,
+          badgeFill: true,
+          shadows:   const [],
+          trailing:  Icon(
+            Icons.lock_rounded,
+            color: AppColors.secondary,
+            size:  20,
           ),
         );
       }
 
-      // Revealed-but-not-selected after answer shown
+      if (result != null) {
+        // Solo reveal: dim the options that were not chosen.
+        return _TileColors(
+          border:    AppColors.divider.withValues(alpha: 0.4),
+          bg:        AppColors.surface.withValues(alpha: 0.35),
+          text:      AppColors.textMuted.withValues(alpha: 0.5),
+          badge:     AppColors.textMuted.withValues(alpha: 0.4),
+          badgeFill: false,
+          shadows:   const [],
+          trailing:  null,
+        );
+      }
+
+      // End-only mode: keep the tiles readable but non-interactive.
       return _TileColors(
-        border:    AppColors.divider.withValues(alpha: 0.4),
-        bg:        AppColors.surface.withValues(alpha: 0.35),
-        text:      AppColors.textMuted.withValues(alpha: 0.5),
-        badge:     AppColors.textMuted.withValues(alpha: 0.4),
+        border:    AppColors.divider,
+        bg:        AppColors.surface.withValues(alpha: 0.7),
+        text:      AppColors.textSecondary,
+        badge:     AppColors.textSecondary,
         badgeFill: false,
         shadows:   const [],
         trailing:  null,

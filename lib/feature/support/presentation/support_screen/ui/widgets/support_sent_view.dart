@@ -47,7 +47,7 @@ class SupportSentView extends StatelessWidget {
               ),
               child: Icon(
                 Icons.check_rounded,
-                color: AppColors.correct,
+                color: AppColors.readable(AppColors.correct),
                 size: 46.r,
               ),
             ),

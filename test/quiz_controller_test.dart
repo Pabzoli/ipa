@@ -46,6 +46,7 @@ void main() {
           wp, {
           isGauntlet = false,
           streak = 0,
+          answeredCount = 0,
           gauntletPerQuestionWP = const [],
           achievementCoins = 0,
         }) {},
@@ -67,14 +68,14 @@ void main() {
       expect(errors, hasLength(1));
       expect(errors.single, contains('Failed to save score'));
       expect(retryOffered, isTrue, reason: 'snackbar must expose Retry');
-      expect(callableNames, ['submitChallengeScore']);
+      expect(callableNames, ['submitRun']);
 
       // Retry succeeds: the flag clears and the result callback fires.
       await controller.retrySubmit();
 
       expect(controller.submitFailed, isFalse);
       expect(completed, [('challenge-1', true, 7)]);
-      expect(callableNames, ['submitChallengeScore', 'submitChallengeScore']);
+      expect(callableNames, ['submitRun', 'submitRun']);
     },
   );
 }

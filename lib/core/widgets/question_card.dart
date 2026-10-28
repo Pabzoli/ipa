@@ -45,7 +45,7 @@ class QuestionCardWidget extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadii.feature),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
+              color: AppColors.shadow,
               blurRadius: 32,
               offset:     const Offset(0, 8),
             ),
@@ -154,7 +154,7 @@ class _AnimeTitleChip extends StatelessWidget {
         child: Text(
           title.toUpperCase(),
           style: TextStyle(
-            color:         AppColors.primary,
+            color:         AppColors.primaryText,
             fontSize:      10.sp,
             fontWeight:    FontWeight.w800,
             letterSpacing: 1.8,

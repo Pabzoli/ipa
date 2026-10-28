@@ -56,7 +56,7 @@ class RivalAvatar extends StatelessWidget {
       ),
       child: Container(
         alignment: Alignment.center,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: AppColors.surface,
         ),

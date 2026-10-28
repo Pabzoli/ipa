@@ -9,9 +9,11 @@ import 'package:provider/provider.dart';
 import '../../core/constants/rival_economy.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/device_id_service.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_page_route.dart';
 import '../quiz/questions_page.dart';
 import 'challenge_model.dart';
@@ -105,8 +107,8 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
     });
   }
 
-  void _onBoxKey(int index, RawKeyEvent event) {
-    if (event is RawKeyDownEvent &&
+  void _onBoxKey(int index, KeyEvent event) {
+    if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace &&
         _ctrls[index].text.isEmpty &&
         index > 0) {
@@ -300,6 +302,7 @@ try {
             .httpsCallable('joinChallenge')
             .call({
           'challengeId': _found!.challengeId,
+          'deviceId': await DeviceIdService.instance.value(),
           ...AppUpdateService.instance.clientBuildStamp,
         });
 
@@ -368,7 +371,7 @@ try {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text('Decline',
                 style: TextStyle(
-                    color: AppColors.wrong, fontWeight: FontWeight.w700)),
+                    color: AppColors.readable(AppColors.wrong), fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -414,6 +417,10 @@ try {
 
   @override
   Widget build(BuildContext context) {
+    return _buildGated(context);
+  }
+
+  Widget _buildGated(BuildContext context) {
     final ud = context.watch<UserDataProvider>();
     final balance = ud.animeCoins;
     final busy = _looking || _joining || _declining;
@@ -476,7 +483,7 @@ try {
                         icon: Icons.block_rounded,
                         message:
                             'Daily join limit reached. You cannot accept another challenge today.',
-                        color: AppColors.wrong,
+                        color: AppColors.readable(AppColors.wrong),
                       ),
                     ],
                     if (_looking) ...[
@@ -492,7 +499,7 @@ try {
                               child: _StatusBanner(
                                 icon: Icons.error_outline_rounded,
                                 message: _error!,
-                                color: AppColors.wrong,
+                                color: AppColors.readable(AppColors.wrong),
                               ),
                             )
                           : const SizedBox.shrink(),
@@ -540,10 +547,10 @@ try {
                                       child: OutlinedButton(
                                         onPressed: _declining ? null : _decline,
                                         style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.wrong,
+                                          foregroundColor: AppColors.readable(AppColors.wrong),
                                           side: BorderSide(
                                               color: AppColors.wrong
-                                                  .withOpacity(0.45)),
+                                                  .withValues(alpha: 0.45)),
                                           shape: RoundedRectangleBorder(
                                             borderRadius:
                                                 BorderRadius.circular(14.r),
@@ -609,15 +616,7 @@ class _JoinHeader extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(8.r, 10.r, 14.r, 12.r),
       child: Row(
         children: [
-          IconButton(
-            onPressed: busy ? null : onBack,
-            icon: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: AppColors.textPrimary,
-              size: 19.r,
-            ),
-            splashRadius: 22,
-          ),
+          AppBackButton(onPressed: busy ? null : onBack),
           SizedBox(width: 2.w),
           Expanded(
             child: Column(
@@ -691,7 +690,7 @@ class _JoinHeroCard extends StatelessWidget {
             ),
             child: Icon(
               Icons.sports_esports_rounded,
-              color: AppColors.skyBright,
+              color: AppColors.readable(AppColors.skyBright),
               size: 25.r,
             ),
           ),
@@ -734,7 +733,7 @@ class _JoinHeroCard extends StatelessWidget {
             child: Text(
               'Paste',
               style: TextStyle(
-                color: AppColors.skyBright,
+                color: AppColors.readable(AppColors.skyBright),
                 fontSize: 12.sp,
                 fontWeight: FontWeight.w800,
               ),
@@ -753,7 +752,7 @@ class _CodeEntryCard extends StatelessWidget {
   final bool complete;
   final bool hasError;
   final void Function(int, String) onChanged;
-  final void Function(int, RawKeyEvent) onKey;
+  final void Function(int, KeyEvent) onKey;
   final VoidCallback? onClear;
 
   const _CodeEntryCard({
@@ -854,7 +853,7 @@ class _CodeBoxes extends StatelessWidget {
   final bool busy;
   final bool hasError;
   final void Function(int, String) onChanged;
-  final void Function(int, RawKeyEvent) onKey;
+  final void Function(int, KeyEvent) onKey;
 
   const _CodeBoxes({
     required this.ctrls,
@@ -917,7 +916,7 @@ class _CodeBox extends StatelessWidget {
   final bool enabled;
   final bool hasError;
   final ValueChanged<String> onChanged;
-  final ValueChanged<RawKeyEvent> onKey;
+  final ValueChanged<KeyEvent> onKey;
 
   const _CodeBox({
     required this.ctrl,
@@ -936,9 +935,9 @@ class _CodeBox extends StatelessWidget {
     return SizedBox(
       width: 44,
       height: 56,
-      child: RawKeyboardListener(
+      child: KeyboardListener(
         focusNode: FocusNode(),
-        onKey: onKey,
+        onKeyEvent: onKey,
         child: TextField(
           controller: ctrl,
           focusNode: node,
@@ -1017,7 +1016,7 @@ class _LookupState extends StatelessWidget {
             height: 17.h,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: AppColors.skyBright,
+              color: AppColors.readable(AppColors.skyBright),
             ),
           ),
           SizedBox(width: 10.w),
@@ -1183,9 +1182,9 @@ class _FoundChallengeCard extends StatelessWidget {
                   child: _InfoTile(
                     label: 'STAKE',
                     value: wp > 0 ? '$stake AC + $wp WP' : '$stake AC',
-                    valueColor: canAfford
+                    valueColor: AppColors.readable(canAfford
                         ? AppColors.correct
-                        : AppColors.wrong,
+                        : AppColors.wrong),
                     icon: Icons.monetization_on_outlined,
                   ),
                 ),
@@ -1206,7 +1205,7 @@ class _FoundChallengeCard extends StatelessWidget {
                   child: _InfoTile(
                     label: 'WIN PREVIEW',
                     value: '+$winAmount AC',
-                    valueColor: AppColors.correct,
+                    valueColor: AppColors.readable(AppColors.correct),
                     icon: Icons.emoji_events_outlined,
                   ),
                 ),
@@ -1220,7 +1219,7 @@ class _FoundChallengeCard extends StatelessWidget {
                     ? 'You need $stake AC + $wp WP to accept this challenge. '
                         'You have $balance AC and $wpBalance WP.'
                     : 'You need $stake AC to accept this challenge, but you currently have $balance AC.',
-                color: AppColors.wrong,
+                color: AppColors.readable(AppColors.wrong),
               ),
             ],
             SizedBox(height: 11.h),
@@ -1238,7 +1237,7 @@ class _FoundChallengeCard extends StatelessWidget {
                   child: _PayoutLine(
                     label: 'Lose',
                     value: '0 AC',
-                    valueColor: AppColors.wrong,
+                    valueColor: AppColors.readable(AppColors.wrong),
                   ),
                 ),
               ],

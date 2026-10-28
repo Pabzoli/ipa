@@ -15,7 +15,7 @@ enum PoolSource {
 
 /// The result of projecting this week's prize pool.
 class PoolProjection {
-  /// Naira available to the top 5 this week.
+  /// Naira available to the top 3 this week.
   final double amount;
 
   /// Which branch of the CF rule produced [amount].
@@ -78,11 +78,9 @@ class PrizePoolService {
   ///
   /// Mirrors `prizePct(rank)` in functions/index.js.
   static const Map<int, double> prizePercentages = <int, double>{
-    1: 0.40,
-    2: 0.25,
-    3: 0.15,
-    4: 0.10,
-    5: 0.10,
+    1: 0.50,
+    2: 0.30,
+    3: 0.20,
   };
 
   /// Share of this week's leaderboard-entry revenue that funds the pool.
@@ -101,7 +99,7 @@ class PrizePoolService {
     return totalNaira * (prizePercentages[rank] ?? 0.0);
   }
 
-  /// The share string rendered when a pool is still zero, e.g. "40%".
+  /// The share string rendered when a pool is still zero, e.g. "50%".
   static String percentLabel(int rank) {
     final pct = prizePercentages[rank];
     if (pct == null) return '';

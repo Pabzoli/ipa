@@ -52,7 +52,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.flutterwave.com https://api.flutterwave.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us-central1-anime-quiz-1ab1b.cloudfunctions.net https://api.flutterwave.com; frame-src https://checkout.flutterwave.com; base-uri 'self'; form-action 'self' https://checkout.flutterwave.com"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://checkout.flutterwave.com https://api.flutterwave.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://us-central1-anime-quiz-1ab1b.cloudfunctions.net https://api.flutterwave.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://anime-quiz-1ab1b.firebaseapp.com; frame-src https://checkout.flutterwave.com https://anime-quiz-1ab1b.firebaseapp.com; base-uri 'self'; form-action 'self' https://checkout.flutterwave.com"
           }
         ]
       },

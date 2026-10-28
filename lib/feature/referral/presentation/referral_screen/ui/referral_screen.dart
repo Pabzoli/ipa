@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../../../../core/theme/app_theme.dart';
+import '../../../../../core/widgets/app_back_button.dart';
 import '../../../data/data_source/referral_remote_data_source.dart';
+import '../../../data/model/referral_cashout.dart';
 import '../../../data/model/referral_entry.dart';
 import 'widgets/referral_body.dart';
 
@@ -20,12 +22,14 @@ class _ReferralScreenState extends State<ReferralScreen> {
 
   late Future<List<ReferralEntry>> _entriesFuture;
   late Future<String> _codeFuture;
+  late Future<ReferralCashoutClaim?> _cashoutFuture;
 
   @override
   void initState() {
     super.initState();
     _entriesFuture = _dataSource.getReferralEntries();
     _codeFuture = _dataSource.getReferralCode();
+    _cashoutFuture = _dataSource.getCashoutClaim();
   }
 
   Future<void> _reload() async {
@@ -33,9 +37,11 @@ class _ReferralScreenState extends State<ReferralScreen> {
     // The code is refetched too: a mint that failed while offline would
     // otherwise leave the page codeless until the screen is reopened.
     final code = _dataSource.getReferralCode();
+    final cashout = _dataSource.getCashoutClaim();
     setState(() {
       _entriesFuture = future;
       _codeFuture = code;
+      _cashoutFuture = cashout;
     });
     try {
       await future;
@@ -46,6 +52,10 @@ class _ReferralScreenState extends State<ReferralScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return _buildGated(context);
+  }
+
+  Widget _buildGated(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
       body: SafeArea(
@@ -57,15 +67,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
               padding: EdgeInsets.fromLTRB(8.r, 10.r, 16.r, 4.r),
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: AppColors.textPrimary,
-                      size: 19.r,
-                    ),
-                    splashRadius: 22,
-                  ),
+                  const AppBackButton(),
                   SizedBox(width: 2.w),
                   Expanded(
                     child: Text(
@@ -88,6 +90,7 @@ class _ReferralScreenState extends State<ReferralScreen> {
               child: ReferralBody(
                 entriesFuture: _entriesFuture,
                 codeFuture: _codeFuture,
+                cashoutFuture: _cashoutFuture,
                 onRefresh: _reload,
               ),
             ),

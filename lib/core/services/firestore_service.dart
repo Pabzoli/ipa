@@ -14,6 +14,8 @@ import '../constants/rival_economy.dart';
 import '../constants/rivalries_paging.dart';
 import '../constants/solo_economy.dart';
 import 'app_update_service.dart';
+import 'device_id_service.dart';
+import 'play_integrity_service.dart';
 import 'prize_pool_service.dart';
 
 // ─── Exceptions ───────────────────────────────────────────────────────────────
@@ -44,6 +46,20 @@ class PremiumRequiredException implements Exception {
 
   @override
   String toString() => 'PremiumRequiredException: premium_required';
+}
+
+/// Result of `startSoloCooldowns`: the cooldown expiries written for the run,
+/// plus the server-minted session id.
+///
+/// [sessionId] must be forwarded to the quiz page and submitted with the run:
+/// `submitQuizAnswers` refuses a submission that does not match the user's
+/// active server session, and consumes it on the award. That is what stops two
+/// concurrent solo runs from both being paid.
+class SoloRunStart {
+  final Map<String, int> expiresAt;
+  final String sessionId;
+
+  const SoloRunStart({required this.expiresAt, required this.sessionId});
 }
 
 // ─── University Constants ─────────────────────────────────────────────────────
@@ -93,7 +109,7 @@ class PrizeWinner {
 /// The payload returned by [FirestoreService.getLastWeekWinners].
 ///
 /// [weekId] is the Monday date string of the completed week, e.g. "2025-05-19".
-/// [winners] is sorted ascending by rank (1st → last).
+/// [winners] is sorted ascending by rank (1st �?last).
 class LastWeekResult {
   final String weekId;
   final double totalNaira;
@@ -112,8 +128,8 @@ class LastWeekResult {
 ///
 /// Produced by [FirestoreService.weeklyStanding]. Exists because the visible
 /// board is capped at 100 rows: without this, an eligible player ranked #150
-/// was shown "#—" on a page whose entire purpose is telling them their rank.
-/// Every field is optional because any single query may fail — callers must
+/// was shown "#�? on a page whose entire purpose is telling them their rank.
+/// Every field is optional because any single query may fail �?callers must
 /// degrade to the board's own numbers rather than showing a wrong figure.
 class WeeklyStanding {
   /// 1-based position within the cohort, matching the board's own sequential
@@ -127,7 +143,7 @@ class WeeklyStanding {
   /// The player's own weekly points.
   final int myPoints;
 
-  /// Weekly points the player ranked directly above has — i.e. the target to
+  /// Weekly points the player ranked directly above has �?i.e. the target to
   /// overtake. `null` at rank 1, when unranked, or when the query failed.
   final int? pointsToNextRank;
 
@@ -142,7 +158,7 @@ class WeeklyStanding {
     this.nextRankUsername,
   });
 
-  /// Percentile bucket (1–99) this rank represents, or `null` when it cannot
+  /// Percentile bucket (1�?9) this rank represents, or `null` when it cannot
   /// be computed meaningfully (no cohort size, or the player is not ranked).
   ///
   /// Ceiled so "Top 5%" never over-claims, and clamped so it never renders as
@@ -165,19 +181,19 @@ class WeeklyStanding {
   }
 
   /// Empty result for a player who has no entry, is unauthenticated, or whose
-  /// query failed — callers fall back to local data instead of inventing a rank.
+  /// query failed �?callers fall back to local data instead of inventing a rank.
   static const WeeklyStanding none =
       WeeklyStanding(rank: 0, totalPlayers: 0, myPoints: 0);
 }
 
-// ─── Leaderboard Payout Claim Models (Phase 3 — client contract) ─────────────
+// ─── Leaderboard Payout Claim Models (Phase 3 �?client contract) ─────────────
 // The server is authoritative for eligibility, prize amount, account
 // verification, approval, payout status, and `paid`. These models only carry
 // what the server returns / what the client is allowed to read.
 
 /// A Nigerian bank entry returned by the `listNigerianBanks` callable.
 ///
-/// CONTRACT (proposed Cloud Function — NOT yet deployed, see Phase 3 report):
+/// CONTRACT (proposed Cloud Function �?NOT yet deployed, see Phase 3 report):
 /// authenticated callable, server-side Flutterwave `GET /v3/banks/NG` with the
 /// existing `FLW_SECRET_KEY`, ~24h server cache, returns `{ banks: [...] }`
 /// with only `{name, code}` pairs. The secret never leaves the server and the
@@ -197,7 +213,7 @@ class NigerianBank {
 /// Success payload of the `submitPayoutDetails` callable.
 ///
 /// [status] is `'pending'` (new submission) or `'already_submitted'`
-/// (a pending claim already exists — idempotent no-op server-side).
+/// (a pending claim already exists �?idempotent no-op server-side).
 ///
 /// Payouts are manual, so there is no automated account verification and this
 /// payload carries no verification result.
@@ -233,7 +249,7 @@ class PayoutClaimException implements Exception {
 ///
 /// [claimStatus] is `'pending' | 'marked' | 'expired'`, or `null` when the
 /// winner has never submitted for this cycle. [paid] mirrors
-/// `ranked[].paid` — the ONLY source the UI may use for a "Paid" label.
+/// `ranked[].paid` �?the ONLY source the UI may use for a "Paid" label.
 class WinnerClaimSummary {
   final String weekId;
   final int rank;
@@ -258,6 +274,82 @@ class WinnerClaimSummary {
   /// True when the winner can still submit (or re-submit after expiry).
   bool get canClaim =>
       !paid && (claimStatus == null || claimStatus == 'expired');
+}
+
+/// One website purchase, exactly as the `getMyPurchases` callable reports it.
+///
+/// The server owns every field: the code, its status and whether it was
+/// redeemed all come from `redemptionCodes`, so this type never infers state.
+/// [status] is the payment intent (`pending` | `fulfilled`); [codeStatus] is the
+/// code (`unused` | `redeemed` | �?. A fulfilled purchase with no usable code is
+/// reported as such rather than shown as redeemable.
+class PurchaseEntry {
+  final String txRef;
+  final String productId;
+  final String productTitle;
+  final String status;
+  final double amount;
+  final String currency;
+  final DateTime? createdAt;
+  final DateTime? fulfilledAt;
+  final String? code;
+  final String? codeStatus;
+  final String? type;
+  final String? value;
+  final DateTime? redeemedAt;
+  final DateTime? codeExpiresAt;
+
+  const PurchaseEntry({
+    required this.txRef,
+    required this.productId,
+    required this.productTitle,
+    required this.status,
+    required this.amount,
+    required this.currency,
+    this.createdAt,
+    this.fulfilledAt,
+    this.code,
+    this.codeStatus,
+    this.type,
+    this.value,
+    this.redeemedAt,
+    this.codeExpiresAt,
+  });
+
+  factory PurchaseEntry.fromMap(Map<String, dynamic> m) {
+    DateTime? at(Object? v) =>
+        v is String && v.isNotEmpty ? DateTime.tryParse(v) : null;
+
+    final rawCode = (m['code'] as String?)?.trim();
+
+    return PurchaseEntry(
+      txRef: (m['txRef'] as String?) ?? '',
+      productId: (m['productId'] as String?) ?? '',
+      productTitle: (m['productTitle'] as String?) ?? 'AnimeQuiz purchase',
+      status: (m['status'] as String?) ?? 'pending',
+      amount: (m['amount'] as num?)?.toDouble() ?? 0,
+      currency: (m['currency'] as String?) ?? 'NGN',
+      createdAt: at(m['createdAt']),
+      fulfilledAt: at(m['fulfilledAt']),
+      code: (rawCode != null && rawCode.isNotEmpty) ? rawCode : null,
+      codeStatus: m['codeStatus'] as String?,
+      type: m['type'] as String?,
+      value: m['value']?.toString(),
+      redeemedAt: at(m['redeemedAt']),
+      codeExpiresAt: at(m['codeExpiresAt']),
+    );
+  }
+
+  /// Payment confirmed server-side (a code was minted).
+  bool get isFulfilled => status == 'fulfilled';
+
+  /// Checkout created, no confirmed payment yet.
+  bool get isPending => status == 'pending';
+
+  bool get isRedeemed => codeStatus == 'redeemed';
+
+  /// Only a present, unused code can be redeemed.
+  bool get isRedeemable => code != null && codeStatus == 'unused';
 }
 
 /// One named rival distilled from match history: running record, most
@@ -305,8 +397,7 @@ class RivalCandidate {
 /// One picked question doc plus the mix slot it fills. [slot] is the tier
 /// whose seat this doc occupies ('easy' | 'medium' | 'hard') — for tagged
 /// docs this usually equals their native difficulty, but legacy or borrowed
-/// docs take the slot they fill so positional modes (Gauntlet tiers) stay
-/// aligned regardless of where the question came from.
+/// docs take the slot they fill.
 class _SlottedDoc {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   final String slot;
@@ -370,7 +461,7 @@ class FirestoreService {
   ///
   /// [type] must match the coinTransactions schema:
   ///   'earn_daily' | 'earn_quiz' | 'earn_ad' | 'earn_referral' |
-  ///   'earn_gauntlet' | 'earn_gauntlet_milestone' | 'earn_achievement' |
+  ///   'earn_gauntlet' | 'earn_achievement' |
   ///   'earn_quick_match' | 'earn_challenge_win' | 'earn_challenge_draw' |
   ///   'spend_hint' | 'spend_cooldown' | 'spend_unlock' |
   ///   'spend_shield' | 'spend_timer' | 'spend_retry' |
@@ -378,7 +469,7 @@ class FirestoreService {
   ///
   /// Throws [InsufficientCoinsException] if the resulting balance would be < 0.
   ///
-  /// ⛔ DEAD PATH — animeCoins is blacklisted for direct client writes in
+  /// �?DEAD PATH �?animeCoins is blacklisted for direct client writes in
   /// Firestore security rules. All coin mutations go through Cloud Functions
   /// (submitQuizAnswers, spendCoins, recordAdWatch, etc.).  Calling this
   /// method will always result in a Firestore Permission-Denied error.
@@ -395,10 +486,10 @@ class FirestoreService {
     );
   }
 
-  // ─── One-time migration: hintCount → animeCoins ───────────────────────────
+  // ─── One-time migration: hintCount �?animeCoins ───────────────────────────
 
   /// Converts any legacy [hintCount] field into [animeCoins] (× 2 exchange rate)
-  /// and deletes the old field — all in a single atomic transaction.
+  /// and deletes the old field �?all in a single atomic transaction.
   Future<void> runMigrationIfNeeded() async {
     if (_uid == null) return;
     try {
@@ -569,7 +660,7 @@ class FirestoreService {
   /// during the current WAT day.  Resets to 0 at the start of each new day
   /// (when [challengesJoinedDate] no longer matches today's WAT date string).
   ///
-  /// Mirrors [challengesCreatedTodayStream] — the CF writes
+  /// Mirrors [challengesCreatedTodayStream] �?the CF writes
   /// [challengesJoinedDate] as a 'YYYY-MM-DD' WAT string and increments
   /// [challengesJoinedToday] atomically on each successful join.
   Stream<int> challengesJoinedTodayStream() {
@@ -604,7 +695,7 @@ class FirestoreService {
   // ─── Daily Challenge (retired) ────────────────────────────────────────────
   //
   // The old standalone "1.5× WP once per WAT day" Daily Challenge was removed;
-  // its only surviving surface is the Daily Gauntlet, which REUSES the same
+  // its only surviving surface is Gauntlet Blitz, which REUSES the same
   // users/{uid} fields (dailyChallengeDate / dailyChallengeUsed) and is written
   // entirely server-side by submitQuizAnswers / submitDailyGauntlet. There is
   // therefore no client read/write path to keep here.
@@ -620,7 +711,7 @@ class FirestoreService {
   /// `{ success, alreadyUnlocked, animeTitle, newBalance[, coinsSpent] }`.
   ///
   /// Throws [FirebaseFunctionsException] with code `resource-exhausted` and
-  /// message `insufficient_coins` when the balance cannot cover the cost —
+  /// message `insufficient_coins` when the balance cannot cover the cost �?
   /// the caller surfaces the insufficient-coins sheet for that case.
   Future<Map<String, dynamic>> unlockAnimeEarly(String animeTitle) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
@@ -647,37 +738,88 @@ class FirestoreService {
     });
   }
 
-  /// Starts the cooldown for [titles] via `startSoloCooldowns`. Returns the new
-  /// expiry (ms since epoch) for each title that was locked; permanently
-  /// unlocked titles are absent. Throws [FirebaseFunctionsException] with
-  /// `failed-precondition` / `cooldown_active` if any title is still locked.
-  Future<Map<String, int>> startSoloCooldowns(List<String> titles) async {
+  /// Starts a homepage solo run for [titles] via `startSoloCooldowns`.
+  ///
+  /// Returns the new cooldown expiry (ms since epoch) for each title that was
+  /// locked �?permanently unlocked titles are absent �?plus the server-minted
+  /// [SoloRunStart.sessionId] that `submitQuizAnswers` requires. Throws
+  /// [FirebaseFunctionsException] with `failed-precondition` /
+  /// `cooldown_active` if any title is still locked.
+  Future<SoloRunStart> startSoloCooldowns(List<String> titles) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('startSoloCooldowns');
     final res = await callable.call(<String, dynamic>{
       'titles': titles,
+      // Marks the run as new-system. Once app_config/android.minBuild is
+      // raised, the server rejects a start without it (legacy path retired).
+      'runV2': true,
       ...AppUpdateService.instance.clientBuildStamp,
     });
     final data = Map<String, dynamic>.from(res.data as Map);
     final raw = Map<String, dynamic>.from(data['expiresAt'] as Map? ?? const {});
-    return raw.map((k, v) => MapEntry(k, (v as num).toInt()));
+    return SoloRunStart(
+      expiresAt: raw.map((k, v) => MapEntry(k, (v as num).toInt())),
+      sessionId: (data['sessionId'] as String?)?.trim() ?? '',
+    );
   }
 
-  /// Live anime catalogue from app_config/anime_catalog.titles. Falls back to
-  /// the bundled [kAnimeCatalog] while the doc is absent or empty.
-  Stream<List<String>> animeCatalogStream() {
-    return _db.collection('app_config').doc('anime_catalog').snapshots().map((snap) {
-      final raw = snap.data()?['titles'];
-      if (raw is List) {
-        final titles = raw
-            .whereType<String>()
-            .map((s) => s.trim().toLowerCase())
-            .where((s) => s.isNotEmpty)
-            .toSet()
-            .toList();
-        if (titles.isNotEmpty) return titles;
+  /// Cancels the quiz run [runId] via the `cancelRun` callable: marks the run
+  /// cancelled and clears `activeRunId` when it points at this run, releasing
+  /// the one-active-run lock. Safe to call for a run that is already settled
+  /// (server treats it as a no-op success). Used by the quit flow and by the
+  /// stuck-run recovery on the home page.
+  Future<void> cancelRun(String runId) async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('cancelRun');
+    await callable.call(<String, dynamic>{'runId': runId});
+  }
+
+  /// Status of the run currently holding the caller's one-active-run lock via
+  /// the `getActiveRunStatus` callable. Returns `{'active': false}` when free
+  /// (the server also self-heals an expired/settled lock here); otherwise the
+  /// run kind plus `secondsLeft` until it expires, so the UI can show a real
+  /// countdown instead of a dead-end message.
+  Future<Map<String, dynamic>> getActiveRunStatus() async {
+    final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('getActiveRunStatus');
+    final res = await callable.call(<String, dynamic>{});
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  // ─── Featured rotation (global, server-owned) ─────────────────────────
+  // One doc for every user: app_config/featured_rotation
+  // { titles: [...max 9], intervalHours, rotatesAt, updatedAt }.
+  // Written ONLY by the rotateFeaturedAnimes scheduler; the client renders
+  // whatever is there and falls back to the bundled catalog slice offline.
+  // This is the ONLY catalogue surface clients may read — app_config/anime_catalog
+  // is denied to clients in firestore.rules.
+  Stream<Map<String, dynamic>> featuredRotationStream() {
+    return _db
+        .collection('app_config')
+        .doc('featured_rotation')
+        .snapshots()
+        .map((snap) {
+      final data = snap.data() ?? {};
+      final raw = data['titles'];
+      final titles = raw is List
+          ? raw
+              .whereType<String>()
+              .map((s) => s.trim().toLowerCase())
+              .where((s) => s.isNotEmpty)
+              .toSet()
+              .toList()
+          : <String>[];
+      DateTime? rotatesAt;
+      final r = data['rotatesAt'];
+      if (r is Timestamp) {
+        rotatesAt = r.toDate();
       }
-      return kAnimeCatalog;
+      final intervalHours = (data['intervalHours'] as num?)?.toInt();
+      return {
+        'titles': titles,
+        'rotatesAt': rotatesAt,
+        'intervalHours': intervalHours,
+      };
     });
   }
 
@@ -701,17 +843,17 @@ class FirestoreService {
   // ─── Difficulty-aware question pools (Step 4 + homepage difficulty) ───
   //
   // Mix ratios:
-  //   Solo homepage (10Q, weighted by selected difficulty — see
+  //   Solo homepage (10Q, weighted by selected difficulty �?see
   //     lib/core/constants/solo_economy.dart):
-  //     easy   → 7 Easy / 2 Medium / 1 Hard
-  //     medium → 3 Easy / 4 Medium / 3 Hard
-  //     hard   → 1 Easy / 2 Medium / 7 Hard
-  //   Gauntlet (7Q): 3 Easy / 2 Medium / 2 Hard, positional E,E,E,M,M,H,H to
-  //                  align with kGauntletTiers (15,15,15,20,20,25,25).
+  //     easy   �?7 Easy / 2 Medium / 1 Hard
+  //     medium �?3 Easy / 4 Medium / 3 Hard
+  //     hard   �?1 Easy / 2 Medium / 7 Hard
+  //   Gauntlet Blitz (30Q, server-minted by enterDailyGauntlet):
+  //     10 Easy / 10 Medium / 10 Hard ramp. Difficulty-based WP (5/8/12).
   //   Challenge/QM (10Q, createChallenge CF): 3 Easy / 4 Medium / 3 Hard.
   //   (Quick Match + Create Challenge are untouched by homepage difficulty.)
   //
-  // Query shape: EQUALITY-ONLY filters —
+  // Query shape: EQUALITY-ONLY filters �?
   //   .where('animeTitle', whereIn: chunk).where('difficulty', isEqualTo: tier)
   // plus a legacy fallback query (animeTitle only, client-filtered to docs
   // WITHOUT a difficulty field) used ONLY when tagged pools run short.
@@ -726,22 +868,17 @@ class FirestoreService {
   // throwing the original exceptions (callers already handle those).
 
   /// Fixed per-tier needs for a legacy 10-question Solo session.
-  /// Kept for backwards compat — new code resolves the mix from
+  /// Kept for backwards compat �?new code resolves the mix from
   /// [kSoloDifficultyMixes] via the `difficulty` param of
   /// [fetchQuestionsForTitles].
   static const int kSoloEasyCount = 4;
   static const int kSoloMediumCount = 3;
   static const int kSoloHardCount = 3;
 
-  /// Fixed per-tier needs for a Gauntlet session (positional tiers).
-  static const int kGauntletEasyCount = 3;
-  static const int kGauntletMediumCount = 2;
-  static const int kGauntletHardCount = 2;
-
   // ─── Seen-question marker, fetch side (Step 5a) ───────────────────────────
   //
   // Key invariant (shared with the write side in the submit CFs):
-  // seen records carry the question's NATIVE difficulty — the stored
+  // seen records carry the question's NATIVE difficulty �?the stored
   // `difficulty` field, or 'medium' when the doc has none (legacy docs).
   // This matches AnimeQuestion.fromDoc's fallback exactly, so fetch-side
   // buckets line up with mark-time records 1:1. Legacy doc IDs therefore
@@ -757,7 +894,7 @@ class FirestoreService {
   /// Normalizes user-selected titles to the Firestore contract (lowercased /
   /// trimmed, deduped, order-preserving). Seed data (`scripts/seed_questions.js`)
   /// and seen-bucket writes are all lowercase, so every `whereIn` query must
-  /// use this form — raw mixed-case titles would silently match 0 docs.
+  /// use this form �?raw mixed-case titles would silently match 0 docs.
   List<String> _normalizeTitles(List<String> titles) {
     final out = <String>[];
     final seen = <String>{};
@@ -791,7 +928,7 @@ class FirestoreService {
 
   /// Loads the caller's seen-question IDs for [titles], bucketed by
   /// `{anime}::{difficulty}` keys. Returns {} when signed out. Throws on
-  /// Firestore errors (notably offline with Source.server) — callers catch
+  /// Firestore errors (notably offline with Source.server) �?callers catch
   /// and degrade to full (unfiltered) pools.
   Future<Map<String, Set<String>>> _loadSeenBuckets(
     List<String> titles,
@@ -854,7 +991,7 @@ class FirestoreService {
     if (tagged[tier]!.length >= need) return;
     debugPrint(
       '[FirestoreService] unseen $tier pool short '
-      '(${tagged[tier]!.length}/$need) — resetting buckets',
+      '(${tagged[tier]!.length}/$need) �?resetting buckets',
     );
     final keys = titles.toSet().map((t) => _seenBucketKey(t, tier)).toSet();
     await _resetSeenBuckets(keys);
@@ -937,7 +1074,7 @@ class FirestoreService {
   ///
   /// FAIRNESS: pools are grouped by anime and dealt round-robin across
   /// [titles] (shuffled rotation, single shared cursor), so every selected
-  /// anime appears as evenly as possible. E.g. 9 titles / 10 slots → each of
+  /// anime appears as evenly as possible. E.g. 9 titles / 10 slots �?each of
   /// the 9 appears once, then the rotation wraps for the 10th. Unfilled seats backfill from [legacy] first
   /// (preferring the least-represented anime), then from tagged surpluses of
   /// any tier (same preference). Seats still empty after that are dropped
@@ -973,18 +1110,18 @@ class FirestoreService {
     rotation.shuffle(Random());
 
     final picksPerAnime = <String, int>{for (final t in rotation) t: 0};
-    int _picks(String anime) => picksPerAnime[anime] ?? 0;
+    int picks(String anime) => picksPerAnime[anime] ?? 0;
 
     final filled = <_SlottedDoc>[];
     final unfilled = <String>[];
     // Single shared round-robin cursor into [rotation] across ALL slots.
-    // This is what guarantees coverage: 9 titles / 10 slots → each title
+    // This is what guarantees coverage: 9 titles / 10 slots �?each title
     // picked once, then the rotation wraps for the 10th. A per-tier cursor
     // would restart at rotation[0] for every tier and re-pick the same
     // first anime for Easy, Medium and Hard.
     var cursor = 0;
 
-    String? _nextAnimeForTier(String tier) {
+    String? nextAnimeForTier(String tier) {
       if (rotation.isEmpty) return null;
       final queues = perTierAnime[tier]!;
       for (int offset = 0; offset < rotation.length; offset++) {
@@ -999,11 +1136,11 @@ class FirestoreService {
     }
 
     for (final slot in slotOrder) {
-      final anime = _nextAnimeForTier(slot);
+      final anime = nextAnimeForTier(slot);
       if (anime != null) {
         final doc = perTierAnime[slot]![anime]!.removeLast();
         filled.add(_SlottedDoc(doc, slot));
-        picksPerAnime[anime] = _picks(anime) + 1;
+        picksPerAnime[anime] = picks(anime) + 1;
       } else {
         unfilled.add(slot);
       }
@@ -1012,7 +1149,7 @@ class FirestoreService {
     // Legacy backfill: prefer the least-represented anime that still has a
     // legacy doc, tie-broken by rotation order for determinism.
     final legacyByAnime = _groupDocsByAnime(legacy);
-    int _rotationIndex(String anime) {
+    int rotationIndex(String anime) {
       final i = rotation.indexOf(anime);
       return i < 0 ? 1 << 30 : i;
     }
@@ -1024,8 +1161,8 @@ class FirestoreService {
       var bestOrder = 1 << 30;
       for (final entry in legacyByAnime.entries) {
         if (entry.value.isEmpty) continue;
-        final p = _picks(entry.key);
-        final o = _rotationIndex(entry.key);
+        final p = picks(entry.key);
+        final o = rotationIndex(entry.key);
         if (p < bestPicks || (p == bestPicks && o < bestOrder)) {
           best = entry.key;
           bestPicks = p;
@@ -1035,7 +1172,7 @@ class FirestoreService {
       if (best != null) {
         final doc = legacyByAnime[best]!.removeLast();
         filled.add(_SlottedDoc(doc, slot));
-        picksPerAnime[best] = _picks(best) + 1;
+        picksPerAnime[best] = picks(best) + 1;
       } else {
         stillUnfilled.add(slot);
       }
@@ -1061,8 +1198,8 @@ class FirestoreService {
           // original title list (defensive: casing drift / legacy rows).
           continue;
         }
-        final p = _picks(anime);
-        final o = _rotationIndex(anime);
+        final p = picks(anime);
+        final o = rotationIndex(anime);
         if (p < bestPicks || (p == bestPicks && o < bestOrder)) {
           best = anime;
           bestPicks = p;
@@ -1099,10 +1236,10 @@ class FirestoreService {
       if (borrowed != null) {
         filled.add(_SlottedDoc(borrowed, slot));
         if (borrowedFrom != null) {
-          picksPerAnime[borrowedFrom] = _picks(borrowedFrom) + 1;
+          picksPerAnime[borrowedFrom] = picks(borrowedFrom) + 1;
         }
       }
-      // Else: seat dropped — the whole pool (tagged + legacy) is exhausted.
+      // Else: seat dropped �?the whole pool (tagged + legacy) is exhausted.
     }
     // Restore deal order (backfills were appended out of order): bucket
     // picks by slot tier, then walk the original slotOrder dealing one pick
@@ -1127,13 +1264,13 @@ class FirestoreService {
     return out;
   }
 
-  /// Homepage solo fetch — 10 questions with a WEIGHTED mix leaning toward
+  /// Homepage solo fetch �?10 questions with a WEIGHTED mix leaning toward
   /// [difficulty] ('easy' | 'medium' | 'hard', see [kSoloDifficultyMixes]).
   /// Quick Match / Create Challenge never call this (they use server-side
   /// mixes + their own CFs) and are unaffected.
   ///
   /// Short pools backfill from legacy untagged docs first, then cross-tier
-  /// tagged surpluses — so a thin hard pool still returns 10 playable
+  /// tagged surpluses �?so a thin hard pool still returns 10 playable
   /// questions rather than failing. Rewards stay at the SELECTED tier
   /// (server trusts the difficulty flag), so seed enough hard questions to
   /// keep hard runs honest.
@@ -1153,7 +1290,7 @@ class FirestoreService {
     final hardNeed = mix['hard']!;
     final need = easyNeed + mediumNeed + hardNeed;
 
-    // Phase 0: seen buckets ({} on signed-out/offline → full pools).
+    // Phase 0: seen buckets ({} on signed-out/offline �?full pools).
     Map<String, Set<String>> seen = {};
     try {
       seen = await _loadSeenBuckets(normalized);
@@ -1164,7 +1301,7 @@ class FirestoreService {
     }
 
     // Phase 1: tagged tier pools, unseen-filtered (3 equality-only queries,
-    // 1 chunk each at ≤10 titles), with per-tier reset+refetch on shortfall.
+    // 1 chunk each at �?0 titles), with per-tier reset+refetch on shortfall.
     // Legacy pool is fetched ONLY on shortfall (Phase 2).
     final tagged = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{
       'easy': await _fetchTierPool(normalized, 'easy', seenBuckets: seen),
@@ -1194,7 +1331,7 @@ class FirestoreService {
       ],
     ];
 
-    // Phase 2: legacy pool, unseen-filtered — fetched ONLY when tagged
+    // Phase 2: legacy pool, unseen-filtered �?fetched ONLY when tagged
     // unseen runs short (preserves the Step 4 steady-state query cost).
     final taggedHave = tagged.values.fold<int>(0, (n, p) => n + p.length);
     var legacy = taggedHave < need
@@ -1208,7 +1345,7 @@ class FirestoreService {
           normalized.map((t) => _seenBucketKey(t, 'medium')).toSet();
       debugPrint(
         '[FirestoreService] total unseen pool short '
-        '(${taggedHave + legacy.length}/$need) — resetting medium buckets',
+        '(${taggedHave + legacy.length}/$need) �?resetting medium buckets',
       );
       await _resetSeenBuckets(mKeys);
       for (final k in mKeys) {
@@ -1229,125 +1366,41 @@ class FirestoreService {
         'More content is coming soon!',
       );
     }
-    // Deal count is fixed at [need]; short pools return fewer (graceful —
+    // Deal count is fixed at [need]; short pools return fewer (graceful �?
     // QuizController plays whatever it receives).
     return dealt.map((s) => AnimeQuestion.fromDoc(s.doc)).toList();
   }
 
-  // ─── Anime Titles ────────────────────────────────────────────────────────────
+  // ─── Featured shelf (the only catalogue surface the UI may show) ──────
 
-  Future<List<String>> fetchAnimeTitles() async {
+  /// One-shot featured shelf (max 9) for screens that don't hold the live
+  /// stream — e.g. the multiplayer anime picker. Reads ONLY
+  /// app_config/featured_rotation (the full catalogue doc is server-only and
+  /// unreadable by clients), trusting the rotation scheduler for membership.
+  /// Falls back to the bundled head when the doc is absent or offline, so
+  /// every surface shows the same 9.
+  Future<List<String>> fetchFeaturedShelf({int max = 9}) async {
     try {
       final snap = await _db
-          .collection('questions')
+          .collection('app_config')
+          .doc('featured_rotation')
           .get(const GetOptions(source: Source.server));
-
-      if (snap.docs.isEmpty) return [];
-
-      final titles = snap.docs
-          .map((d) => (d.data()['animeTitle'] as String?) ?? '')
-          .where((t) => t.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort();
-
-      return titles;
-    } catch (e) {
-      throw Exception('Failed to load anime list: $e');
-    }
-  }
-
-  /// Daily Gauntlet — picks [count] (normally 7) question ids from the
-  /// player's unlocked anime pool with a 3:2:2 Easy:Medium:Hard mix.
-  /// Returned in POSITIONAL order E,E,E,M,M,H,H — the submitDailyGauntlet CF
-  /// awards its escalating WP tiers by position, so callers must preserve it.
-  ///
-  /// Shortfalls backfill from the legacy untagged pool first (parses as
-  /// medium client-side), then from tagged surpluses of any tier. Throws
-  /// when the whole pool (tagged + legacy) holds fewer than [count], exactly
-  /// like the old implementation — a short Gauntlet would misalign WP tiers.
-  ///
-  /// `whereIn` accepts at most 10 values per query, so titles are chunked.
-  Future<List<String>> fetchGauntletQuestionIds({
-    required List<String> unlockedTitles,
-    required int count,
-  }) async {
-    final titles = _normalizeTitles(unlockedTitles);
-    if (titles.isEmpty) {
-      throw Exception('No unlocked anime titles for the Daily Gauntlet.');
-    }
-    if (count <= 0) return [];
-
-    // 3:2:2 ratio scaled to [count] (for 7 → exactly 3/2/2).
-    final easyNeed = (count * 3 / 7).round();
-    final mediumNeed = (count * 2 / 7).round();
-    final hardNeed = count - easyNeed - mediumNeed;
-
-    // Phase 0: seen buckets ({} on signed-out/offline → full pools).
-    Map<String, Set<String>> seen = {};
-    try {
-      seen = await _loadSeenBuckets(titles);
-    } catch (e) {
-      debugPrint(
-          '[FirestoreService] seen-buckets load failed, using full pools: $e');
-      seen = {};
-    }
-
-    final tagged = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{
-      'easy':
-          await _fetchTierPool(titles, 'easy', seenBuckets: seen),
-      'medium':
-          await _fetchTierPool(titles, 'medium', seenBuckets: seen),
-      'hard':
-          await _fetchTierPool(titles, 'hard', seenBuckets: seen),
-    };
-    await _resetTierBucketIfShort(
-        titles: titles, tier: 'easy', need: easyNeed,
-        tagged: tagged, seen: seen);
-    await _resetTierBucketIfShort(
-        titles: titles, tier: 'medium', need: mediumNeed,
-        tagged: tagged, seen: seen);
-    await _resetTierBucketIfShort(
-        titles: titles, tier: 'hard', need: hardNeed,
-        tagged: tagged, seen: seen);
-
-    // Positional deal order: E,E,E,M,M,H,H (matches kGauntletTiers).
-    final slotOrder = <String>[
-      for (int i = 0; i < easyNeed; i++) 'easy',
-      for (int i = 0; i < mediumNeed; i++) 'medium',
-      for (int i = 0; i < hardNeed; i++) 'hard',
-    ];
-
-    // Legacy pool, unseen-filtered — fetched ONLY when tagged unseen runs
-    // short. Whole-pool exhaustion resets the medium buckets (legacy source
-    // of truth) and refetches unfiltered.
-    final taggedHave = tagged.values.fold<int>(0, (n, p) => n + p.length);
-    var legacy = taggedHave < count
-        ? await _fetchLegacyPool(titles, seenBuckets: seen)
-        : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    if (taggedHave + legacy.length < count) {
-      final mKeys =
-          titles.map((t) => _seenBucketKey(t, 'medium')).toSet();
-      debugPrint(
-        '[FirestoreService] gauntlet unseen pool short '
-        '(${taggedHave + legacy.length}/$count) — resetting medium buckets',
-      );
-      await _resetSeenBuckets(mKeys);
-      for (final k in mKeys) {
-        seen.remove(k);
+      final raw = snap.data()?['titles'];
+      if (raw is List) {
+        final shelf = raw
+            .whereType<String>()
+            .map((s) => s.trim().toLowerCase())
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .toList()
+            .take(max)
+            .toList();
+        if (shelf.isNotEmpty) return shelf;
       }
-      legacy = await _fetchLegacyPool(titles, seenBuckets: seen);
+    } catch (e) {
+      debugPrint('[FirestoreService] featured shelf read failed: $e');
     }
-
-    final dealt = _dealSlots(
-        slotOrder: slotOrder, tagged: tagged, legacy: legacy, titles: titles);
-
-    if (dealt.length < count) {
-      throw Exception(
-          'Not enough questions in your unlocked pool for the Daily Gauntlet.');
-    }
-
-    return dealt.take(count).map((s) => s.doc.id).toList();
+    return kAnimeCatalog.take(max).toList();
   }
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
@@ -1380,11 +1433,10 @@ class FirestoreService {
     });
   }
 
-  /// Daily Gauntlet progress for the home entry card: current streak, the
-  /// milestone days already claimed this streak run, whether the free
+  /// Gauntlet Blitz progress for the home entry card: whether the free
   /// daily attempt has been used, and the per-day retry cursor.
   /// Live so the card stays accurate after a run. Retry fields mirror the
-  /// server's GAUNTLET_RETRY_* logic (functions/index.js) client-side for
+  /// server's BLITZ retry logic (functions/index.js) client-side for
   /// display only — backend remains authoritative.
   Stream<Map<String, dynamic>> gauntletProgressStream() {
     if (_uid == null) return Stream.value(const {});
@@ -1407,9 +1459,6 @@ class FirestoreService {
       final retryIndex = retryDate == todayWAT ? storedIdx : 0;
 
       return <String, dynamic>{
-        'streak': (d['gauntletStreak'] as num?)?.toInt() ?? 0,
-        'milestones': (d['gauntletMilestonesAwarded'] as List?)?.cast<int>() ??
-            const <int>[],
         'usedToday': usedToday,
         'retryIndex': retryIndex,
         'retryDate': retryDate,
@@ -1418,7 +1467,7 @@ class FirestoreService {
     });
   }
 
-  /// Pre-entry Gauntlet payment — deducts the retry cost BEFORE the player
+  /// Pre-entry Blitz payment — deducts the retry cost BEFORE the player
   /// enters the quiz page (non-refundable on quit, per product decision).
   ///
   /// Calls the `enterDailyGauntlet` Cloud Function which atomically:
@@ -1429,14 +1478,19 @@ class FirestoreService {
   ///   `{isFreeAttempt: false, retryCost, ticketId}` for paid retries.
   ///
   /// The returned `ticketId` (null for free) must be forwarded through
-  /// QuestionsPage → QuizController → submitDailyGauntlet, which consumes it
+  /// QuestionsPage → QuizController → submitRun, which consumes it
   /// WITHOUT charging again. Throws [FirebaseFunctionsException] with
   /// `resource-exhausted/insufficient_coins:<cost>` when unaffordable and
   /// `failed-precondition/max_retries_exceeded` at the daily cap.
   Future<Map<String, dynamic>> enterDailyGauntlet() async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('enterDailyGauntlet');
-    final res = await callable.call<Map<Object?, Object?>>({});
+    // runV2 asks the server to pick the 30 questions and mint the run in the
+    // same transaction as the charge, so the client never reads the answer key.
+    final res = await callable.call<Map<Object?, Object?>>({
+      'runV2': true,
+      ...AppUpdateService.instance.clientBuildStamp,
+    });
     return Map<String, dynamic>.from(res.data);
   }
 
@@ -1446,7 +1500,7 @@ class FirestoreService {
   // SDK (_resolveChallengeCore, submitQuickMatchResult); firestore.rules sets
   // `allow create: if false` on users/{uid}/matches. An earlier client-side
   // `saveMatchHistory` writer lived here and was removed: it was unreachable,
-  // would have been rejected by those rules, and — had it ever run — would have
+  // would have been rejected by those rules, and �?had it ever run �?would have
   // written an Anime Coins value into `pointsChange` with no `wpChange` at all,
   // which the History ledger then had to guess a WP figure from.
   Stream<List<Map<String, dynamic>>> matchHistoryStream() {
@@ -1517,7 +1571,7 @@ class FirestoreService {
       int? pointsToNextRank;
       String? nextRankUsername;
 
-      // Score/name of the highest row we have walked past — becomes the
+      // Score/name of the highest row we have walked past �?becomes the
       // overtake target once we reach our own row.
       int? prevPoints;
       String? prevName;
@@ -1578,7 +1632,7 @@ class FirestoreService {
 
   /// Convenience wrapper for the profile badge. Reports `0` ONLY when the
   /// player is not ranked (not found / not eligible), which that surface
-  /// renders as "—". An eligible entrant with 0 points still has a real
+  /// renders as "�?. An eligible entrant with 0 points still has a real
   /// position and is reported as such.
   ///
   /// Delegates to [weeklyStanding] rather than a COUNT: a COUNT of "strictly
@@ -1595,7 +1649,7 @@ class FirestoreService {
     // Report the real (sequential) rank whenever the player was found in the
     // walk, INCLUDING a legitimate #1..#N who simply has 0 points so far.
     // Zero is reserved for "not ranked" (not found / not eligible), which the
-    // profile renders as "—".
+    // profile renders as "�?.
     return standing.rank;
   }
 
@@ -1608,7 +1662,7 @@ class FirestoreService {
         );
   }
 
-  /// ⛔ DEAD PATH — weeklyPoints is blacklisted for direct client writes in
+  /// �?DEAD PATH �?weeklyPoints is blacklisted for direct client writes in
   /// Firestore security rules. All WP awards are made server-side by
   /// submitQuizAnswers, submitQuickMatchResult, and resolveChallengeOutcome CFs.
   @Deprecated(
@@ -1623,7 +1677,7 @@ class FirestoreService {
     );
   }
 
-  /// Global weekly board — UNFILTERED (all users, top 100).
+  /// Global weekly board �?UNFILTERED (all users, top 100).
   ///
   /// Admin-only in practice: under the `users` read rule only the payout
   /// admin can evaluate this query (any other caller gets permission-denied
@@ -1653,7 +1707,7 @@ class FirestoreService {
   /// Cohort board for normal players: only users who entered the SAME
   /// leaderboard week ([entryWeekId]).
   ///
-  /// Matches the `users` read rule exactly — every returned doc is one the
+  /// Matches the `users` read rule exactly �?every returned doc is one the
   /// caller may read, so the query never fails wholesale. For a current-week
   /// payer this IS the live paid board. Pass the viewer's own entry week; an
   /// empty week resolves to `[]` with no query at all (a non-entrant may read
@@ -1712,7 +1766,7 @@ class FirestoreService {
 
   // ─── Leaderboard entry eligibility (leaderboard_entry codes) ────────────────
 
-  /// Live stream of users/{uid}.leaderboardEntryWeekId — the week ID the user
+  /// Live stream of users/{uid}.leaderboardEntryWeekId �?the week ID the user
   /// has paid for. Compared against [currentWeekId] for current eligibility
   /// (Decision D: the field is intentionally left stale, not cleared, after
   /// each weekly reset).
@@ -1733,7 +1787,7 @@ class FirestoreService {
   //
   // It counted and fetched over ALL users with no cohort filter, so under the
   // current `users` read rule it permission-fails for everyone but the payout
-  // admin. It also had no call site — the leaderboard derives its rival from
+  // admin. It also had no call site �?the leaderboard derives its rival from
   // the cohort board it already has, which is both cheaper and guaranteed to
   // be a row the user can actually see and tap.
 
@@ -1774,7 +1828,7 @@ class FirestoreService {
   //
   // No call site. It downloaded 500 docs and ordered by `weeklyPoints` with no
   // cohort filter, so under the current `users` read rule it permission-fails
-  // for everyone but the payout admin — dead code that could only ever throw.
+  // for everyone but the payout admin �?dead code that could only ever throw.
 
   // ─── Prize Pool ──────────────────────────────────────────────────────────────
 
@@ -1786,7 +1840,7 @@ class FirestoreService {
         '${d.day.toString().padLeft(2, '0')}';
   }
 
-  /// The week id immediately before the current one — the last cycle that has
+  /// The week id immediately before the current one �?the last cycle that has
   /// been finalised by `runWeeklyReset` (subject to the admin having run it).
   static String previousWeekId() {
     final monday = PrizePoolService.weekStartUtc();
@@ -1800,7 +1854,7 @@ class FirestoreService {
   /// Carries the three inputs the weekly reset actually pools from:
   /// `entryCodeRevenue` (accrued by redeemCode), `adminPoolNaira` (optional
   /// admin override) and `status`. Feed these into
-  /// [PrizePoolService.projectPrizePool] rather than showing `totalNaira` —
+  /// [PrizePoolService.projectPrizePool] rather than showing `totalNaira` �?
   /// `totalNaira` is legacy ad revenue that the reset never reads, so it is
   /// NOT the number anyone is paid.
   ///
@@ -1859,7 +1913,7 @@ class FirestoreService {
   static double? _floorCache;
   static DateTime? _floorCacheTime;
 
-  /// `app_config/leaderboard_entry_config.guaranteedFloor` — the
+  /// `app_config/leaderboard_entry_config.guaranteedFloor` �?the
   /// developer-funded minimum weekly pool, set by `setLeaderboardFloor`.
   ///
   /// Readable by any authenticated client (firestore.rules). It is an
@@ -1971,9 +2025,9 @@ class FirestoreService {
         ..sort((a, b) => a.rank.compareTo(b.rank));
 
       // `totalNaira` is a legacy ad-revenue field that runWeeklyReset never
-      // writes, so it reads 0 — which left the announcement's "Prize pool"
+      // writes, so it reads 0 �?which left the announcement's "Prize pool"
       // badge effectively unreachable. The real pool is the sum of the winners'
-      // paid shares (the top-5 percentages sum to 1.0), so fall back to that.
+      // paid shares (the top-3 percentages sum to 1.0), so fall back to that.
       final shareSum = winners.fold<double>(0.0, (a, w) => a + w.prizeAmount);
       final total = legacyTotal > 0 ? legacyTotal : shareSum;
 
@@ -2011,7 +2065,7 @@ class FirestoreService {
   /// Changes the username through the `changeUsername` callable.
   ///
   /// The 7-day cooldown AND uniqueness are enforced server-side. The local
-  /// [canChangeUsername] check is UX only — it is no longer the gate, and a
+  /// [canChangeUsername] check is UX only �?it is no longer the gate, and a
   /// direct REST/client write to `username` is denied by the rules.
   /// Throws an [Exception] with the server message on rejection.
   Future<void> updateUsername(String newUsername) async {
@@ -2034,7 +2088,7 @@ class FirestoreService {
       try {
         await _auth.currentUser?.updateDisplayName(applied);
       } catch (_) {
-        // Cosmetic only — the Firestore field is authoritative.
+        // Cosmetic only �?the Firestore field is authoritative.
       }
     } on FirebaseFunctionsException catch (e) {
       throw Exception(e.message ?? 'Could not change username.');
@@ -2054,13 +2108,7 @@ class FirestoreService {
   CollectionReference<Map<String, dynamic>> get _challenges =>
       _db.collection('challenges');
 
-  String _generateChallengeCode() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rand = Random();
-    return List.generate(6, (_) => chars[rand.nextInt(chars.length)]).join();
-  }
-
-  /// ⚠️ DO NOT USE — BYPASSES ALL CLOUD FUNCTIONS VALIDATION
+  /// ⚠️ DO NOT USE �?BYPASSES ALL CLOUD FUNCTIONS VALIDATION
   ///
   /// This method is DEAD CODE and only exists for backwards compatibility.
   /// It does NOT:
@@ -2071,7 +2119,7 @@ class FirestoreService {
   ///
   /// All challenge creation MUST go through Cloud Functions instead.
   /// This method will throw [Exception] to prevent accidental misuse.
-  @Deprecated('Use Cloud Functions instead — never call this directly')
+  @Deprecated('Use Cloud Functions instead �?never call this directly')
   Future<ChallengeCreationResult> createChallenge({
     required String animeTitle,
     required int stakeAmount,
@@ -2098,7 +2146,7 @@ class FirestoreService {
     return snap.exists ? ChallengeModel.fromDoc(snap) : null;
   }
 
-  /// ⚠️ DO NOT USE — BYPASSES ALL CLOUD FUNCTIONS VALIDATION
+  /// ⚠️ DO NOT USE �?BYPASSES ALL CLOUD FUNCTIONS VALIDATION
   ///
   /// This method is DEAD CODE and only exists for backwards compatibility.
   /// It does NOT:
@@ -2110,7 +2158,7 @@ class FirestoreService {
   ///
   /// All challenge joins MUST go through Cloud Functions instead.
   /// This method will throw [Exception] to prevent accidental misuse.
-  @Deprecated('Use Cloud Functions instead — never call this directly')
+  @Deprecated('Use Cloud Functions instead �?never call this directly')
   Future<void> joinChallenge(String challengeId) async {
     throw Exception(
       'joinChallenge() is DEAD CODE and bypasses all CF validation. '
@@ -2195,7 +2243,7 @@ class FirestoreService {
       return {'wins': 0, 'losses': 0, 'draws': 0};
     }
     // firestore.rules: matches subcollection read requires
-    // request.auth.uid == userId — so we can ONLY query the current
+    // request.auth.uid == userId �?so we can ONLY query the current
     // user's own users/{uid}/matches. Outcomes are stored from the
     // current user's perspective: 'win' = they won, 'lose' = they lost.
     final snap = await _userDoc
@@ -2223,16 +2271,16 @@ class FirestoreService {
   // ─── Rivalries ──────────────────────────────────────────────────────────────
   //
   // The rivalry overhaul organises multiplayer around PEOPLE, not modes:
-  //   • rivalry docs (rivalries/{sortedUidPair}) hold best-of-5 series state,
+  //   �?rivalry docs (rivalries/{sortedUidPair}) hold best-of-5 series state,
   //     maintained server-side in _resolveChallengeCore (ranked duels only).
-  //   • recentRivals() derives the "Your Rivalries" list from match history
-  //     (one query, grouped client-side — no N+1 head-to-head reads).
-  //   • Spars are created through the same createChallenge callable with
+  //   �?recentRivals() derives the "Your Rivalries" list from match history
+  //     (one query, grouped client-side �?no N+1 head-to-head reads).
+  //   �?Spars are created through the same createChallenge callable with
   //     challengeType 'spar' and zero stakes.
 
   /// Stable doc id for the rivalry between two users (order-independent).
   /// Mirrors the server's `${aUid}_${bUid}` construction in
-  /// _resolveChallengeCore — change both together.
+  /// _resolveChallengeCore �?change both together.
   static String rivalryDocId(String uid1, String uid2) {
     final pair = [uid1.trim(), uid2.trim()]..sort();
     return '${pair[0]}_${pair[1]}';
@@ -2251,7 +2299,7 @@ class FirestoreService {
   }
 
   /// Creates a friendly spar (zero stakes) vs a named rival. Returns the
-  /// server payload `{ challengeId, questionIds }` — the caller takes the
+  /// server payload `{ challengeId, questionIds }` �?the caller takes the
   /// creator straight into the quiz page, exactly like the stake screen
   /// does for staked duels.
   ///
@@ -2271,6 +2319,7 @@ class FirestoreService {
       'opponentUid': opponentUid,
       'opponentUsername': opponentUsername,
       'challengeType': 'spar',
+      'deviceId': await DeviceIdService.instance.value(),
       ...AppUpdateService.instance.clientBuildStamp,
     });
     return Map<String, dynamic>.from(res.data as Map);
@@ -2291,7 +2340,7 @@ class FirestoreService {
 
   /// One scanned window of the match history, grouped into named rivals.
   ///
-  /// [hasMore] is true only when the scan FILLED [window] — i.e. the history
+  /// [hasMore] is true only when the scan FILLED [window] �?i.e. the history
   /// may hold further matches. The grouped rival count cannot answer that
   /// question, because repeat matches against one rival collapse into a single
   /// entry while the raw match count stays at the limit; only the raw count can.
@@ -2351,7 +2400,7 @@ class FirestoreService {
   /// Applies the same two rules `createChallenge` does: the rolling
   /// `rivalCooldowns` map (with the legacy single-pair fallback), and no
   /// cooldown inside an active series that already has games. The server stays
-  /// authoritative — a stale read here only mis-times a label, never a stake.
+  /// authoritative �?a stale read here only mis-times a label, never a stake.
   Future<int> rivalDuelCooldownHours(
     String rivalUid, {
     required bool premium,
@@ -2458,23 +2507,6 @@ class FirestoreService {
     return out;
   }
 
-  Future<List<String>> _pickRandomQuestionIds(
-    String animeTitle,
-    int count,
-  ) async {
-    final snap = await _db
-        .collection('questions')
-        .where('animeTitle', isEqualTo: animeTitle)
-        .get(const GetOptions(source: Source.server));
-
-    if (snap.docs.isEmpty) {
-      throw Exception('No questions found for "$animeTitle".');
-    }
-
-    final docs = List.of(snap.docs)..shuffle(Random());
-    return docs.take(count).map((d) => d.id).toList();
-  }
-
   // ─── Leaderboard Payout Claim (client contract) ────────────────────────────
   //
   // Payouts are MANUAL: the app never moves money. The player submits bank
@@ -2494,7 +2526,7 @@ class FirestoreService {
   /// code for the admin to transfer to.
   ///
   /// Throws [FirebaseFunctionsException] when the callable is missing or
-  /// Flutterwave is unavailable — the caller shows an error/retry state and
+  /// Flutterwave is unavailable �?the caller shows an error/retry state and
   /// must NOT fall back to a hardcoded catalogue or free-form code entry.
   Future<List<NigerianBank>> listNigerianBanks() async {
     final now = DateTime.now();
@@ -2527,7 +2559,7 @@ class FirestoreService {
 
   /// Submits the winner's bank details for [weekId] via the
   /// `submitPayoutDetails` callable. The admin later transfers to this
-  /// account by hand — no automated verification or payment happens.
+  /// account by hand �?no automated verification or payment happens.
   ///
   /// Returns [PayoutClaimResult] on success (including idempotent
   /// `'already_submitted'`). Throws [PayoutClaimException] for server
@@ -2541,6 +2573,7 @@ class FirestoreService {
   }) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('submitPayoutDetails');
+    final integrity = await PlayIntegrityService.instance.tokenFields('payout');
     try {
       final res = await callable.call({
         'weekId': weekId,
@@ -2551,6 +2584,7 @@ class FirestoreService {
         // so a walled build cannot overwrite a destination account the admin
         // is about to pay. Web clients report platform 'web' and are exempt.
         ...AppUpdateService.instance.clientBuildStamp,
+        ...integrity,
       });
       final data = Map<String, dynamic>.from(res.data as Map);
       return PayoutClaimResult(
@@ -2677,9 +2711,35 @@ class FirestoreService {
     }
   }
 
+  /// The signed-in player's own website purchases, newest first.
+  ///
+  /// Unlike [getMyWinnerCycles] this THROWS on failure, because the screen must
+  /// be able to say "couldn't load" instead of "you bought nothing" �?an empty
+  /// list on a network blip would be a lie about someone's money. The callable
+  /// is self-only; the uid never leaves the token.
+  Future<List<PurchaseEntry>> getMyPurchases() async {
+    if (_uid == null) return [];
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('getMyPurchases')
+          .call<Map<String, dynamic>>(<String, dynamic>{
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+      final raw = res.data['purchases'];
+      if (raw is! List) return [];
+      return raw
+          .whereType<Map>()
+          .map((e) => PurchaseEntry.fromMap(Map<String, dynamic>.from(e)))
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('[FirestoreService] getMyPurchases error: $e');
+      rethrow;
+    }
+  }
+
   /// Live stream of the current user's reusable `payoutDetails` (owner-read
-  /// only — writes are CF-only now). After a payout completes, the server
-  /// purges sensitive fields, leaving only `accountMask` — the UI must
+  /// only �?writes are CF-only now). After a payout completes, the server
+  /// purges sensitive fields, leaving only `accountMask` �?the UI must
   /// therefore render masked values and never expect full details here.
   Stream<List<Map<String, dynamic>>> payoutDetailsStream() {
     if (_uid == null) return Stream.value([]);
@@ -2695,7 +2755,7 @@ class FirestoreService {
   /// Updates one reusable payout-detail doc through the `savePayoutDetail`
   /// callable. The server validates the payload and appends a before/after
   /// entry to `payoutDetailAudit` in the same transaction. The UI must still
-  /// gate this on lock state ([WinnerClaimSummary.isLocked]) — the server
+  /// gate this on lock state ([WinnerClaimSummary.isLocked]) �?the server
   /// independently rejects destination changes once a claim is approved.
   Future<void> updatePayoutDetail(
     String docId, {
@@ -2706,6 +2766,7 @@ class FirestoreService {
     if (_uid == null) return;
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('savePayoutDetail');
+    final integrity = await PlayIntegrityService.instance.tokenFields('payout');
     try {
       await callable.call<void>({
         'docId': docId,
@@ -2713,6 +2774,7 @@ class FirestoreService {
         'bankCode': bankCode,
         'beneficiaryName': beneficiaryName,
         ...AppUpdateService.instance.clientBuildStamp,
+        ...integrity,
       });
     } on FirebaseFunctionsException catch (e) {
       throw PayoutClaimException(
@@ -2765,7 +2827,11 @@ class FirestoreService {
       if (uid != null) 'uid': uid,
     }));
     final data = Map<String, dynamic>.from(res.data as Map);
-    return (data['status'] as String?) ?? 'pending';
+    final status = (data['status'] as String?) ?? 'pending';
+    // Sending back to someone who already asked makes the pair active, so the
+    // cached board is stale from this moment �?same as accept.
+    if (status == 'active') FriendsBoardFetch.invalidateFriendsBoardCache();
+    return status;
   }
 
   Future<void> respondFriendRequest({
@@ -2816,6 +2882,23 @@ class FirestoreService {
     return [for (final d in snap.docs) FriendLink.fromMap(d.id, d.data())];
   }
 
+  /// The caller's own link to [otherUid], if any: 'friend' / 'outgoing' /
+  /// 'incoming' / 'blocked'. One owner-direct doc read (the rules allow reading
+  /// your own friendLinks), so a page can show the right relationship state
+  /// without loading the whole list. Null means "no relationship" �?including
+  /// when the read fails, which only ever costs an affordance, never a write.
+  Future<String?> getFriendLinkStatus(String otherUid) async {
+    if (_uid == null || otherUid.isEmpty) return null;
+    try {
+      final snap = await _userDoc.collection('friendLinks').doc(otherUid).get();
+      if (!snap.exists) return null;
+      return (snap.data()?['status'] as String?)?.trim();
+    } catch (e) {
+      debugPrint('[FirestoreService] getFriendLinkStatus error: $e');
+      return null;
+    }
+  }
+
   /// Preset nudge ("Your turn!" ping, server-templated text, no free text).
   /// Pass [challengeId] when known (challenge cards); omit it and the server
   /// nudges the pair's latest their-turn duel (Friends rows).
@@ -2844,7 +2927,7 @@ class FirestoreService {
 
 /// Sanitized friend row returned by the getFriendsBoard callable.
 ///
-/// weeklyPoints is null when the friend has no entry for the current week —
+/// weeklyPoints is null when the friend has no entry for the current week �?
 /// the tab renders "-" and sorts those rows last (same convention as the
 /// Global tab's unranked rows).
 class FriendBoardEntry {

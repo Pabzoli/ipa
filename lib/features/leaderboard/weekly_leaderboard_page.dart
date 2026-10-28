@@ -9,6 +9,7 @@ import '../../core/services/firestore_service.dart';
 import '../../core/services/prize_pool_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_page_route.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/weekly_points_pill.dart';
 import '../admin/admin_payout_service.dart';
 import '../auth/auth_service.dart';
@@ -390,14 +391,7 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
               padding: EdgeInsets.fromLTRB(canPop ? 8.r : 20.r, 10.r, 20.r, 0),
               child: Row(
                 children: [
-                  if (canPop)
-                    IconButton(
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                      color: AppColors.textPrimary,
-                      iconSize: 20.r,
-                      tooltip: 'Back',
-                    ),
+                  if (canPop) const AppBackButton(),
                   Expanded(
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -454,7 +448,7 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
                     friendsFuture: _friendsFuture,
                     onReload: _reloadFriends,
                     onAddFriend: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const AddFriendPage()),
+                      AppPageRoute(builder: (_) => const AddFriendPage()),
                     ),
                   ),
                 ],
@@ -554,7 +548,7 @@ class _RankingTabs extends StatelessWidget {
         splashFactory: NoSplash.splashFactory,
         overlayColor: WidgetStateProperty.all(Colors.transparent),
         indicator: BoxDecoration(
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           borderRadius: BorderRadius.circular(11.r),
         ),
         tabs: const [
@@ -673,7 +667,7 @@ class _GlobalLeaderboardTab extends StatelessWidget {
     // refreshes on open and on a stale resume. A failure is recoverable here
     // too, so the error state's Retry is a convenience, not the only path.
     return RefreshIndicator(
-      color: AppColors.primary,
+      color: AppColors.readable(AppColors.primary),
       backgroundColor: AppColors.surface,
       onRefresh: onRetry,
       child: CustomScrollView(
@@ -791,7 +785,7 @@ class _GlobalLeaderboardTab extends StatelessWidget {
                   child: LeaderboardSectionHeader(
                     icon: Icons.format_list_numbered_rounded,
                     title: 'Leaderboard',
-                    color: AppColors.primary,
+                    color: AppColors.readable(AppColors.primary),
                   ),
                 ),
               ),

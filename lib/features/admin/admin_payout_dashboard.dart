@@ -24,8 +24,11 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_page_route.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import 'admin_payout_service.dart';
+import 'admin_referral_cashouts_page.dart';
 
 /// Formats whole/kobo naira with thousands separators, e.g. ₦12,500.
 /// Amounts always come from the server — this only renders them.
@@ -357,6 +360,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
         backgroundColor: AppColors.surfaceDim,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
+        leading: const AppBackButton(),
         title: Text(
           'Payout admin',
           style: TextStyle(
@@ -366,6 +370,17 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
           ),
         ),
         actions: [
+          // Always available (even if the cycle list failed): the referral
+          // cashout queue is independent of weekly leaderboard cycles.
+          IconButton(
+            tooltip: 'Referral cashouts (separate budget)',
+            onPressed: () => Navigator.of(context).push(
+              AppPageRoute(
+                builder: (_) => const AdminReferralCashoutsPage(),
+              ),
+            ),
+            icon: const Icon(Icons.savings_outlined),
+          ),
           if (_state == _LoadState.ready)
             IconButton(
               tooltip: 'Refresh',
@@ -374,8 +389,8 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
                   ? SizedBox(
                       width: 18.r,
                       height: 18.r,
-                      child: const CircularProgressIndicator(
-                        color: AppColors.primary,
+                      child: CircularProgressIndicator(
+                        color: AppColors.readable(AppColors.primary),
                         strokeWidth: 2,
                       ),
                     )
@@ -389,8 +404,8 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
                   ? SizedBox(
                       width: 18.r,
                       height: 18.r,
-                      child: const CircularProgressIndicator(
-                        color: AppColors.primary,
+                      child: CircularProgressIndicator(
+                        color: AppColors.readable(AppColors.primary),
                         strokeWidth: 2,
                       ),
                     )
@@ -404,8 +419,8 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
                   ? SizedBox(
                       width: 18.r,
                       height: 18.r,
-                      child: const CircularProgressIndicator(
-                        color: AppColors.primary,
+                      child: CircularProgressIndicator(
+                        color: AppColors.readable(AppColors.primary),
                         strokeWidth: 2,
                       ),
                     )
@@ -439,7 +454,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
     }
     final visible = _visibleClaims(cycle);
     return RefreshIndicator(
-      color: AppColors.primary,
+      color: AppColors.readable(AppColors.primary),
       onRefresh: _refresh,
       child: ListView(
         padding: EdgeInsets.fromLTRB(20.r, 8.r, 20.r, 32.r),
@@ -598,7 +613,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
               'Set pool',
-              style: TextStyle(color: AppColors.primary),
+              style: TextStyle(color: AppColors.readable(AppColors.primary)),
             ),
           ),
         ],
@@ -643,7 +658,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
               'Revert',
-              style: TextStyle(color: AppColors.wrong),
+              style: TextStyle(color: AppColors.readable(AppColors.wrong)),
             ),
           ),
         ],
@@ -676,8 +691,8 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           child: SizedBox(
             width: 18.r,
             height: 18.r,
-            child: const CircularProgressIndicator(
-              color: AppColors.primary,
+            child: CircularProgressIndicator(
+              color: AppColors.readable(AppColors.primary),
               strokeWidth: 2,
             ),
           ),
@@ -769,7 +784,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           Text(
             formatNaira(pool.effectivePool),
             style: TextStyle(
-              color: AppColors.correct,
+              color: AppColors.readable(AppColors.correct),
               fontSize: 26.sp,
               fontWeight: FontWeight.w900,
               letterSpacing: -0.5,
@@ -866,11 +881,11 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
                     EdgeInsets.symmetric(horizontal: 12.r, vertical: 12.r),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(11.r),
-                  borderSide: const BorderSide(color: AppColors.divider),
+                  borderSide: BorderSide(color: AppColors.divider),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(11.r),
-                  borderSide: const BorderSide(color: AppColors.divider),
+                  borderSide: BorderSide(color: AppColors.divider),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(11.r),
@@ -973,7 +988,7 @@ class _CycleSelector extends StatelessWidget {
                       child: Text(
                         '${c.pendingCount}',
                         style: TextStyle(
-                          color: AppColors.accent,
+                          color: AppColors.readable(AppColors.accent),
                           fontSize: 11.sp,
                           fontWeight: FontWeight.w900,
                         ),
@@ -1027,7 +1042,7 @@ class _CycleSummaryCard extends StatelessWidget {
           Text(
             'Prize pool ${formatNaira(cycle.prizePool)}',
             style: TextStyle(
-              color: AppColors.correct,
+              color: AppColors.readable(AppColors.correct),
               fontSize: 20.sp,
               fontWeight: FontWeight.w900,
               letterSpacing: -0.3,
@@ -1122,7 +1137,7 @@ class _StatGrid extends StatelessWidget {
                   TextSpan(text: '${s.$1} '),
                   TextSpan(
                     text: s.$2,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w900,
                     ),
@@ -1251,7 +1266,7 @@ class _ClaimCard extends StatelessWidget {
                   child: Text(
                     '#${claim.rank}',
                     style: TextStyle(
-                      color: AppColors.gold,
+                      color: AppColors.readable(AppColors.gold),
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w900,
                     ),
@@ -1286,7 +1301,7 @@ class _ClaimCard extends StatelessWidget {
                 Text(
                   formatNaira(claim.share),
                   style: TextStyle(
-                    color: AppColors.correct,
+                    color: AppColors.readable(AppColors.correct),
                     fontSize: 15.sp,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1325,7 +1340,7 @@ class _ClaimCard extends StatelessWidget {
                 icon: Icons.check_circle_outline_rounded,
                 text: 'Sent ${_formatTime(claim.markedAt)}'
                     '${(claim.payoutReference ?? '').isEmpty ? '' : ' · ref ${claim.payoutReference}'}',
-                color: AppColors.correct,
+                color: AppColors.readable(AppColors.correct),
               ),
             ],
             // ── Fraud advisory (display-only, never gates marking paid)
@@ -1351,7 +1366,7 @@ class _ClaimCard extends StatelessWidget {
             ],
             if (state == AdminQueueState.expired) ...[
               SizedBox(height: 4.h),
-              const _ClaimLine(
+              _ClaimLine(
                 icon: Icons.timer_off_outlined,
                 text:
                     'Claim window closed — this prize was forfeited. Nothing to send.',
@@ -1553,7 +1568,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
           '${formatNaira(widget.claim.share)} to ${widget.claim.beneficiaryName} '
           'at ${widget.bankDisplay}.\n\n'
           'This app cannot send or verify the money — it only records that you '
-          'did. Marking it paid also stops the prize from expiring.',
+          'did. Marking paid is blocked once the 3-day claim window closes.',
           style: TextStyle(
             color: AppColors.textSecondary,
             fontSize: 12.sp,
@@ -1569,7 +1584,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
               'Yes, I sent it',
-              style: TextStyle(color: AppColors.correct),
+              style: TextStyle(color: AppColors.readable(AppColors.correct)),
             ),
           ),
         ],
@@ -1653,7 +1668,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
               'Undo',
-              style: TextStyle(color: AppColors.wrong),
+              style: TextStyle(color: AppColors.readable(AppColors.wrong)),
             ),
           ),
         ],
@@ -1729,7 +1744,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(Icons.info_outline_rounded,
-                      color: AppColors.accent, size: 18.r),
+                      color: AppColors.readable(AppColors.accent), size: 18.r),
                   SizedBox(width: 9.w),
                   Expanded(
                     child: Text(
@@ -1853,7 +1868,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             onPressed: _busy ? null : _confirmRevert,
             child: Text(
               'Undo',
-              style: TextStyle(color: AppColors.wrong),
+              style: TextStyle(color: AppColors.readable(AppColors.wrong)),
             ),
           ),
         TextButton(
@@ -1955,7 +1970,7 @@ class _DeniedView extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Icon(Icons.lock_outline_rounded,
-                  color: AppColors.wrong, size: 30.r),
+                  color: AppColors.readable(AppColors.wrong), size: 30.r),
             ),
             SizedBox(height: 16.h),
             Text(
@@ -2084,7 +2099,7 @@ class AdminPayoutEntry extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(20.r, 10.r, 20.r, 0.r),
           child: GestureDetector(
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
+              AppPageRoute(
                 builder: (_) => const AdminPayoutDashboard(),
               ),
             ),
@@ -2110,7 +2125,7 @@ class AdminPayoutEntry extends StatelessWidget {
                     alignment: Alignment.center,
                     child: Icon(
                       Icons.admin_panel_settings_outlined,
-                      color: AppColors.wrong,
+                      color: AppColors.readable(AppColors.wrong),
                       size: 20.r,
                     ),
                   ),
@@ -2138,7 +2153,7 @@ class AdminPayoutEntry extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
                     color: AppColors.textMuted,
                   ),

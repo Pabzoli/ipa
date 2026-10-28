@@ -17,6 +17,7 @@ import '../../core/services/firestore_service.dart';
 import '../../core/services/share_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/weekly_points_pill.dart';
 import 'friend_messages.dart';
@@ -209,10 +210,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: const AppBackButton(),
         title: Text('Add friend', style: AppTypography.heading3),
         actions: [
           Padding(
@@ -222,7 +220,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
         ],
       ),
       body: RefreshIndicator(
-        color: AppColors.primary,
+        color: AppColors.readable(AppColors.primary),
         backgroundColor: AppColors.surface,
         onRefresh: _reload,
         child: ListView(
@@ -267,7 +265,7 @@ class _AddFriendPageState extends State<AddFriendPage> {
     return AppCard(
       tier: AppCardTier.elevated,
       padding: EdgeInsets.all(AppSpacing.lg),
-      gradient: const LinearGradient(
+      gradient: LinearGradient(
         colors: AppColors.cardGradient,
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
@@ -279,10 +277,10 @@ class _AddFriendPageState extends State<AddFriendPage> {
           if (snap.connectionState != ConnectionState.done) {
             return SizedBox(
               height: 72.r,
-              child: const Center(
+              child: Center(
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                 ),
               ),
             );

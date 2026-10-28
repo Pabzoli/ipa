@@ -167,9 +167,13 @@ describe('money', () => {
     assert.equal(b.A.wp, 515, `4th spar same day pays 0, got ${b.A.wp}`);
     const pair = await H.getDoc(db, 'friendships/A_B');
     assert.equal(pair.sparWinsCount, 3);
-    // Next WAT day: reset by backdating the counter, resolve again -> pays.
+    // Next WAT day: reset by backdating BOTH counters (the friendship spar
+    // counter and the general pair reward cap), resolve again -> pays.
     await db.collection('friendships').doc('A_B').update({
       sparWinsDate: H.watDaysAgo(1),
+    });
+    await db.collection('challengePairs').doc('A_B').update({
+      dayId: H.watDaysAgo(1),
     });
     await playSpar();
     b = await balances('A', 'B');
@@ -215,26 +219,55 @@ describe('money', () => {
     assert.ok(!(aDoc2.ownedCosmetics || []).includes('frame_rivalry'));
   });
 
-  it('spend retry is Premium-only; premium users pay 40 AC and clear the lineup locks', async () => {
+  it('spend retry is Premium-only; 80 AC for new clients, 40 AC legacy still accepted', async () => {
+    const titles = ['testanime', 'naruto'];
     // Free user: rejected before any coins move.
     await H.rejectsWith(
       fns.spendCoins.run(H.req('A', {
-        amount: 40, type: 'spend_retry', titles: ['testanime'],
+        amount: 80, type: 'spend_retry', titles,
       })),
       'permission-denied', 'premium_required');
     assert.equal((await H.getDoc(db, 'users/A')).animeCoins, 1000);
 
-    // Premium user: 40 AC leaves the balance and the cooldown doc is deleted.
     await db.collection('users').doc('A').update({ premiumActive: true });
-    await db.collection('users').doc('A').collection('cooldowns').doc('testanime').set({
-      expiresAt: FakeTimestamp.fromMillis(Date.now() + 60 * 60 * 1000),
-    });
+    const lockLineup = async () => {
+      for (const t of titles) {
+        await db.collection('users').doc('A').collection('cooldowns').doc(t).set({
+          expiresAt: FakeTimestamp.fromMillis(Date.now() + 60 * 60 * 1000),
+        });
+      }
+    };
+
+    // Legacy build (field app): still shows/sends 40 — accepted, and it mints
+    // the replay run session so the retry quiz can still be submitted.
+    await lockLineup();
+    const legacy = await fns.spendCoins.run(H.req('A', {
+      amount: 40, type: 'spend_retry', titles,
+    }));
+    assert.equal(legacy.success, true);
+    assert.equal(legacy.newBalance, 960);
+    assert.ok(legacy.sessionId, 'legacy retry also mints a session');
+    assert.equal(await H.getDoc(db, 'users/A/cooldowns/testanime'), null);
+    assert.equal((await H.getDoc(db, 'users/A')).soloSession.id, legacy.sessionId);
+
+    // New build: 80 AC, locks cleared, session minted and stamped.
+    await lockLineup();
     const res = await fns.spendCoins.run(H.req('A', {
-      amount: 40, type: 'spend_retry', titles: ['testanime'],
+      amount: 80, type: 'spend_retry', titles,
     }));
     assert.equal(res.success, true);
-    assert.equal(res.newBalance, 960);
-    assert.equal(await H.getDoc(db, 'users/A/cooldowns/testanime'), null);
+    assert.equal(res.newBalance, 880);
+    assert.ok(res.sessionId, 'retry mints the replay run session');
+    assert.equal(await H.getDoc(db, 'users/A/cooldowns/naruto'), null);
+    assert.equal((await H.getDoc(db, 'users/A')).soloSession.id, res.sessionId);
+
+    // Anything else (e.g. a patched 50) is rejected before any coins move.
+    await H.rejectsWith(
+      fns.spendCoins.run(H.req('A', {
+        amount: 50, type: 'spend_retry', titles,
+      })),
+      'invalid-argument', 'incorrect_retry_cost');
+    assert.equal((await H.getDoc(db, 'users/A')).animeCoins, 880);
   });
 
   it('other spend types are unaffected for free users (hint still 10 AC)', async () => {

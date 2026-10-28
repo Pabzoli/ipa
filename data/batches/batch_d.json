@@ -1,0 +1,4322 @@
+[
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Re:Zero?",
+    "options": [
+      "Subaru Natsuki",
+      "Kazuma Satou",
+      "Kirito",
+      "Denji"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "What is Subaru Natsuki's iconic ability in Re:Zero?",
+    "options": [
+      "Respawn Point",
+      "Return by Death",
+      "Time Leap Magic",
+      "Check Point Spell"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which silver-haired half-elf is the heroine of Re:Zero?",
+    "options": [
+      "Rem",
+      "Ram",
+      "Emilia",
+      "Beatrice"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which blue-haired oni maid serves at the Roswaal mansion?",
+    "options": [
+      "Ram",
+      "Emilia",
+      "Petra",
+      "Rem"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which pink-haired oni maid is Rem's sister?",
+    "options": [
+      "Ram",
+      "Rem",
+      "Emilia",
+      "Frederica"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which cat-like spirit is contracted to Emilia?",
+    "options": [
+      "Beatrice",
+      "Puck",
+      "Meili",
+      "Roswaal"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "In which kingdom does most of Re:Zero take place?",
+    "options": [
+      "Alvarez",
+      "Eldia",
+      "Lugunica",
+      "Paradis"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who owns the mansion where Subaru works as a butler?",
+    "options": [
+      "Otto Suwen",
+      "Wilhelm van Astrea",
+      "Russell Fellow",
+      "Roswaal L Mathers"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who guards the forbidden library in the Roswaal mansion?",
+    "options": [
+      "Beatrice",
+      "Echidna",
+      "Satella",
+      "Meili"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "What world was Subaru summoned from?",
+    "options": [
+      "Aincrad",
+      "Modern Japan",
+      "Falmart",
+      "Narnia"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "What weapon does Rem famously wield in battle?",
+    "options": [
+      "A katana",
+      "A longbow",
+      "A morningstar flail",
+      "A battle axe"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who is known as the Bowel Hunter in Re:Zero?",
+    "options": [
+      "Meili Portroute",
+      "Capella Emerada",
+      "Sirius",
+      "Elsa Granhiert"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which merchant befriends Subaru and drives a dragon cart?",
+    "options": [
+      "Otto Suwen",
+      "Garfiel Tinsel",
+      "Petra Leyte",
+      "Kiritaka Muse"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which green-haired tiger-fanged youth guards the Sanctuary?",
+    "options": [
+      "Otto Suwen",
+      "Garfiel Tinsel",
+      "Reinhard van Astrea",
+      "Wilhelm van Astrea"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which young maid with orange hair admires Subaru?",
+    "options": [
+      "Meili Portroute",
+      "Frederica Baumann",
+      "Petra Leyte",
+      "Liliana Masquerade"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who is the red-haired Sword Saint and knight of Felt?",
+    "options": [
+      "Julius Juukulius",
+      "Wilhelm van Astrea",
+      "Marcos Gildark",
+      "Reinhard van Astrea"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which blonde thief becomes a royal selection candidate?",
+    "options": [
+      "Felt",
+      "Elsa Granhiert",
+      "Meili Portroute",
+      "Petra Leyte"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which royal candidate has dark green hair and a military uniform?",
+    "options": [
+      "Priscilla Barielle",
+      "Crusch Karsten",
+      "Anastasia Hoshin",
+      "Emilia"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which royal candidate is the wealthy merchant leader of Hoshin?",
+    "options": [
+      "Crusch Karsten",
+      "Felt",
+      "Anastasia Hoshin",
+      "Theodore Taylor"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which royal candidate is called the Bloody Bride with red hair?",
+    "options": [
+      "Emilia",
+      "Crusch Karsten",
+      "Anastasia Hoshin",
+      "Priscilla Barielle"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which cat-person knight serves Crusch as a healer?",
+    "options": [
+      "Felix Argyle",
+      "Julius Juukulius",
+      "Reinhard van Astrea",
+      "Garfiel Tinsel"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which elegant knight serves Anastasia Hoshin?",
+    "options": [
+      "Reinhard van Astrea",
+      "Julius Juukulius",
+      "Wilhelm van Astrea",
+      "Heinkel Astrea"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who is the old swordsman known as the Sword Demon?",
+    "options": [
+      "Reinhard van Astrea",
+      "Heinkel Astrea",
+      "Wilhelm van Astrea",
+      "Marcos Gildark"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who is the Witch of Envy that resembles Emilia?",
+    "options": [
+      "Echidna",
+      "Minerva",
+      "Sekhmet",
+      "Satella"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Who is the Witch of Greed who hosts the tea party?",
+    "options": [
+      "Echidna",
+      "Satella",
+      "Typhon",
+      "Daphne"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "What happens to Subaru when he dies?",
+    "options": [
+      "He stays dead forever",
+      "He revives at an unseen checkpoint",
+      "He travels to Japan",
+      "He swaps bodies with Emilia"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Where does Subaru first meet Emilia in Lugunica?",
+    "options": [
+      "In the Roswaal library",
+      "In the Sanctuary",
+      "In the loot house after saving her from thieves",
+      "In the Vollachia Empire"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which white fox-like spirit accompanies Subaru later?",
+    "options": [
+      "Zaros",
+      "Frufoo",
+      "Patrasche",
+      "Puck"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "Which ground dragon does Subaru ride named Patrasche?",
+    "options": [
+      "A black ground dragon",
+      "A white flying dragon",
+      "A red fire dragon",
+      "A blue water dragon"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "easy",
+    "question": "What color are Emilia's eyes?",
+    "options": [
+      "Blue",
+      "Purple",
+      "Green",
+      "Red"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which trial location hides the Sanctuary barrier village?",
+    "options": [
+      "The Sanctuary of Kremaldy",
+      "The Flugel Tree",
+      "The Pleiades Tower",
+      "The Mimi Mansion"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which beast of the White Whale erases people from memory?",
+    "options": [
+      "The Great Rabbit",
+      "The White Whale",
+      "The Black Serpent",
+      "The Wolgarm"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which multiplying demon beast swarm devours everything?",
+    "options": [
+      "The White Whale",
+      "The Black Serpent",
+      "The Great Rabbit",
+      "The Ulgarms"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Who leads the Witch Cult as the Archbishop of Sloth?",
+    "options": [
+      "Regulus Corneas",
+      "Lye Batenkaitos",
+      "Sirius Romanee-Conti",
+      "Petelgeuse Romanee-Conti"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What darkness magic does Subaru learn from Beatrice?",
+    "options": [
+      "Shamak",
+      "El Jiwald",
+      "Ul Dona",
+      "Al Huma"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which sin archbishop can stop time with Lion's Heart?",
+    "options": [
+      "Petelgeuse of Sloth",
+      "Regulus Corneas of Greed",
+      "Lye of Gluttony",
+      "Sirius of Wrath"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which archbishop pair shares the name of Gluttony?",
+    "options": [
+      "Petelgeuse and Sirius",
+      "Regulus and Capella",
+      "Lye Batenkaitos and Roy Alphard",
+      "Strange and Casual"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which archbishop of Wrath uses emotion-sharing chains?",
+    "options": [
+      "Capella Emerada",
+      "Petelgeuse Romanee-Conti",
+      "Regulus Corneas",
+      "Sirius Romanee-Conti"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which archbishop of Lust can transform flesh at will?",
+    "options": [
+      "Capella Emerada",
+      "Sirius Romanee-Conti",
+      "Echidna",
+      "Daphne"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What magic does Roswaal specialize in using?",
+    "options": [
+      "Water magic",
+      "Fire magic",
+      "Earth magic",
+      "Wind magic"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which knightly order does Reinhard belong to?",
+    "options": [
+      "The Iron Fang",
+      "The White Dragon Knights",
+      "The Royal Knights of Lugunica",
+      "The Vollachia Army"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What is Garfiel's beast form?",
+    "options": [
+      "A giant lion",
+      "A giant wolf",
+      "A giant bear",
+      "A giant tiger"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What shabby merchant company does Otto once work for?",
+    "options": [
+      "The Suwen company",
+      "The Muse company",
+      "The Karsten company",
+      "The Hoshin company"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What is Otto's divine protection ability?",
+    "options": [
+      "Sword Saint blessing",
+      "Soul of Words to speak with animals",
+      "Clairvoyance",
+      "Fire avoidance"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What is Ram's remaining power after losing her horn?",
+    "options": [
+      "Full oni strength",
+      "Return by Death",
+      "Clairvoyance with mana drain",
+      "Spirit arts"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which village do Rem and Ram come from?",
+    "options": [
+      "The elf village",
+      "The human village",
+      "The dwarf village",
+      "The oni village"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Who is Rem's and Ram's horned demon race called?",
+    "options": [
+      "Oni",
+      "Elves",
+      "Mabeasts",
+      "Dragons"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Vollachian emperor abducts Rem in later arcs?",
+    "options": [
+      "Gusteko King",
+      "Abel of Vollachia",
+      "Kararagi Chief",
+      "Lugunica King"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What is the Pleiades Watchtower trial about?",
+    "options": [
+      "The dragon stone",
+      "The witch tomb",
+      "The stars and the Sage Shaula",
+      "The manor loop"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Who guards the Pleiades Watchtower as the Sage?",
+    "options": [
+      "Echidna",
+      "Beatrice",
+      "Satella",
+      "Shaula"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Witch of Gluttony created demon beasts?",
+    "options": [
+      "Daphne",
+      "Echidna",
+      "Minerva",
+      "Carmilla"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Witch of Wrath heals people by punching them?",
+    "options": [
+      "Echidna",
+      "Minerva",
+      "Typhon",
+      "Carmilla"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Witch of Pride judges the guilty?",
+    "options": [
+      "Minerva",
+      "Carmilla",
+      "Typhon",
+      "Sekhmet"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Witch of Lust charms with beauty?",
+    "options": [
+      "Echidna",
+      "Daphne",
+      "Sekhmet",
+      "Carmilla"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Witch of Sloth is always drowsy?",
+    "options": [
+      "Sekhmet",
+      "Minerva",
+      "Typhon",
+      "Carmilla"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which Witch of Envy is sealed away from the world?",
+    "options": [
+      "Echidna",
+      "Satella",
+      "Minerva",
+      "Sekhmet"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "What are Subaru's shadow hands called?",
+    "options": [
+      "Invisible Blades",
+      "Dark Claws",
+      "Unseen Hands",
+      "Witch Arms"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which mansion maid has long blonde hair and fangs?",
+    "options": [
+      "Petra Leyte",
+      "Ram",
+      "Meili Portroute",
+      "Frederica Baumann"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which child assassin controls demon beasts with a whistle?",
+    "options": [
+      "Meili Portroute",
+      "Elsa Granhiert",
+      "Petra Leyte",
+      "Liliana Masquerade"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "medium",
+    "question": "Which songstress cheers armies with her lute?",
+    "options": [
+      "Meili Portroute",
+      "Liliana Masquerade",
+      "Petra Leyte",
+      "Frederica Baumann"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Japanese voice actor voices Subaru Natsuki?",
+    "options": [
+      "Yusuke Kobayashi",
+      "Yoshitsugu Matsuoka",
+      "Yuki Kaji",
+      "Hiro Shimono"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Sin Archbishop embodies Sloth with Unseen Hands?",
+    "options": [
+      "Lye Batenkaitos",
+      "Petelgeuse Romanee-Conti",
+      "Roy Alphard",
+      "Capella Emerada"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Sin Archbishop embodies Greed with invincible stillness?",
+    "options": [
+      "Petelgeuse Romanee-Conti",
+      "Sirius Romanee-Conti",
+      "Regulus Corneas",
+      "Strides Vollachia"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Sin Archbishop embodies Wrath through soul resonance?",
+    "options": [
+      "Capella Emerada",
+      "Lye Batenkaitos",
+      "Roy Alphard",
+      "Sirius Romanee-Conti"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Sin Archbishop embodies Lust with dragon transformation?",
+    "options": [
+      "Capella Emerada",
+      "Sirius Romanee-Conti",
+      "Regulus Corneas",
+      "Petelgeuse Romanee-Conti"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Gluttony brother eats names starting with Lye?",
+    "options": [
+      "Roy Alphard",
+      "Lye Batenkaitos",
+      "Louis Arneb",
+      "Louise Arneb"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Gluttony brother eats memories starting with Roy?",
+    "options": [
+      "Lye Batenkaitos",
+      "Louis Arneb",
+      "Roy Alphard",
+      "Petelgeuse Romanee-Conti"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Who is the third Gluttony sibling sealed in the tower?",
+    "options": [
+      "Meili Portroute",
+      "Shaula",
+      "Beatrice",
+      "Louis Arneb"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What is the Witch of Envy's true name?",
+    "options": [
+      "Satella",
+      "Echidna",
+      "Minerva",
+      "Sekhmet"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What is the fake name Echidna gives in the tea party?",
+    "options": [
+      "Alpha",
+      "Omega",
+      "Beta",
+      "Gamma"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What cursed scent clings to Subaru that mabeasts hate?",
+    "options": [
+      "The Dragon's scent",
+      "The Spirit's scent",
+      "The Witch's scent",
+      "The Sword Saint's scent"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What dragon protects Lugunica by covenant?",
+    "options": [
+      "Mezoreia the Cloud Dragon",
+      "Valgren the Mist Dragon",
+      "Fafnir the Earth Dragon",
+      "Volcanica the Divine Dragon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Who was the first Sword Saint who sealed Satella?",
+    "options": [
+      "Reid Astrea",
+      "Wilhelm van Astrea",
+      "Reinhard van Astrea",
+      "Heinkel Astrea"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What sword can only Sword Saints draw?",
+    "options": [
+      "The Yang Sword Vollachia",
+      "The Dragon Sword Reid",
+      "The Yin Sword",
+      "The Holy Sword Excalibur"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Who cloned himself into the Roswaal mansion line?",
+    "options": [
+      "Wilhelm van Astrea",
+      "Julius Juukulius",
+      "Roswaal L Mathers by soul transfer",
+      "Marcos Gildark"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What forbidden books does Beatrice protect in the library?",
+    "options": [
+      "The Royal Decrees",
+      "The Dragon Tablets",
+      "The Witch Gospels",
+      "The Tomes of the Dead"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Vollachian general is called the Blue Lightning?",
+    "options": [
+      "Cecilus Segmunt",
+      "Arakiya",
+      "Yorna Mishigure",
+      "Gusteko General"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Vollachian spirit eater wields hungry wind?",
+    "options": [
+      "Cecilus Segmunt",
+      "Arakiya",
+      "Yorna Mishigure",
+      "Todd Fang"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which Vollachian soul-marriage bride commands swords?",
+    "options": [
+      "Arakiya",
+      "Priscilla Barielle",
+      "Yorna Mishigure the Soul Marriage",
+      "Abel"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What is Subaru's dragon mount Patrasche formally?",
+    "options": [
+      "A white sky dragon",
+      "A red flame dragon",
+      "A blue sea dragon",
+      "A black earth dragon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which divine dragon guards the Pleiades Watchtower?",
+    "options": [
+      "Volcanica",
+      "Mezoreia",
+      "Valgren",
+      "Fafnir"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Who founded Kararagi as Hoshin of the Wilderness?",
+    "options": [
+      "Abel of Vollachia",
+      "Hoshin of the Wilderness",
+      "Farsale Lugunica",
+      "Echidna"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What royal contest gathers five candidates for the throne?",
+    "options": [
+      "The Witch Trial",
+      "The Dragon Hunt",
+      "The Royal Selection",
+      "The Knight Tournament"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What authority lets Gluttony steal names and memories?",
+    "options": [
+      "Lion's Heart",
+      "Unseen Hands",
+      "Soul Resonance",
+      "Eclipse of sun and moon"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What authority freezes Regulus and his wives in time?",
+    "options": [
+      "Lion's Heart Stillness of an Object's Time",
+      "Cor Leonis",
+      "E M M",
+      "Nect"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What authority shares pain across Sirius followers?",
+    "options": [
+      "Gluttony Eclipse",
+      "Soul Marriage resonance",
+      "Greed Stillness",
+      "Sloth Hands"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "What does Capella call her blood that transforms victims?",
+    "options": [
+      "Witch blood",
+      "Demon blood",
+      "Dragon's blood",
+      "Oni blood"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which trial witch embodies Sloth with eternal sleep?",
+    "options": [
+      "Daphne of Gluttony",
+      "Carmilla of Lust",
+      "Typhon of Pride",
+      "Sekhmet of Sloth"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which trial witch embodies Gluttony in a coffin of beasts?",
+    "options": [
+      "Daphne of Gluttony",
+      "Minerva of Wrath",
+      "Sekhmet of Sloth",
+      "Echidna of Greed"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "re zero",
+    "difficulty": "hard",
+    "question": "Which trial witch embodies Pride as a child judge?",
+    "options": [
+      "Minerva of Wrath",
+      "Typhon of Pride",
+      "Carmilla of Lust",
+      "Sekhmet of Sloth"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Sword Art Online?",
+    "options": [
+      "Kirito",
+      "Eugeo",
+      "Klein",
+      "Agil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What is Kirito's real name?",
+    "options": [
+      "Eugeo de Rulid",
+      "Kazuto Kirigaya",
+      "Jin Kusakabe",
+      "Shino Asada"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who is the heroine with orange-brown hair and a rapier?",
+    "options": [
+      "Sinon Asada",
+      "Leafa Suguha",
+      "Asuna Yuuki",
+      "Alice Zuberg"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What is Asuna's famous guild title in Aincrad?",
+    "options": [
+      "Black Swordsman",
+      "Beater",
+      "Red Knight",
+      "Flash"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What iconic skill lets Kirito wield two swords at once?",
+    "options": [
+      "Dual Blades",
+      "Star Burst",
+      "Night Sky Sword",
+      "Phantom Blade"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What color outfit does Kirito famously wear?",
+    "options": [
+      "White",
+      "Black",
+      "Red",
+      "Blue"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who created Sword Art Online and NerveGear?",
+    "options": [
+      "Seijirou Kikuoka",
+      "Nobuyuki Sugou",
+      "Akihiko Kayaba",
+      "Quinella"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What device traps players in Sword Art Online?",
+    "options": [
+      "AmuSphere",
+      "Augma",
+      "Soul Translator",
+      "NerveGear"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What game is the first death-game arc set in?",
+    "options": [
+      "Sword Art Online in Aincrad",
+      "Gun Gale Online",
+      "ALfheim Online",
+      "Underworld"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who is Kirito's younger sister figure in real life?",
+    "options": [
+      "Shino Asada",
+      "Suguha Kirigaya",
+      "Alice Zuberg",
+      "Yui"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which small girl AI becomes Kirito and Asuna's daughter?",
+    "options": [
+      "Strea",
+      "Premiere",
+      "Yui",
+      "Sachi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which kind merchant-axe warrior befriends Kirito early?",
+    "options": [
+      "Klein",
+      "Silica",
+      "Lisbeth",
+      "Agil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which red-haired katana beginner befriends Kirito?",
+    "options": [
+      "Klein",
+      "Agil",
+      "Eugeo",
+      "Vassago"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which beast-tamer girl owns the dragon Pina?",
+    "options": [
+      "Lisbeth",
+      "Silica",
+      "Sinon",
+      "Alice"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which pink-haired blacksmith forges Kirito's sword?",
+    "options": [
+      "Silica",
+      "Sinon",
+      "Lisbeth",
+      "Sachi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What weapon does Asuna mainly use?",
+    "options": [
+      "A katana",
+      "A sniper rifle",
+      "A dagger",
+      "A rapier"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What are Kirito's two famous black swords?",
+    "options": [
+      "Elucidator and Dark Repulser",
+      "Excalibur and Caliburn",
+      "Lambent Light and Ebon Dagger",
+      "Night Sky and Blue Rose"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which guild does Asuna join in Aincrad?",
+    "options": [
+      "Moonlit Black Cats",
+      "Knights of the Blood",
+      "Laughing Coffin",
+      "Fuurinkazan"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which red murder guild hunts players in Aincrad?",
+    "options": [
+      "Knights of the Blood",
+      "Divine Dragon Alliance",
+      "Laughing Coffin",
+      "Aincrad Liberation Force"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which doomed guild did Kirito briefly help?",
+    "options": [
+      "Laughing Coffin",
+      "Knights of the Blood",
+      "Sleeping Knights",
+      "Moonlit Black Cats"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who is the blue-haired sniper heroine of Gun Gale?",
+    "options": [
+      "Sinon Asada",
+      "Leafa Suguha",
+      "Alice Zuberg",
+      "Yuna Shigemura"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What is Sinon's real name?",
+    "options": [
+      "Suguha Kirigaya",
+      "Shino Asada",
+      "Alice Zuberg",
+      "Yuna Shigemura"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which fairy avatar does Suguha use in ALfheim?",
+    "options": [
+      "Sinon the Cait Sith",
+      "Yui the Pixie",
+      "Leafa the Sylph",
+      "Asuna the Undine"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which golden-haired knight maiden appears in Alicization?",
+    "options": [
+      "Sinon Asada",
+      "Leafa Suguha",
+      "Sachi",
+      "Alice Zuberg"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who is Kirito's best friend in the Underworld?",
+    "options": [
+      "Eugeo",
+      "Vassago",
+      "Bercouli",
+      "Renly"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What floating castle is Aincrad?",
+    "options": [
+      "A 50-floor dungeon",
+      "A 100-floor floating steel castle",
+      "A desert fortress",
+      "An ocean temple"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What happens if a player's HP reaches zero in SAO?",
+    "options": [
+      "They respawn at town",
+      "They lose gold only",
+      "They die in real life",
+      "They change servers"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "What nickname do beta testers get in Aincrad?",
+    "options": [
+      "Cheater",
+      "Pker",
+      "Clearer",
+      "Beater"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Who leads the Knights of the Blood as a commander?",
+    "options": [
+      "Heathcliff",
+      "Diavel",
+      "Kibaou",
+      "Lind"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "easy",
+    "question": "Which fairy race avatar does Kirito use in ALfheim?",
+    "options": [
+      "Sylph",
+      "Spriggan",
+      "Undine",
+      "Cait Sith"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which Aincrad arc boss is the Kobold Lord?",
+    "options": [
+      "Illfang the Kobold Lord",
+      "Baran the General Taurus",
+      "Nerius the Evil Treant",
+      "Golem of the Shrine"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which VRMMO arc features fairy races and flight?",
+    "options": [
+      "Gun Gale Online",
+      "ALfheim Online",
+      "Underworld",
+      "Ordinal Scale"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which VRMMO arc features guns and Bullet of Bullets?",
+    "options": [
+      "ALfheim Online",
+      "Sword Art Online",
+      "Gun Gale Online",
+      "Underworld"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which virtual world arc is ruled by Quinella?",
+    "options": [
+      "Aincrad",
+      "ALfheim",
+      "Gun Gale",
+      "Underworld in Alicization"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What sword skill finisher uses sixteen rapid hits?",
+    "options": [
+      "Starburst Stream",
+      "Eclipse",
+      "Vorpal Strike",
+      "Sonic Leap"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What is the name of Asuna's shining rapier?",
+    "options": [
+      "Elucidator",
+      "Lambent Light",
+      "Dark Repulser",
+      "Blue Rose"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Who traps Asuna in a cage in ALfheim?",
+    "options": [
+      "Akihiko Kayaba as Heathcliff",
+      "Shouzou Yuuki",
+      "Nobuyuki Sugou as Oberon",
+      "Seijirou Kikuoka"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Who is Death Gun in Gun Gale Online?",
+    "options": [
+      "Akihiko Kayaba",
+      "Nobuyuki Sugou",
+      "Quinella",
+      "A Laughing Coffin survivor trio"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What rifle does Sinon famously wield?",
+    "options": [
+      "PGM Ultima Ratio Hecate II",
+      "M24 Sniper",
+      "AK-47",
+      "Desert Eagle"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What sword does Eugeo wield made of ice?",
+    "options": [
+      "Night Sky Sword",
+      "Blue Rose Sword",
+      "Demonic Tree Sword",
+      "Time Piercing Sword"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What sword does Kirito wield made of darkness?",
+    "options": [
+      "Blue Rose Sword",
+      "Fragrant Olive Sword",
+      "Night Sky Sword",
+      "Conflagrant Sword"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Who is the highest minister pontifex of the Axiom Church?",
+    "options": [
+      "Cardinal",
+      "Bercouli Synthesis One",
+      "Chudelkin",
+      "Quinella the Administrator"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Who is the little sage who aids Kirito in the library?",
+    "options": [
+      "Cardinal",
+      "Quinella",
+      "Chudelkin",
+      "Bercouli"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which Integrity Knight leads with the Time Piercing Sword?",
+    "options": [
+      "Alice Synthesis Thirty",
+      "Bercouli Synthesis One",
+      "Eldrie Synthesis Thirty-one",
+      "Deusolbert Synthesis Seven"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which Integrity Knight wields the Fragrant Olive Sword?",
+    "options": [
+      "Bercouli Synthesis One",
+      "Eldrie Synthesis Thirty-one",
+      "Alice Synthesis Thirty",
+      "Fanatio Synthesis Two"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What device dives users into the Underworld?",
+    "options": [
+      "NerveGear",
+      "AmuSphere",
+      "Augma",
+      "Soul Translator"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What secret project creates the Underworld?",
+    "options": [
+      "Project Alicization",
+      "Project SAO",
+      "Project ALO",
+      "Project Ordinal"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What artificial souls populate the Underworld?",
+    "options": [
+      "Seed Nexus",
+      "Fluctlights",
+      "Cardinal Shards",
+      "AmuSpheres"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "What world seed program revives VRMMOs after Aincrad?",
+    "options": [
+      "The Seed of Yggdrasil",
+      "The Cardinal Seed",
+      "The World Seed",
+      "The Fluctlight Seed"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which shopkeeper sells goods and helps clearers?",
+    "options": [
+      "Klein",
+      "Silica",
+      "Lisbeth",
+      "Agil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which dagger-like boss guards the 75th floor?",
+    "options": [
+      "The Skull Reaper",
+      "The Gleam Eyes",
+      "The Fatal Scythe",
+      "The Kobold Lord"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which demon-eyed boss guards the 74th floor?",
+    "options": [
+      "The Skull Reaper",
+      "The Gleam Eyes",
+      "Illfang",
+      "Baran"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which tournament crowns the best gunner in GGO?",
+    "options": [
+      "Battle of Bullets",
+      "Gun Gale Trial",
+      "Bullet of Bullets",
+      "Phantom Clash"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which villain steals Excalibur in the Calibur arc?",
+    "options": [
+      "Loki the Trickster",
+      "Surt the Fire Giant",
+      "Urd the Norn",
+      "Thrym the Frost Giant"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which lake dungeon hides Excalibur in ALO?",
+    "options": [
+      "Jotunheimr",
+      "Salamander Gate",
+      "Sylph Hollow",
+      "Undine Lake"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which idol singer performs in Ordinal Scale?",
+    "options": [
+      "Seven Chirino",
+      "Yuna Shigemura",
+      "Strea",
+      "Premiere"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which device overlays AR rankings in Ordinal Scale?",
+    "options": [
+      "NerveGear",
+      "AmuSphere",
+      "Augma",
+      "Soul Translator"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which officer recruits Kirito for the Underworld mission?",
+    "options": [
+      "Akihiko Kayaba",
+      "Nobuyuki Sugou",
+      "Andrew Mills",
+      "Seijirou Kikuoka"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which elite guild clears floors in Alicization?",
+    "options": [
+      "Integrity Knights",
+      "Knights of the Blood",
+      "Laughing Coffin",
+      "Sleeping Knights"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "medium",
+    "question": "Which American invader poses as Dark God Vecta?",
+    "options": [
+      "Vassago Casals",
+      "Gabriel Miller as Subtilizer",
+      "Critter",
+      "Brigg"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which Japanese voice actor voices Kirito?",
+    "options": [
+      "Yoshitsugu Matsuoka",
+      "Yusuke Kobayashi",
+      "Yuki Kaji",
+      "Nobunaga Shimazaki"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which floor boss is Illfang the Kobold Lord?",
+    "options": [
+      "Floor 10",
+      "Floor 1",
+      "Floor 25",
+      "Floor 50"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which floor boss is the Gleam Eyes demon?",
+    "options": [
+      "Floor 25",
+      "Floor 50",
+      "Floor 74",
+      "Floor 100"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which floor boss is the Skull Reaper centipede?",
+    "options": [
+      "Floor 1",
+      "Floor 22",
+      "Floor 56",
+      "Floor 75"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is Heathcliff's true identity?",
+    "options": [
+      "Akihiko Kayaba",
+      "Nobuyuki Sugou",
+      "Seijirou Kikuoka",
+      "Gabriel Miller"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What unique skill does Heathcliff use as a shield?",
+    "options": [
+      "Dual Blades",
+      "Holy Sword",
+      "Darkness Blade",
+      "Battoujutsu"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What unique skill is only Kirito given for speed?",
+    "options": [
+      "Holy Sword",
+      "Divine Blade",
+      "Dual Blades",
+      "Shadow Clone"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What great tree forms Kirito's Night Sky Sword?",
+    "options": [
+      "Blue Rose",
+      "Demonic Tree",
+      "Adamantite",
+      "Gigas Cedar"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What element is sealed in Eugeo's Blue Rose Sword?",
+    "options": [
+      "Ice",
+      "Fire",
+      "Wind",
+      "Darkness"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which academy trains Kirito and Eugeo as swordsmen?",
+    "options": [
+      "The Knights Academy",
+      "The Swordcraft Academy",
+      "The Church School",
+      "The Farm School"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is the highest law forbidding crime in Underworld?",
+    "options": [
+      "The Sacred Law",
+      "The Axiom Code",
+      "The Taboo Index",
+      "The Fluctlight Rule"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Who enforces the Taboo Index as pontifex?",
+    "options": [
+      "Cardinal",
+      "Bercouli",
+      "Chudelkin",
+      "Quinella the Administrator"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Who is the bearded clown-like senator serving Quinella?",
+    "options": [
+      "Chudelkin",
+      "Bercouli",
+      "Eldrie",
+      "Deusolbert"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which Integrity Knight wields whips as Synthesis Two?",
+    "options": [
+      "Alice Synthesis Thirty",
+      "Fanatio Synthesis Two",
+      "Bercouli Synthesis One",
+      "Eldrie Synthesis Thirty-one"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which Integrity Knight rides a dragon as Thirty-one?",
+    "options": [
+      "Alice Synthesis Thirty",
+      "Fanatio Synthesis Two",
+      "Eldrie Synthesis Thirty-one",
+      "Deusolbert Synthesis Seven"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which American invader becomes the Dark God Vecta?",
+    "options": [
+      "Vassago Casals as PoH",
+      "Critter",
+      "Brigg",
+      "Gabriel Miller as Subtilizer"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which Laughing Coffin leader returns as PoH?",
+    "options": [
+      "Vassago Casals",
+      "Johnny Black",
+      "Red-Eyed XaXa",
+      "Rosalia"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What willpower bends reality in the Underworld?",
+    "options": [
+      "Sword Skill",
+      "Incarnation",
+      "Sacred Art",
+      "Taboo Index"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What element bursts from Eugeo's Blue Rose Sword?",
+    "options": [
+      "Fire",
+      "Lightning",
+      "Ice",
+      "Darkness"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which village raises Alice and Eugeo?",
+    "options": [
+      "Zakkaria",
+      "Centaoria",
+      "Jotunheimr",
+      "Rulid Village"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is Silica's feathered dragon named?",
+    "options": [
+      "Pina",
+      "Amayori",
+      "Tonky",
+      "Tsukigake"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What race is Sinon's GGO avatar known for?",
+    "options": [
+      "Sylph",
+      "Cait Sith",
+      "Undine",
+      "Salamander"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is Leafa's ALfheim race?",
+    "options": [
+      "Cait Sith",
+      "Undine",
+      "Sylph",
+      "Imp"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is Asuna's ALfheim race?",
+    "options": [
+      "Sylph",
+      "Cait Sith",
+      "Salamander",
+      "Undine"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which guild does Yuuki Konno lead?",
+    "options": [
+      "Sleeping Knights",
+      "Knights of the Blood",
+      "Fuurinkazan",
+      "Divine Dragon Alliance"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Who leads the Sleeping Knights with an illness?",
+    "options": [
+      "Siune",
+      "Yuuki Konno as Absolute Sword",
+      "Tecchi",
+      "Talken"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What sword style does Yuuki use with eleven hits?",
+    "options": [
+      "Starburst Stream",
+      "Eclipse",
+      "Mother's Rosario",
+      "Vorpal Strike"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "Which fairy king imprisons Asuna in ALO?",
+    "options": [
+      "Heathcliff played by Kayaba",
+      "Thrym played by Thrym",
+      "Vecta played by Gabriel",
+      "Oberon played by Sugou"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is Agil's real name?",
+    "options": [
+      "Andrew Gilbert Mills",
+      "Kazuto Kirigaya",
+      "Shino Asada",
+      "Suguha Kirigaya"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "sword art online",
+    "difficulty": "hard",
+    "question": "What is Kirito's second black sword beside Elucidator?",
+    "options": [
+      "Lambent Light",
+      "Dark Repulser",
+      "Blue Rose",
+      "Night Sky"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Chainsaw Man?",
+    "options": [
+      "Denji",
+      "Aki Hayakawa",
+      "Power",
+      "Kishibe"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which orange chainsaw devil fuses with Denji?",
+    "options": [
+      "Meowy",
+      "Pochita",
+      "Beam",
+      "Galgali"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What does Denji become when he pulls his cord?",
+    "options": [
+      "Gun Devil",
+      "Bomb Devil",
+      "Chainsaw Man",
+      "Katana Man"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which Blood Fiend loves cats and violence?",
+    "options": [
+      "Makima",
+      "Himeno",
+      "Kobeni",
+      "Power"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which calm devil hunter partners with Denji and Power?",
+    "options": [
+      "Aki Hayakawa",
+      "Kishibe",
+      "Beam",
+      "Violence Fiend"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which controlling woman leads Division 4?",
+    "options": [
+      "Himeno",
+      "Makima",
+      "Kobeni",
+      "Quanxi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which eyepatch mentor trains Denji and Power?",
+    "options": [
+      "Himeno",
+      "Kobeni",
+      "Kishibe",
+      "Aki Hayakawa"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which timid rookie cries but survives deadly missions?",
+    "options": [
+      "Himeno",
+      "Power",
+      "Makima",
+      "Kobeni Higashiyama"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which one-eyed mentor loves drinking and smoking?",
+    "options": [
+      "Himeno",
+      "Makima",
+      "Kobeni",
+      "Quanxi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What devil does Aki contract with for a fox head?",
+    "options": [
+      "Future Devil",
+      "Fox Devil",
+      "Curse Devil",
+      "Shark Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which shark fiend can swim and transform?",
+    "options": [
+      "Galgali",
+      "Power",
+      "Beam",
+      "Violence Fiend"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which violence fiend wears a plague mask?",
+    "options": [
+      "Beam",
+      "Power",
+      "Aki Hayakawa",
+      "Galgali"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which cat does Power adore above all?",
+    "options": [
+      "Meowy",
+      "Nyako",
+      "Pochita",
+      "Makima"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What job does Denji do to pay yakuza debt?",
+    "options": [
+      "Pizza delivery",
+      "Devil hunting",
+      "Fishing",
+      "Teaching"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What does Pochita eat to erase devils?",
+    "options": [
+      "Humans",
+      "Guns",
+      "Devils themselves",
+      "Bread"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which devil embodies fear of firearms?",
+    "options": [
+      "Bomb Devil",
+      "Katana Devil",
+      "Darkness Devil",
+      "Gun Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which hybrid becomes the Bomb Devil?",
+    "options": [
+      "Reze",
+      "Quanxi",
+      "Katana Man",
+      "Denji"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which hybrid has a katana head and swords?",
+    "options": [
+      "Reze",
+      "Katana Man",
+      "Denji",
+      "Quanxi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which crossbow-bow hybrid hunts globally?",
+    "options": [
+      "Reze",
+      "Katana Man",
+      "Quanxi",
+      "Denji"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which devil hunter uses a ghost arm?",
+    "options": [
+      "Kobeni",
+      "Power",
+      "Makima",
+      "Himeno"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What does Denji crave most at the start?",
+    "options": [
+      "A normal life with food and a girl",
+      "World domination",
+      "Infinite money",
+      "Becoming God"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What cord starts Denji's chainsaw transformation?",
+    "options": [
+      "A belt buckle",
+      "The starter cord on his chest",
+      "A headphone wire",
+      "A shoe lace"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Where do chainsaws emerge on Chainsaw Man?",
+    "options": [
+      "Back and tail",
+      "Chest only",
+      "Head arms and legs",
+      "Hands only"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What does Power claim to be afraid of?",
+    "options": [
+      "Cats",
+      "Blood",
+      "Denji",
+      "Nothing but keeps fearing darkness"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which devil hunter captain drinks heavily named Kishibe?",
+    "options": [
+      "The strongest human hunter",
+      "The weakest rookie",
+      "The gun fiend",
+      "The bomb hybrid"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which food does Denji dream of with jam?",
+    "options": [
+      "Ramen",
+      "Bread with jam",
+      "Sushi",
+      "Steak"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which Public Safety division houses Denji?",
+    "options": [
+      "Division 1",
+      "Division 2",
+      "Special Division 4",
+      "Division 3"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which fiend is the Angel Devil with wings?",
+    "options": [
+      "Shark Fiend",
+      "Violence Fiend",
+      "Spider Devil",
+      "Angel Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "Which spider devil serves as a maid-like hunter?",
+    "options": [
+      "Prinz the Spider Devil",
+      "Beam",
+      "Galgali",
+      "Power"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "easy",
+    "question": "What does Denji drink to recover after battles?",
+    "options": [
+      "Orange juice",
+      "Blood to heal chainsaws",
+      "Coffee",
+      "Beer"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which arc introduces Katana Man's revenge raid?",
+    "options": [
+      "Katana vs Chainsaw arc",
+      "Bomb Girl arc",
+      "Gun Devil arc",
+      "Assassins arc"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which arc introduces Reze the Bomb Girl?",
+    "options": [
+      "Katana arc",
+      "Bomb Girl arc",
+      "Assassins arc",
+      "Gun Devil arc"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil sees seconds into the future for Aki?",
+    "options": [
+      "Curse Devil",
+      "Fox Devil",
+      "Future Devil",
+      "Hell Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil curses foes with nail and sword stabs?",
+    "options": [
+      "Future Devil",
+      "Fox Devil",
+      "Stone Devil",
+      "Curse Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil drags victims to Hell with faces?",
+    "options": [
+      "Hell Devil",
+      "Darkness Devil",
+      "Falling Devil",
+      "Gun Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil embodies primordial cosmic fear in Hell?",
+    "options": [
+      "Falling Devil",
+      "Darkness Devil",
+      "Aging Devil",
+      "Death Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil drops victims from the sky in Part 2?",
+    "options": [
+      "Darkness Devil",
+      "Justice Devil",
+      "Falling Devil",
+      "War Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil possesses Asa Mitaka as war?",
+    "options": [
+      "Justice Devil",
+      "Falling Devil",
+      "Death Devil",
+      "War Devil Yoru"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Who becomes the host of the War Devil?",
+    "options": [
+      "Asa Mitaka",
+      "Nayuta",
+      "Fumiko Mifune",
+      "Haruka Iseumi"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which devil hunter school club hunts devils?",
+    "options": [
+      "Occult Club",
+      "Devil Hunter Club",
+      "Kendo Club",
+      "Cooking Club"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which justice-like devil empowers school students?",
+    "options": [
+      "War Devil",
+      "Falling Devil",
+      "Justice Devil",
+      "Cockroach Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which tomato-like devil attacks in school?",
+    "options": [
+      "Cucumber Devil",
+      "Carrot Devil",
+      "Potato Devil",
+      "Tomato Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which cockroach devil charges in alley battles?",
+    "options": [
+      "Cockroach Devil",
+      "Tomato Devil",
+      "Bat Devil",
+      "Leech Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which bat devil abducts Power's cat?",
+    "options": [
+      "Leech Devil",
+      "Bat Devil",
+      "Cockroach Devil",
+      "Fox Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which leech devil partners with the Bat Devil?",
+    "options": [
+      "Bat Devil",
+      "Fox Devil",
+      "Leech Devil",
+      "Ghost Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which ghost devil fights with hands and fear?",
+    "options": [
+      "Snake Devil",
+      "Zombie Devil",
+      "Eternity Devil",
+      "Ghost Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which snake devil serves Akane Sawatari?",
+    "options": [
+      "Snake Devil",
+      "Ghost Devil",
+      "Zombie Devil",
+      "Fox Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which zombie devil turns humans in the school?",
+    "options": [
+      "Ghost Devil",
+      "Zombie Devil",
+      "Snake Devil",
+      "Eternity Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which infinity devil traps hunters in a hotel?",
+    "options": [
+      "Hell Devil",
+      "Darkness Devil",
+      "Eternity Devil",
+      "Falling Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which stone devil petrifies with gaze?",
+    "options": [
+      "Ghost Devil",
+      "Snake Devil",
+      "Curse Devil",
+      "Stone Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which shark fiend does Denji ride like a surfboard?",
+    "options": [
+      "Beam",
+      "Galgali",
+      "Power",
+      "Violence Fiend"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which aging devil rules a timeless world?",
+    "options": [
+      "Death Devil",
+      "Aging Devil",
+      "Falling Devil",
+      "Darkness Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which death devil sister looms in Part 2?",
+    "options": [
+      "War Devil",
+      "Famine Devil",
+      "Death Devil",
+      "Falling Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which famine devil rides as Fami?",
+    "options": [
+      "War Devil Yoru",
+      "Death Devil",
+      "Justice Devil",
+      "Famine Devil Fami"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which octopus devil hides as Yoshida?",
+    "options": [
+      "Octopus Devil",
+      "Shark Devil",
+      "Fox Devil",
+      "Future Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which timid hunter survives the hotel trapped by infinity?",
+    "options": [
+      "Himeno",
+      "Kobeni Higashiyama",
+      "Power",
+      "Makima"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which flamethrower hybrid joins the hybrids?",
+    "options": [
+      "Katana Man",
+      "Reze",
+      "Barem the Flamethrower",
+      "Quanxi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which spear hybrid fights for the Church?",
+    "options": [
+      "Sword Hybrid",
+      "Whip Hybrid",
+      "Flamethrower",
+      "Spear Hybrid"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which whip hybrid appears in the Church war?",
+    "options": [
+      "Whip Hybrid",
+      "Spear Hybrid",
+      "Sword Hybrid",
+      "Needle Hybrid"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "medium",
+    "question": "Which claw-like devil girl guards Nayuta?",
+    "options": [
+      "Asa Mitaka",
+      "Nayuta the Control Devil",
+      "Fumiko Mifune",
+      "Yoru"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What is Pochita's true devil identity?",
+    "options": [
+      "Chainsaw Devil the Hero of Hell",
+      "Gun Devil",
+      "Darkness Devil",
+      "War Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What erasure power does Pochita have when eaten?",
+    "options": [
+      "Eaten devils respawn stronger",
+      "Eaten devils are forgotten from existence",
+      "Eaten devils join Denji",
+      "Eaten devils become fiends"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Who is revealed as the Control Devil?",
+    "options": [
+      "Power",
+      "Nayuta",
+      "Makima",
+      "Fami"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Who is Makima's reincarnation as a child?",
+    "options": [
+      "Asa Mitaka",
+      "Fumiko Mifune",
+      "Meowy",
+      "Nayuta"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which Four Horseman is Makima one of?",
+    "options": [
+      "Control Devil",
+      "War Devil",
+      "Famine Devil",
+      "Death Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which Four Horseman is Yoru possessing Asa?",
+    "options": [
+      "Control Devil",
+      "War Devil",
+      "Famine Devil",
+      "Death Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which Four Horsemen sister is feared as the eldest?",
+    "options": [
+      "War Devil",
+      "Control Devil",
+      "Death Devil",
+      "Famine Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which devil does Himeno sacrifice to the Ghost Devil?",
+    "options": [
+      "Fox Devil",
+      "Curse Devil",
+      "Snake Devil",
+      "Ghost Devil by offering herself"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What deal shortens Aki's life with the Future Devil?",
+    "options": [
+      "Let me in your right eye",
+      "Give me your arm",
+      "Give me your nails",
+      "Give me your voice"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What sword stabs shorten life for the Curse Devil?",
+    "options": [
+      "One fox bite",
+      "Three nail stabs",
+      "Two ghost hands",
+      "Four shark bites"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Who kills Aki possessed as the Gun Fiend?",
+    "options": [
+      "Power",
+      "Makima",
+      "Denji as Chainsaw Man",
+      "Kishibe"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What must Denji drink to restore his blood?",
+    "options": [
+      "Water",
+      "Soda",
+      "Milk",
+      "Blood"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Who commands the Hybrids against Chainsaw Man?",
+    "options": [
+      "Makima",
+      "Kishibe",
+      "Quanxi",
+      "Denji"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which assassin duo wields spear and whip?",
+    "options": [
+      "Denji and Power",
+      "The Hybrids under Makima",
+      "Aki and Angel",
+      "Kishibe and Quanxi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which hunter can transform nails into devils?",
+    "options": [
+      "Reze with bombs",
+      "Katana Man with swords",
+      "Quanxi with arrows",
+      "Denji with chainsaws"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What is Quanxi's devil bow weapon form?",
+    "options": [
+      "Bombs from pins",
+      "Flames from tanks",
+      "Chainsaws from cords",
+      "Arrows and swords from eyepatch"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which devil embodies falling in Part 2?",
+    "options": [
+      "Falling Devil the horseman servant",
+      "Darkness Devil",
+      "Aging Devil",
+      "Justice Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which primal devil lives past the Hell door?",
+    "options": [
+      "Falling Devil",
+      "Darkness Devil",
+      "Aging Devil",
+      "Gun Devil"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which devil ages victims into trees?",
+    "options": [
+      "Falling Devil",
+      "Darkness Devil",
+      "Aging Devil in the Aging world",
+      "Death Devil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which church worships Chainsaw Man as a god?",
+    "options": [
+      "Gun Devil Church",
+      "War Devil Church",
+      "Control Church",
+      "Chainsaw Man Church"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Who leads the Chainsaw Man Church militarily?",
+    "options": [
+      "Haruka Iseumi as fake Chainsaw",
+      "Asa Mitaka",
+      "Fumiko Mifune",
+      "Nayuta"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which hunter guards Denji as a bodyguard?",
+    "options": [
+      "Kobeni Higashiyama",
+      "Fumiko Mifune",
+      "Himeno",
+      "Quanxi"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which fake chainsaw pretends to be Denji?",
+    "options": [
+      "Barem",
+      "Quanxi",
+      "Haruka Iseumi",
+      "Kishibe"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which flamethrower hybrid burns the church?",
+    "options": [
+      "Katana Man",
+      "Reze",
+      "Spear Hybrid",
+      "Barem Bridge"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which devil kills Himeno at Akane's command?",
+    "options": [
+      "Snake Devil",
+      "Ghost Devil",
+      "Fox Devil",
+      "Future Devil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "What can Yoru turn into weapons?",
+    "options": [
+      "Things she sees",
+      "Things she owns",
+      "Things she fears",
+      "Things she eats"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which katana ally is called the Sword Man?",
+    "options": [
+      "Katana Man",
+      "Denji",
+      "Miri Sugo the Sword Hybrid",
+      "Quanxi"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which devil grants Quanxi living arrows?",
+    "options": [
+      "Gun Devil",
+      "Bomb Devil",
+      "Sword Devil",
+      "Crossbow Devil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which public safety chief orders the Hell dive?",
+    "options": [
+      "Makima ordering Hell Devil",
+      "Kishibe",
+      "Kurose",
+      "Tendo"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "chainsaw man",
+    "difficulty": "hard",
+    "question": "Which duo escorts Denji to the Hell gate?",
+    "options": [
+      "Aki and Angel",
+      "Kurose and Tendo",
+      "Kishibe and Quanxi",
+      "Beam and Galgali"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Who is the main protagonist of Vinland Saga?",
+    "options": [
+      "Thorfinn",
+      "Askeladd",
+      "Canute",
+      "Thorkell"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which clever commander leads Thorfinn's band?",
+    "options": [
+      "Thors",
+      "Askeladd",
+      "Floki",
+      "Leif"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which giant loves war and dual axes?",
+    "options": [
+      "Askeladd",
+      "Floki",
+      "Thorkell the Tall",
+      "Garm"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which prince becomes king with blond hair?",
+    "options": [
+      "Harald",
+      "Sweyn",
+      "Thorfinn",
+      "Canute"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which farmland slave befriends Thorfinn?",
+    "options": [
+      "Einar",
+      "Gardar",
+      "Snake",
+      "Ketil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which farmer owns the Ketil farm?",
+    "options": [
+      "Snake",
+      "Ketil",
+      "Einar",
+      "Thorfinn"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which farm guard leads security with a sword?",
+    "options": [
+      "Gardar",
+      "Ketil",
+      "Snake",
+      "Thorfinn"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which strong father is called the Troll of Jom?",
+    "options": [
+      "Askeladd",
+      "Floki",
+      "Thorkell",
+      "Thors Snorresson"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which explorer seeks Vinland across the sea?",
+    "options": [
+      "Leif Erikson",
+      "Floki",
+      "Thors",
+      "Garm"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which Jomsviking commander orders Thors killed?",
+    "options": [
+      "Askeladd",
+      "Floki",
+      "Thorkell",
+      "Garm"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which slave woman suffers on Ketil farm?",
+    "options": [
+      "Gudrid",
+      "Helga",
+      "Arnheid",
+      "Ylva"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which fierce husband chases Arnheid?",
+    "options": [
+      "Einar",
+      "Ketil",
+      "Snake",
+      "Gardar"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which Danish king rules England and Denmark?",
+    "options": [
+      "Sweyn Forkbeard",
+      "Canute",
+      "Harald",
+      "Askeladd"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which older prince rivals Canute?",
+    "options": [
+      "Canute",
+      "Harald",
+      "Thorfinn",
+      "Askeladd"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "What is Thorfinn's childhood home?",
+    "options": [
+      "England",
+      "Denmark",
+      "Iceland",
+      "Vinland"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "What distant land does Leif call Vinland?",
+    "options": [
+      "Greenland",
+      "Iceland",
+      "Norway",
+      "North America"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "What weapon does Thorfinn famously use as a youth?",
+    "options": [
+      "Dual daggers",
+      "A long sword",
+      "A battle axe",
+      "A spear"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "What does Thors throw away to reject violence?",
+    "options": [
+      "His shield",
+      "His sword",
+      "His helmet",
+      "His boat"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Why does young Thorfinn follow Askeladd?",
+    "options": [
+      "For treasure",
+      "For Vinland",
+      "To duel him for killing Thors",
+      "For Canute"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "What farm work redeems Thorfinn and Einar?",
+    "options": [
+      "Fishing",
+      "Blacksmithing",
+      "Shipbuilding",
+      "Wheat farming"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Who teaches Thorfinn pacifism after war?",
+    "options": [
+      "Askeladd's death and Thors memory",
+      "Thorkell",
+      "Floki",
+      "Garm"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which retainer protects Prince Canute?",
+    "options": [
+      "Askeladd",
+      "Ragnar",
+      "Thorkell",
+      "Floki"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which priest questions Canute about love?",
+    "options": [
+      "Father Leo",
+      "Father Olaf",
+      "Father Willibald",
+      "Father Ketil"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which daily challenge does Thorfinn demand from Askeladd?",
+    "options": [
+      "A treasure share",
+      "A trip to Vinland",
+      "A place as prince",
+      "A duel to avenge Thors"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which giant joins Askeladd's band after London?",
+    "options": [
+      "Thorkell the Tall",
+      "Floki",
+      "Garm",
+      "Leif"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which sister waits in Iceland for Thorfinn?",
+    "options": [
+      "Gudrid",
+      "Ylva",
+      "Helga",
+      "Arnheid"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which mother raises Thorfinn and Ylva?",
+    "options": [
+      "Gudrid",
+      "Arnheid",
+      "Helga",
+      "Ylva"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which widow later sails with Thorfinn?",
+    "options": [
+      "Helga",
+      "Ylva",
+      "Arnheid",
+      "Gudrid"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which Ketil son bullies slaves?",
+    "options": [
+      "Olmar",
+      "Thorfinn",
+      "Einar",
+      "Snake"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "easy",
+    "question": "Which Ketil son manages the farm sternly?",
+    "options": [
+      "Olmar",
+      "Thorgil",
+      "Einar",
+      "Gardar"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which farm arc enslaves Thorfinn and Einar?",
+    "options": [
+      "Farmland Slave arc on Ketil's farm",
+      "War arc in England",
+      "Baltic War arc",
+      "Vinland arc"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which war arc ravages England under Sweyn?",
+    "options": [
+      "Farmland arc",
+      "War arc with London Bridge",
+      "Baltic arc",
+      "Vinland arc"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which bridge battle showcases Thorkell in London?",
+    "options": [
+      "York Bridge",
+      "Paris Bridge",
+      "London Bridge battle",
+      "Rome Bridge"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which technique lets Thorkell throw spears far?",
+    "options": [
+      "Magic runes",
+      "Gunpowder",
+      "Horse archery",
+      "Inhuman Viking strength"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which technique lets Thorfinn dash with daggers?",
+    "options": [
+      "Swift knife footwork",
+      "Heavy axe swings",
+      "Spear throws",
+      "Bow shots"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which punishment whips slaves on Ketil farm?",
+    "options": [
+      "Hanging",
+      "Flogging by Snake's men",
+      "Branding",
+      "Exile"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which harvest decides Einar's freedom dream?",
+    "options": [
+      "Barley harvest",
+      "Potato harvest",
+      "Wheat harvest",
+      "Rice harvest"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which master beats Arnheid to death?",
+    "options": [
+      "Snake",
+      "Einar",
+      "Thorfinn",
+      "Ketil after rage"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which duel kills Askeladd for Canute?",
+    "options": [
+      "Askeladd vs Canute guard duel",
+      "Thorfinn vs Thorkell",
+      "Thors vs Askeladd",
+      "Einar vs Snake"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Why does Askeladd kill King Sweyn?",
+    "options": [
+      "For treasure",
+      "To save Wales and crown Canute",
+      "For Thorfinn",
+      "For Floki"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which Welsh heritage drives Askeladd?",
+    "options": [
+      "Descendant of Thors",
+      "Descendant of Floki",
+      "Descendant of Artorius",
+      "Descendant of Leif"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which king does Askeladd claim as ancestor?",
+    "options": [
+      "Sweyn Forkbeard",
+      "Harald Bluetooth",
+      "Canute",
+      "Artorius the Briton king"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which loyal follower dies beside Askeladd?",
+    "options": [
+      "Bjorn",
+      "Thorkell",
+      "Floki",
+      "Garm"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which brothers serve Askeladd as warriors?",
+    "options": [
+      "Floki and Garm",
+      "Torgrim and Ear",
+      "Thors and Thorfinn",
+      "Canute and Harald"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which friend does Askeladd mercy-kill?",
+    "options": [
+      "Thorfinn",
+      "Canute",
+      "Bjorn",
+      "Thorkell"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which Jomsviking hero fights Thors at sea?",
+    "options": [
+      "Thorkell",
+      "Garm",
+      "Canute",
+      "Askeladd's trap under Floki"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which Jomsviking law demands duel for leadership?",
+    "options": [
+      "Single combat",
+      "Dice game",
+      "Boat race",
+      "Feast contest"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which Baltic commander hunts Thorfinn later?",
+    "options": [
+      "Askeladd",
+      "Floki and Garm",
+      "Thorkell",
+      "Canute"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which scarred Jomsviking duelist loves blades?",
+    "options": [
+      "Thorkell",
+      "Floki",
+      "Garm",
+      "Snake"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which Ketil farmhand enforces order?",
+    "options": [
+      "Olmar",
+      "Thorgil",
+      "Gardar",
+      "Snake the guard captain"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which runaway slave is Gardar?",
+    "options": [
+      "Arnheid's husband",
+      "Einar's brother",
+      "Ketil's son",
+      "Snake's brother"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which night raid burns Ketil's farm?",
+    "options": [
+      "Thorkell's raid",
+      "Canute's Jomsviking seizure",
+      "Floki's raid",
+      "Askeladd's raid"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which king confiscates farms for war funds?",
+    "options": [
+      "King Sweyn",
+      "King Harald",
+      "King Canute",
+      "King Thors"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which priest converts Canute to faith?",
+    "options": [
+      "Father Ketil",
+      "Father Ragnar",
+      "Father Floki",
+      "Father Willibald"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which love sermon changes Canute?",
+    "options": [
+      "Love is discrimination",
+      "War is peace",
+      "Gold is God",
+      "Sea is life"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which land does Thorfinn seek to settle peacefully?",
+    "options": [
+      "England",
+      "Vinland",
+      "Denmark",
+      "Iceland"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which merchant sails with Thorfinn east?",
+    "options": [
+      "Floki",
+      "Garm",
+      "Halfdan",
+      "Snake"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which hunter seeks revenge on Thorfinn with a crossbow?",
+    "options": [
+      "Gudrid",
+      "Arnheid",
+      "Ylva",
+      "Hild"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which Miklagard road tests the crew?",
+    "options": [
+      "The Eastern road to Greece",
+      "The Western sea",
+      "The Northern ice",
+      "The Southern desert"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "medium",
+    "question": "Which native tribe meets Vinland settlers?",
+    "options": [
+      "The Saxons",
+      "The Lnu",
+      "The Franks",
+      "The Jomsvikings"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which Danish king fathers Canute and Harald?",
+    "options": [
+      "Sweyn Forkbeard",
+      "Harald Bluetooth",
+      "Gorm the Old",
+      "Cnut Sweynson"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which English king does Sweyn overthrow?",
+    "options": [
+      "Alfred the Great",
+      "Aethelred the Unready",
+      "Edmund Ironside",
+      "Edward the Confessor"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which son succeeds Sweyn as England's ruler?",
+    "options": [
+      "Harald",
+      "Thorfinn",
+      "Canute the Great",
+      "Askeladd"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which brother king rules Denmark while Canute holds England?",
+    "options": [
+      "Sweyn",
+      "Gorm",
+      "Thors",
+      "Harald II of Denmark"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which historic land does Canute conquer as king?",
+    "options": [
+      "England",
+      "France",
+      "Vinland",
+      "Iceland"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which bridge does Thorkell destroy in London?",
+    "options": [
+      "York Bridge",
+      "London Bridge",
+      "Paris Bridge",
+      "Rome Bridge"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which commander defends London against Vikings?",
+    "options": [
+      "Askeladd",
+      "Floki",
+      "Thorkell the Tall switching sides",
+      "Garm"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Why does Thorkell defect to England?",
+    "options": [
+      "For Vinland",
+      "For love",
+      "For faith",
+      "For strong foes and pay"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which Jomsviking fortress exiles Thors?",
+    "options": [
+      "Jomsborg",
+      "Kaupang",
+      "Hedeby",
+      "York"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which Jomsviking code forbids fleeing battle?",
+    "options": [
+      "Never drink mead",
+      "Never show back to foe",
+      "Never sail winter",
+      "Never marry"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which Welsh king ancestor inspires Askeladd?",
+    "options": [
+      "Arthur of Camelot myth",
+      "Owain of Wales",
+      "Artorius of Britannia",
+      "Llywelyn of Gwynedd"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which homeland does Askeladd love as his mother kin?",
+    "options": [
+      "England",
+      "Denmark",
+      "Iceland",
+      "Wales"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which priest teaches Canute about universal love?",
+    "options": [
+      "Father Willibald",
+      "Father Anselm",
+      "Father Ragnar",
+      "Father Ketil"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which retainer's death hardens young Canute?",
+    "options": [
+      "Willibald's death",
+      "Ragnar's death",
+      "Sweyn's death",
+      "Askeladd's death"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which assassination frees Canute from Sweyn?",
+    "options": [
+      "Thorfinn killing Sweyn",
+      "Thorkell killing Sweyn",
+      "Askeladd killing Sweyn",
+      "Floki killing Sweyn"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Who owns the farm where Thorfinn is enslaved?",
+    "options": [
+      "Floki",
+      "Leif",
+      "Halfdan",
+      "Ketil"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which farm son is Olmar the coward?",
+    "options": [
+      "Olmar the younger son",
+      "Thorgil the elder",
+      "Einar the slave",
+      "Gardar the runaway"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which farm son is Thorgil the warrior?",
+    "options": [
+      "Olmar the younger",
+      "Thorgil the elder son",
+      "Einar the slave",
+      "Snake the guard"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which guard is Snake the farmer soldier?",
+    "options": [
+      "A Jomsviking chief",
+      "A Danish king",
+      "A former warrior tenant",
+      "An English earl"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which slave woman is Arnheid of Ketil farm?",
+    "options": [
+      "Einar's sister",
+      "Ketil's wife",
+      "Snake's sister",
+      "Gardar's wife"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which slave man is Gardar the warrior?",
+    "options": [
+      "Arnheid's husband",
+      "Einar's father",
+      "Ketil's brother",
+      "Snake's son"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which child does Gudrid carry on voyage?",
+    "options": [
+      "Ylva",
+      "Karli the orphan",
+      "Helga",
+      "Arnheid"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which merchant prince funds the Vinland voyage?",
+    "options": [
+      "Floki",
+      "Leif",
+      "Halfdan Hvide",
+      "Sigurd"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which Sigurd weds Gudrid by arrangement?",
+    "options": [
+      "Sigurd Snake",
+      "Sigurd Floki",
+      "Sigurd Garm",
+      "Sigurd Halfdan's son"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which natives meet Thorfinn in Vinland?",
+    "options": [
+      "The Lnu tribe",
+      "The Saxons",
+      "The Franks",
+      "The Jomsvikings"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "What breaks peace between settlers and natives?",
+    "options": [
+      "A wedding",
+      "Sickness and violence",
+      "A harvest feast",
+      "A ship launch"
+    ],
+    "correctAnswerIndex": 1
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which oath bans weapons in Vinland?",
+    "options": [
+      "No axes on ships",
+      "No bows at night",
+      "No swords in the settlement",
+      "No shields ashore"
+    ],
+    "correctAnswerIndex": 2
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which sword does Thorfinn refuse to hold?",
+    "options": [
+      "Askeladd's sword",
+      "Thors sword",
+      "Thorkell axe",
+      "Any killing blade"
+    ],
+    "correctAnswerIndex": 3
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "How does Thorfinn atone on Ketil's farm?",
+    "options": [
+      "By farming wheat",
+      "By forging swords",
+      "By building ships",
+      "By counting coins"
+    ],
+    "correctAnswerIndex": 0
+  },
+  {
+    "anime": "vinland saga",
+    "difficulty": "hard",
+    "question": "Which eastern city seeks Greek medicine?",
+    "options": [
+      "Rome",
+      "Miklagard Constantinople",
+      "Baghdad",
+      "Kyoto"
+    ],
+    "correctAnswerIndex": 1
+  }
+]

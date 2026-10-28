@@ -31,7 +31,7 @@ Responsive sizing: this repo uses flutter_screenutil (.w/.h/.sp/.r) — keep it 
 
 ## Domain invariants (money / prizes — server-authoritative)
 - Coin, stake, prize and economy mutations go through Cloud Functions, not client writes: `spendCoins`, `createChallenge`/`joinChallenge`, `submitQuizAnswers`, `resolveChallengeOutcome`, `flutterwaveWebhook`, `submitPayoutDetails`, … `firestore.rules` is deliberately restrictive (clients write only a narrow, self-owned field set, e.g. their own challenge score, once).
-- Keep economy constants in sync across the Dart mirror and `functions/index.js`: `lib/core/constants/{solo,rival,referral,gauntlet}_economy.dart`, and Quick Match AC/WP which appear both in `ChallengeModel` (Dart) and as `QM_*` in `index.js`.
+- Keep economy constants in sync across the Dart mirror and `functions/index.js`: `lib/core/constants/{solo,rival,referral,blitz}_economy.dart`, and Quick Match AC/WP which appear both in `ChallengeModel` (Dart) and as `QM_*` in `index.js`.
 - Never loosen `firestore.rules` "to make it work" — auth, payments and personal-data paths are hardened on purpose.
 - Never log or commit secrets: Firebase secrets `FLW_SECRET_KEY`/`FLW_SECRET_HASH`/`RESET_SECRET`, `*service-account*.json`, `scripts/.service-account-key-path`, `/lib/passwords.txt` (already committed once — treat as compromised and rotate).
 - Android forced-update gate: the `+<build>` in `pubspec.yaml` `version:` flows into Android `versionCode` and is compared against `app_config/android.minBuild`. Bump the `pubspec` version and `minBuild` together, never separately. Shipping moves `latestBuild` first; the wall only arms when `minBuild` is raised.

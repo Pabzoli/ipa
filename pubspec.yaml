@@ -8,7 +8,7 @@ publish_to: 'none'
 # AppUpdateService via package_info_plus. It is compared against
 # app_config/android.minBuild by both the client wall and the server gate —
 # bump this and minBuild together, never separately.
-version: 1.2.0+4
+version: 1.2.2+7
 
 environment:
   sdk: '>=3.1.5 <4.0.0'
@@ -27,7 +27,6 @@ dependencies:
   google_mobile_ads: ^5.1.0   # AdMob — rewarded + interstitial
   firebase_messaging: ^16.2.1 # Stage 29 — push notifications (FCM)
   flutter_local_notifications: ^18.0.1 # Stage 29 — foreground notification banners
-  cupertino_icons: ^1.0.2
   async: ^2.11.0
   screenshot: ^3.0.0     # off-screen widget → Uint8List image
   share_plus: ^10.0.1        # native share sheet
@@ -46,15 +45,69 @@ flutter:
 
   assets:
     - assets/attack on titan.jpg
+    - assets/attack on titan1.jpg
     - assets/bleach.jpg
+    - assets/bleach1.jpg
+    - assets/berserk.jpg
+    - assets/berserk1.jpg
+    - assets/black clover.jpg
+    - assets/black clover1.jpg
+    - assets/blue lock.jpg
+    - assets/blue lock1.jpg
+    - assets/chainsaw man.jpg
+    - assets/chainsaw man1.jpg
+    - assets/classroom of the elite.jpg
+    - assets/classroom of the elite1.jpg
     - assets/death note.jpg
+    - assets/death note1.jpg
     - assets/demon slayer.jpg
+    - assets/demon slayer1.jpg
     - assets/dragon ball z.jpg
+    - assets/dragon ball z1.jpg
+    - assets/dr stone.jpg
+    - assets/dr stone1.jpg
+    - assets/fairy tail.jpg
+    - assets/fairy tail1.jpg
+    - assets/fire force.jpg
+    - assets/fire force1.jpg
+    - assets/hunter x hunter.jpg
+    - assets/hunter x hunter1.jpg
+    - assets/mushoku tensei.jpg
+    - assets/mushoku tensei1.jpg
+    - assets/re zero.jpg
+    - assets/re zero1.jpg
+    - assets/solo leveling.jpg
+    - assets/solo leveling1.jpg
+    - assets/sword art online.jpg
+    - assets/sword art online1.jpg
+    - assets/that time i got reincarnated as a slime.jpg
+    - assets/that time i got reincarnated as a slime1.jpg
+    - assets/tokyo ghoul.jpg
+    - assets/tokyo ghoul1.jpg
+    - assets/tokyo revengers.jpg
+    - assets/tokyo revengers1.jpg
+    - assets/tower of god.jpg
+    - assets/tower of god1.jpg
+    - assets/vinland saga.jpg
+    - assets/vinland saga1.jpg
+    - assets/wind breaker.jpg
+    - assets/wind breaker1.jpg
+    - "assets/hell's paradise.jpg"
+    - "assets/hell's paradise1.jpg"
+    - "assets/jojo's bizarre adventure.jpg"
+    - "assets/jojo's bizarre adventure1.jpg"
+    - "assets/kuroko's basketball.jpg"
+    - "assets/kuroko's basketball1.jpg"
     - assets/jujutsu kaisen.jpg
+    - assets/jujutsu kaisen1.jpg
     - assets/my hero academia.jpg
+    - assets/my hero academia1.jpg
     - assets/naruto.jpg
+    - assets/naruto1.jpg
     - assets/one piece.jpg
+    - assets/one piece1.jpg
     - assets/one punch man.jpg
+    - assets/one punch man1.jpg
 
   fonts:
     - family: Nunito

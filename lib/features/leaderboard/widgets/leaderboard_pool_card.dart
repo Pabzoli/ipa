@@ -12,12 +12,12 @@ import '../../../core/theme/app_theme.dart';
 /// widgets in the leaderboard file, with the podium using its own copies — a
 /// change to one would silently disagree with the others.
 abstract final class LeaderboardPalette {
-  static const gold = Color(0xFFFFD700);
-  static const silver = Color(0xFFC0C0C0);
-  static const bronze = Color(0xFFCD7F32);
+  static const gold = AppColors.gold;
+  static const silver = AppColors.silver;
+  static const bronze = AppColors.bronze;
 
   /// Rival / head-to-head accent.
-  static const rival = Color(0xFFFF6B00);
+  static const rival = AppColors.rival;
 
   /// The signed-in player.
   static const mine = AppColors.primary;
@@ -93,14 +93,14 @@ class _CountdownChipState extends State<CountdownChip> {
         children: [
           Icon(
             finalising ? Icons.hourglass_top_rounded : Icons.schedule_rounded,
-            color: color,
+            color: AppColors.readable(color),
             size: (widget.compact ? 10 : 11).r,
           ),
           SizedBox(width: 4.w),
           Text(
             PrizePoolService.formatCountdown(_left),
             style: TextStyle(
-              color: color,
+              color: AppColors.readable(color),
               fontSize: (widget.compact ? 9 : 10).sp,
               fontWeight: FontWeight.w900,
             ),
@@ -191,25 +191,25 @@ class PrizePoolCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header: cycle tag + live countdown ───────────────────────
+          // ── Header: label + live countdown on one row ────────────────
           Row(
             children: [
-              const Spacer(),
+              Expanded(
+                child: Text(
+                  'WEEKLY PRIZE POOL',
+                  style: TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ),
+              SizedBox(width: 8.w),
               const CountdownChip(),
             ],
           ),
-          SizedBox(height: 14.h),
-
-          Text(
-            'WEEKLY PRIZE POOL',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10.sp,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.1,
-            ),
-          ),
-          SizedBox(height: 4.h),
+          SizedBox(height: 8.h),
 
           // ── Headline figure ─────────────────────────────────────────
           if (!poolOpen && !hasPool)
@@ -289,7 +289,7 @@ class PrizePoolCard extends StatelessWidget {
           ),
           SizedBox(height: 16.h),
 
-          const Divider(height: 1, color: AppColors.divider),
+          Divider(height: 1, color: AppColors.divider),
           SizedBox(height: 14.h),
 
           // ── Per-rank share ───────────────────────────────────────────
@@ -347,7 +347,7 @@ class _PrizeSlot extends StatelessWidget {
             child: Text(
               '$rank',
               style: TextStyle(
-                color: color,
+                color: AppColors.readable(color),
                 fontSize: 11.sp,
                 fontWeight: FontWeight.w900,
               ),
@@ -366,7 +366,7 @@ class _PrizeSlot extends StatelessWidget {
                   PrizePoolService.formatExact(amount),
                   maxLines: 1,
                   style: TextStyle(
-                    color: podium ? color : AppColors.textSecondary,
+                    color: podium ? AppColors.readable(color) : AppColors.textSecondary,
                     fontSize: 10.sp,
                     fontWeight: FontWeight.w900,
                   ),

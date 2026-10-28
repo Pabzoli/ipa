@@ -80,7 +80,7 @@ class FriendsBoardTab extends StatelessWidget {
           );
         }
         return RefreshIndicator(
-          color: AppColors.primary,
+          color: AppColors.readable(AppColors.primary),
           backgroundColor: AppColors.surface,
           onRefresh: onReload,
           child: _FriendsBody(
@@ -133,7 +133,7 @@ class _FriendsBody extends StatelessWidget {
               : FriendActionChip(
                   label: 'Add',
                   icon: Icons.person_add_alt_1_rounded,
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                   onPressed: onAddFriend,
                 ),
         ),
@@ -281,7 +281,7 @@ class _StatusLine extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppTypography.bodySmall.copyWith(
-              color: color,
+              color: AppColors.readable(color),
               fontWeight: FontWeight.w700,
             ),
           ),

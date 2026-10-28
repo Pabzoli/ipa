@@ -40,7 +40,7 @@ class GradientButton extends StatelessWidget {
               ? []
               : [
                   BoxShadow(
-                    color: colors.first.withOpacity(0.4),
+                    color: colors.first.withValues(alpha: 0.4),
                     blurRadius: 20,
                     offset: const Offset(0, 6),
                   ),
@@ -98,17 +98,18 @@ class GlassCard extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.85),
+        color: AppColors.surface.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(20.r),
         border: Border.all(
           color: borderColor ?? AppColors.divider,
           width: 1,
         ),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: Colors.black26,
+            // Dark keeps the original black26; light uses the soft token.
+            color: AppColors.isDark ? Colors.black26 : AppColors.shadow,
             blurRadius: 20,
-            offset: Offset(0, 8),
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -137,14 +138,14 @@ class StatChip extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 14.r, vertical: 10.r),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(14.r),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 18.r),
+          Icon(icon, color: AppColors.readable(color), size: 18.r),
           SizedBox(width: 8.w),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,7 +154,7 @@ class StatChip extends StatelessWidget {
               Text(
                 value,
                 style: TextStyle(
-                  color: color,
+                  color: AppColors.readable(color),
                   fontSize: 16.sp,
                   fontWeight: FontWeight.w800,
                 ),
@@ -193,7 +194,7 @@ class ScoreBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: AppColors.accent, size: 16.r),
+          Icon(icon, color: AppColors.readable(AppColors.accent), size: 16.r),
           SizedBox(width: 6.w),
           Text(
             '$score',
@@ -217,6 +218,7 @@ class AnimatedHeroBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: const BoxConstraints.expand(),
       decoration: AppDecorations.heroBg,
       child: Stack(
         children: [
@@ -224,17 +226,17 @@ class AnimatedHeroBackground extends StatelessWidget {
           Positioned(
             top: -80.h,
             right: -60.w,
-            child: _Orb(size: 280.r, color: AppColors.primary.withOpacity(0.15)),
+            child: _Orb(size: 280.r, color: AppColors.primary.withValues(alpha: 0.15)),
           ),
           Positioned(
             bottom: 100.h,
             left: -80.w,
-            child: _Orb(size: 220.r, color: AppColors.secondary.withOpacity(0.1)),
+            child: _Orb(size: 220.r, color: AppColors.secondary.withValues(alpha: 0.1)),
           ),
           Positioned(
             top: 200.h,
             left: 60.w,
-            child: _Orb(size: 100.r, color: AppColors.accent.withOpacity(0.08)),
+            child: _Orb(size: 100.r, color: AppColors.accent.withValues(alpha: 0.08)),
           ),
           child,
         ],
@@ -309,9 +311,9 @@ class TimerRing extends StatelessWidget {
 
   Color get _color {
     final ratio = seconds / maxSeconds;
-    if (ratio > 0.5) return AppColors.correct;
-    if (ratio > 0.25) return AppColors.accent;
-    return AppColors.wrong;
+    if (ratio > 0.5) return AppColors.readable(AppColors.correct);
+    if (ratio > 0.25) return AppColors.readable(AppColors.accent);
+    return AppColors.readable(AppColors.wrong);
   }
 
   @override

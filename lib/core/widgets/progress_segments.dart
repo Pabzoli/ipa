@@ -22,10 +22,12 @@ class QuizProgressSegments extends StatelessWidget {
             // Colour reflects whether it was actually answered correctly,
             // not just "visited" — same information richness as Rankings.
             Color color;
-            if (i < ctrl.selectedAnswers.length) {
-              final wasCorrect = ctrl.selectedAnswers[i] ==
-                  ctrl.questions[i].correctAnswerIndex;
-              color = wasCorrect ? AppColors.correct : AppColors.wrong;
+            if (i < ctrl.answerResults.length) {
+              final result = ctrl.answerResults[i];
+              // Null = answered but correctness withheld (Blitz/challenge).
+              color = result == null
+                  ? AppColors.textMuted
+                  : (result ? AppColors.correct : AppColors.wrong);
             } else if (i == ctrl.qIndex) {
               color = AppColors.primary;
             } else {

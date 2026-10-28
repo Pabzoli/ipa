@@ -11,6 +11,7 @@ import '../../core/constants/rival_economy.dart';
 import '../../core/constants/share_links.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_page_route.dart';
@@ -19,6 +20,7 @@ import '../../core/widgets/share_card.dart';
 import '../../core/widgets/weekly_points_pill.dart';
 import '../../core/services/firestore_service.dart';
 import '../../core/services/app_update_service.dart';
+import '../../core/services/device_id_service.dart';
 import '../../core/services/share_service.dart';
 import '../../core/providers/user_data_provider.dart';
 import '../friends/friend_nudge_button.dart';
@@ -134,11 +136,7 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
           appBar: AppBar(
             backgroundColor: AppColors.surfaceDim,
             elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: AppColors.textPrimary),
-              onPressed: () => Navigator.pop(context),
-            ),
+            leading: const AppBackButton(),
             title: Text('Challenge Lobby', style: AppTypography.heading3),
             actions: [
               if (showBalance)
@@ -151,7 +149,7 @@ class _ChallengeLobbyPageState extends State<ChallengeLobbyPage> {
                           _BalancePill(
                             emoji: '🪙',
                             amount: userData.animeCoins,
-                            color: AppColors.accent,
+                            color: AppColors.readable(AppColors.accent),
                           ),
                           SizedBox(width: 6.w),
                           const WeeklyPointsPill(),
@@ -387,6 +385,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
           .httpsCallable('forceResolveChallenge')
           .call({
         'challengeId': c.challengeId,
+        'deviceId': await DeviceIdService.instance.value(),
         ...AppUpdateService.instance.clientBuildStamp,
       });
 
@@ -395,7 +394,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
       final data = result.data as Map;
       if (data['alreadyResolved'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('Challenge was already resolved.'),
             backgroundColor: AppColors.textMuted,
             behavior: SnackBarBehavior.floating,
@@ -405,7 +404,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Resolved! Outcome: ${data['outcome'] ?? 'unknown'}'),
-            backgroundColor: AppColors.correct,
+            backgroundColor: AppColors.successSurface,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -455,7 +454,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
                   SizedBox(height: 14.h),
                   AppButton(
                     variant: AppButtonVariant.outline,
-                    color: AppColors.wrong,
+                    color: AppColors.readable(AppColors.wrong),
                     label: _isResolving ? 'Resolving…' : '⚡ Force Resolve',
                     loading: _isResolving,
                     onPressed: _isResolving ? null : _forceResolve,
@@ -613,6 +612,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
           .httpsCallable('joinChallenge')
           .call({
         'challengeId': c.challengeId,
+        'deviceId': await DeviceIdService.instance.value(),
         ...AppUpdateService.instance.clientBuildStamp,
       });
 
@@ -621,7 +621,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Challenge accepted! Get ready to play.'),
-          backgroundColor: AppColors.correct,
+          backgroundColor: AppColors.successSurface,
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 1),
         ),
@@ -663,7 +663,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
       context,
       builder: (ctx) => AppDialog(
         icon: Icons.person_off_rounded,
-        iconColor: AppColors.wrong,
+        iconColor: AppColors.readable(AppColors.wrong),
         title: 'Decline challenge?',
         content: 'Their stake will be refunded to them. This can\'t be undone.',
         actions: [
@@ -675,7 +675,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
           ),
           AppButton(
             variant: AppButtonVariant.primary,
-            color: AppColors.wrong,
+            color: AppColors.readable(AppColors.wrong),
             label: 'Decline',
             onPressed: () => Navigator.pop(ctx, true),
           ),
@@ -691,6 +691,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
           .httpsCallable('declineChallenge')
           .call({
         'challengeId': c.challengeId,
+        'deviceId': await DeviceIdService.instance.value(),
         ...AppUpdateService.instance.clientBuildStamp,
       });
 
@@ -802,7 +803,7 @@ class _Arena extends StatelessWidget {
                           isYou: isOpponent,
                           isWinner:
                               isCompleted && challenge.outcome == 'opponent_wins',
-                          color: AppColors.primary,
+                          color: AppColors.readable(AppColors.primary),
                           alignEnd: true,
                         ),
                       ),
@@ -998,7 +999,9 @@ class _Fighter extends StatelessWidget {
             style: AppTypography.heading1.copyWith(
               fontSize: isHidden ? 24.sp : 38.sp,
               height: 1,
-              color: isWinner ? AppColors.correct : AppColors.textPrimary,
+              color: isWinner
+                  ? AppColors.readable(AppColors.correct)
+                  : AppColors.textPrimary,
             ),
           ),
         ],
@@ -1023,7 +1026,7 @@ class _StatusStrip extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: 16.r, vertical: 12.r),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.surfaceDim,
         border: Border(top: BorderSide(color: AppColors.divider)),
       ),
@@ -1052,7 +1055,7 @@ class _StatusStrip extends StatelessWidget {
               text,
               textAlign: TextAlign.center,
               style: AppTypography.bodyLarge.copyWith(
-                color: color,
+                color: AppColors.readable(color),
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -1168,7 +1171,7 @@ class _Dock extends StatelessWidget {
       child: Container(
         width: double.infinity,
         padding: EdgeInsets.fromLTRB(20.r, 14.h, 20.r, 14.h),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppColors.surface,
           border: Border(top: BorderSide(color: AppColors.divider)),
         ),
@@ -1208,7 +1211,7 @@ class _BalanceNotice extends StatelessWidget {
       child: Row(
         children: [
           Icon(Icons.warning_amber_rounded,
-              color: AppColors.wrong, size: 20.r),
+              color: AppColors.readable(AppColors.wrong), size: 20.r),
           SizedBox(width: 10.w),
           Expanded(
             child: Text(
@@ -1247,7 +1250,7 @@ class _WaitingNote extends StatelessWidget {
             SizedBox(
               width: 16.r,
               height: 16.r,
-              child: const CircularProgressIndicator(
+              child: CircularProgressIndicator(
                 strokeWidth: 2,
                 color: AppColors.textMuted,
               ),
@@ -1319,7 +1322,7 @@ class _CodeShare extends StatelessWidget {
               Text(
                 'Tap to copy',
                 style: AppTypography.labelMedium
-                    .copyWith(color: AppColors.primary),
+                    .copyWith(color: AppColors.readable(AppColors.primary)),
               ),
               const SizedBox(width: AppSpacing.xs),
               IconButton(
@@ -1340,7 +1343,7 @@ class _CodeShare extends StatelessWidget {
                 ),
                 icon: Icon(
                   Icons.share_rounded,
-                  color: AppColors.primary,
+                  color: AppColors.readable(AppColors.primary),
                   size: 18.r,
                 ),
               ),
@@ -1386,7 +1389,7 @@ class _RejectButton extends StatelessWidget {
     return AppButton(
       variant: AppButtonVariant.outline,
       size: AppButtonSize.medium,
-      color: AppColors.wrong,
+      color: AppColors.readable(AppColors.wrong),
       label: 'Decline',
       loading: loading,
       onPressed: loading ? null : onTap,

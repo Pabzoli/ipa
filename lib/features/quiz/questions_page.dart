@@ -54,6 +54,12 @@ class QuestionsPage extends StatefulWidget {
   final String? challengeId;
   final bool isCreator;
 
+  /// Server-minted solo run id from `startSoloCooldowns` (or the paid retry).
+  /// Forwarded to `submitQuizAnswers`, which refuses a solo submission that
+  /// does not match the user's active server session. Null for challenge and
+  /// Gauntlet modes, which have their own submission paths.
+  final String? soloSessionId;
+
   final bool isQuickMatch;
   final bool isGhost;
   final String opponentName;
@@ -64,6 +70,10 @@ class QuestionsPage extends StatefulWidget {
   /// was entered; the ticket is consumed at submit WITHOUT a second charge.
   final String? gauntletTicketId;
 
+  /// Server-minted Gauntlet run returned by `enterDailyGauntlet` (runV2). The
+  /// controller resolves its sanitized questions from it.
+  final String? gauntletRunId;
+
 
   const QuestionsPage({
     super.key,
@@ -73,11 +83,13 @@ class QuestionsPage extends StatefulWidget {
     this.questionIds,
     this.challengeId,
     this.isCreator = true,
+    this.soloSessionId,
     this.isQuickMatch = false,
     this.isGhost = false,
     this.opponentName = '',
     this.isGauntlet = false,
     this.gauntletTicketId,
+    this.gauntletRunId,
   });
 
   @override
@@ -116,12 +128,14 @@ class _QuestionsPageState extends State<QuestionsPage>
       mode: widget.mode,
       selectedTitles: widget.selectedTitles,
       soloDifficulty: widget.soloDifficulty,
+      soloSessionId: widget.soloSessionId,
       questionIds: widget.questionIds,
       challengeId: widget.challengeId,
       isCreator: widget.isCreator,
       isQuickMatch: widget.isQuickMatch,
       isGauntlet: widget.isGauntlet,
       gauntletTicketId: widget.gauntletTicketId,
+      gauntletRunId: widget.gauntletRunId,
       userDataProvider: context.read<UserDataProvider>(),
 
       onQuestionAdvance: (_) {
@@ -132,6 +146,7 @@ class _QuestionsPageState extends State<QuestionsPage>
       onSoloComplete: (correct, total, coins, wp,
           {isGauntlet = false,
           streak = 0,
+          answeredCount = 0,
           gauntletPerQuestionWP = const [],
           achievementCoins = 0}) {
         if (!mounted) return;
@@ -146,7 +161,7 @@ class _QuestionsPageState extends State<QuestionsPage>
               wpEarned: wp,
               achievementCoins: achievementCoins,
               isGauntlet: isGauntlet,
-              gauntletStreak: streak,
+              answeredCount: answeredCount,
               gauntletPerQuestionWP: gauntletPerQuestionWP,
             ),
           ),
@@ -277,10 +292,16 @@ class _QuestionsPageState extends State<QuestionsPage>
           AppButton(
             label: 'Quit',
             variant: AppButtonVariant.text,
-            color: AppColors.wrong,
-            onPressed: () {
+            color: AppColors.errorText,
+            onPressed: () async {
               Navigator.pop(ctx);
-              Navigator.pop(context);
+              _quitDialogOpen = false;
+              // Await the cancel so quitting reliably releases the
+              // one-active-run lock. Never trap the player: the page pops
+              // regardless, and the home page offers stuck-run recovery if
+              // the cancel failed (e.g. offline).
+              await _controller.cancelCurrentRun();
+              if (mounted) Navigator.pop(context);
             },
           ),
         ],
@@ -310,7 +331,60 @@ class _QuestionsPageState extends State<QuestionsPage>
   }
 }
 
-// ── Quiz body (unchanged) ───────────────────────────────────────────────────
+// ── Blitz global clock bar ─────────────────────────────────────────────────
+// Thin 90s countdown shown only in Blitz runs. Pure display — the
+// QuizController owns the clock and auto-submits at zero.
+class BlitzClockBar extends StatelessWidget {
+  const BlitzClockBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<QuizController>();
+    final left = ctrl.blitzSecondsLeft;
+    final answered = ctrl.selectedAnswers.length;
+    final mm = left ~/ 60;
+    final ss = (left % 60).toString().padLeft(2, '0');
+    final urgent = left <= 15;
+    final color = urgent ? AppColors.wrong : AppColors.readable(AppColors.amber);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16.r, 10.r, 16.r, 0),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 8.r),
+        decoration: BoxDecoration(
+          color: AppColors.amber.withValues(alpha: urgent ? 0.16 : 0.08),
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          border: Border.all(color: color.withValues(alpha: 0.45)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timer_rounded, color: color, size: 16.r),
+            SizedBox(width: 8.w),
+            Text(
+              'BLITZ $mm:$ss',
+              style: TextStyle(
+                color: color,
+                fontSize: 14.sp,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '$answered answered',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Quiz body ───────────────────────────────────────────────────────────────────
 
 class _QuizBody extends StatelessWidget {
   final Animation<Offset> slideAnim;
@@ -346,8 +420,11 @@ class _QuizBody extends StatelessWidget {
         children: [
           QuizHeader(onQuit: onQuit),
           SizedBox(height: 4.h),
+          // Blitz global clock: the 90s countdown that ends the run.
+          if (ctrl.isGauntlet) const BlitzClockBar(),
           const QuizProgressSegments(),
           // Use the new TimerWithPowerup (which includes the power‑up button)
+          // — the pause button hides itself in Blitz via canShowTimerPause.
           const TimerWithPowerup(),
           Expanded(
             child: SingleChildScrollView(
