@@ -24,6 +24,7 @@
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
+    "site": "anime-quiz-1ab1b",
     "public": "public",
     "ignore": [
       "firebase.json",
