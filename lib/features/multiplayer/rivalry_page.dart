@@ -14,11 +14,11 @@
 // standing is not a rank.
 //
 // FRIENDSHIP: the relationship is visible on the face-off card (FRIEND /
-// REQUESTED / WANTS IN / BLOCKED). For a rival you have actually played, a
-// compact panel under the face-off card offers the next friendship step (add,
-// cancel, accept, unblock); once the two are friends it goes away and the
-// destructive actions stay behind the AppBar ⋯ (see friend_actions.dart), so
-// the page still ends on Spar.
+// REQUESTED / WANTS IN / BLOCKED) and acted on in the AppBar beside the WP
+// pill — a small Add button, plain 'req sent' text, Accept / Decline, or
+// Unblock. There is no friendship widget in the body; the page stays about
+// the match. Once the two are friends the cluster goes away and the
+// destructive actions stay behind the AppBar ⋯ (see friend_actions.dart).
 //
 // READ COST: the series block is a single rivalry-doc listener (rivalryStream).
 // The H2H record, the rival user doc and the cooldown are one-shot reads on
@@ -57,11 +57,17 @@ class RivalryPage extends StatefulWidget {
   /// with the relationship itself badged on the face-off card.
   final bool isFriend;
 
+  /// Set when the page was opened from the paid leaderboard (podium or rank
+  /// row). The server accepts raw-uid requests within the same paid week, so
+  /// the Add panel is offered even before the first shared match.
+  final bool allowFriendRequest;
+
   const RivalryPage({
     super.key,
     required this.rivalUid,
     required this.rivalUsername,
     this.isFriend = false,
+    this.allowFriendRequest = false,
   });
 
   @override
@@ -82,6 +88,10 @@ class _RivalryPageState extends State<RivalryPage> {
   String? _friendStatus;
   bool _friendBusy = false;
 
+  /// Set once the link read completes (success or failure), so the top Add
+  /// button never flashes over a friendship that is still loading.
+  bool _friendLoaded = false;
+
   /// Whole hours before a staked rematch is allowed, from the shared client
   /// mirror of the server rule (0 = allowed). Drives the Duel button label.
   int _cooldownHours = 0;
@@ -98,7 +108,83 @@ class _RivalryPageState extends State<RivalryPage> {
     return (h2h['wins'] ?? 0) + (h2h['draws'] ?? 0) + (h2h['losses'] ?? 0) > 0;
   }
 
-  bool get _showFriendPanel => !_isFriend && (_friendStatus != null || _hasPlayed);
+  /// AppBar cluster beside the WP pill. States:
+  /// - friend → nothing (manage lives in the ⋯)
+  /// - outgoing → muted 'req sent' text
+  /// - incoming → compact Accept + Decline
+  /// - blocked → compact Unblock
+  /// - none + eligible (board tap or shared match, link read done) → Add btn
+  /// - loading / ineligible → nothing
+  List<Widget> get _topFriendAction {
+    if (_isFriend || !_friendLoaded) return const [];
+    switch (_friendStatus) {
+      case 'outgoing':
+        return [
+          Padding(
+            padding: EdgeInsets.only(right: 6.r),
+            child: Center(
+              child: Text(
+                'req sent',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ];
+      case 'incoming':
+        return [
+          _TopMiniButton(
+            label: 'Accept',
+            busy: _friendBusy,
+            onPressed: () => _runFriendAction(
+              () => FirestoreService.instance.respondFriendRequest(
+                otherUid: widget.rivalUid,
+                accept: true,
+              ),
+              done: 'You are now friends!',
+            ),
+          ),
+          _TopMiniButton(
+            label: 'Decline',
+            quiet: true,
+            busy: _friendBusy,
+            onPressed: () => _runFriendAction(
+              () => FirestoreService.instance.respondFriendRequest(
+                otherUid: widget.rivalUid,
+                accept: false,
+              ),
+              done: 'Request declined.',
+            ),
+          ),
+        ];
+      case 'blocked':
+        return [
+          _TopMiniButton(
+            label: 'Unblock',
+            quiet: true,
+            busy: _friendBusy,
+            onPressed: () => _runFriendAction(
+              () => FirestoreService.instance
+                  .unblockUser(otherUid: widget.rivalUid),
+              done: 'Unblocked. They must send a new request.',
+            ),
+          ),
+        ];
+      default:
+        if (!(widget.allowFriendRequest || _hasPlayed)) return const [];
+        return [
+          _TopMiniButton(
+            label: 'Add',
+            icon: Icons.person_add_alt_1_rounded,
+            busy: _friendBusy,
+            onPressed: _addFriend,
+          ),
+        ];
+    }
+  }
 
   @override
   void initState() {
@@ -137,6 +223,7 @@ class _RivalryPageState extends State<RivalryPage> {
             ?.toInt();
         _cooldownHours = results[2] as int;
         _friendStatus = results[3] as String?;
+        _friendLoaded = true;
       });
     } catch (e) {
       // Rival doc may be unreadable (different cohort week) — show the
@@ -146,6 +233,7 @@ class _RivalryPageState extends State<RivalryPage> {
       setState(() {
         _rivalWPFailed = true;
         _h2hError = e;
+        _friendLoaded = true;
       });
     }
   }
@@ -204,17 +292,19 @@ class _RivalryPageState extends State<RivalryPage> {
     );
   }
 
-  /// Rival page → friend: the uid is one the player has actually met, which is
-  /// exactly what the server accepts (campus cohort or a real match between the
-  /// pair). A mutual request comes back 'active', so the copy reflects that.
+  /// Rival page → friend: the uid is one the player has actually met (a real
+  /// match), shares a campus with, or shares the paid leaderboard week with
+  /// (board tap → this page). All three are accepted by the server, so this is
+  /// also the gate for offering the Add friend panel. A mutual request comes
+  /// back 'active', so the copy reflects that.
   Future<void> _addFriend() async {
     if (_friendBusy) return;
     setState(() => _friendBusy = true);
     try {
       final status = await FirestoreService.instance
           .sendFriendRequest(uid: widget.rivalUid);
-      final link = await FirestoreService.instance
-          .getFriendLinkStatus(widget.rivalUid);
+      final link =
+          await FirestoreService.instance.getFriendLinkStatus(widget.rivalUid);
       if (!mounted) return;
       setState(() {
         _friendStatus = link;
@@ -241,8 +331,8 @@ class _RivalryPageState extends State<RivalryPage> {
     setState(() => _friendBusy = true);
     try {
       await action();
-      final link = await FirestoreService.instance
-          .getFriendLinkStatus(widget.rivalUid);
+      final link =
+          await FirestoreService.instance.getFriendLinkStatus(widget.rivalUid);
       if (!mounted) return;
       setState(() {
         _friendStatus = link;
@@ -305,6 +395,11 @@ class _RivalryPageState extends State<RivalryPage> {
           ),
         ),
         actions: [
+          // Friendship lives here, beside the WP pill: a small Add button
+          // when there is no relationship yet, plain 'req sent' once asked,
+          // Accept / Decline for an incoming request, Unblock for a block.
+          // No friendship widget in the body — the page stays about the match.
+          ..._topFriendAction,
           const WeeklyPointsPill(),
           // Actions hidden, state visible: the relationship is badged on the
           // face-off card, while Remove / Block live behind this ⋯ so they are
@@ -338,38 +433,6 @@ class _RivalryPageState extends State<RivalryPage> {
               h2h: _h2h,
               h2hError: _h2hError,
             ),
-            if (_showFriendPanel) ...[
-              SizedBox(height: 12.h),
-              _FriendLinkPanel(
-                status: _friendStatus,
-                busy: _friendBusy,
-                onAdd: _addFriend,
-                onCancel: () => _runFriendAction(
-                  () => FirestoreService.instance
-                      .cancelFriendRequest(otherUid: widget.rivalUid),
-                  done: 'Request cancelled.',
-                ),
-                onAccept: () => _runFriendAction(
-                  () => FirestoreService.instance.respondFriendRequest(
-                    otherUid: widget.rivalUid,
-                    accept: true,
-                  ),
-                  done: 'You are now friends!',
-                ),
-                onDecline: () => _runFriendAction(
-                  () => FirestoreService.instance.respondFriendRequest(
-                    otherUid: widget.rivalUid,
-                    accept: false,
-                  ),
-                  done: 'Request declined.',
-                ),
-                onUnblock: () => _runFriendAction(
-                  () => FirestoreService.instance
-                      .unblockUser(otherUid: widget.rivalUid),
-                  done: 'Unblocked. They must send a new request.',
-                ),
-              ),
-            ],
             SizedBox(height: 16.h),
 
             // ── Series banner (always shown, even at 0-0) ───────────
@@ -502,10 +565,19 @@ class _FaceOffCard extends StatelessWidget {
 
   /// Chip copy + colour for the rival side of the card.
   ({String label, Color? color}) get _badge => switch (relationship) {
-        'friend' => (label: 'FRIEND', color: AppColors.readable(AppColors.correct)),
+        'friend' => (
+            label: 'FRIEND',
+            color: AppColors.readable(AppColors.correct)
+          ),
         'outgoing' => (label: 'REQUESTED', color: AppColors.secondary),
-        'incoming' => (label: 'WANTS IN', color: AppColors.readable(AppColors.gold)),
-        'blocked' => (label: 'BLOCKED', color: AppColors.readable(AppColors.wrong)),
+        'incoming' => (
+            label: 'WANTS IN',
+            color: AppColors.readable(AppColors.gold)
+          ),
+        'blocked' => (
+            label: 'BLOCKED',
+            color: AppColors.readable(AppColors.wrong)
+          ),
         _ => (label: 'RIVAL', color: null),
       };
 
@@ -551,149 +623,56 @@ class _FaceOffCard extends StatelessWidget {
   }
 }
 
-// ─── Friendship panel: the one next step for this pairing ────────────────────
-//
-// Shown only when there is a real relationship to act on (a pending request in
-// either direction, a block) or when the player has actually met this rival.
-// The server accepts a uid request on that same basis, so the panel never
-// offers an action the callable would refuse. Once the two are friends it
-// disappears — the chip says FRIEND and management lives in the AppBar ⋯.
-class _FriendLinkPanel extends StatelessWidget {
-  final String? status;
+// ─── Compact AppBar friend control (sits beside the WP pill) ───────────────
+class _TopMiniButton extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final bool quiet;
   final bool busy;
-  final VoidCallback onAdd;
-  final VoidCallback onCancel;
-  final VoidCallback onAccept;
-  final VoidCallback onDecline;
-  final VoidCallback onUnblock;
+  final VoidCallback? onPressed;
 
-  const _FriendLinkPanel({
-    required this.status,
-    required this.busy,
-    required this.onAdd,
-    required this.onCancel,
-    required this.onAccept,
-    required this.onDecline,
-    required this.onUnblock,
+  const _TopMiniButton({
+    required this.label,
+    this.icon,
+    this.quiet = false,
+    this.busy = false,
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    final (IconData icon, Color accent, String title, String caption,
-        List<Widget> actions) = switch (status) {
-      'outgoing' => (
-          Icons.hourglass_top_rounded,
-          AppColors.secondary,
-          'Friend request sent',
-          'Waiting for them to answer.',
-          [
-            AppButton(
-              label: 'Cancel request',
-              variant: AppButtonVariant.outline,
-              size: AppButtonSize.small,
-              color: AppColors.textSecondary,
-              loading: busy,
-              onPressed: busy ? null : onCancel,
-            ),
-          ],
+    if (quiet) {
+      return TextButton(
+        onPressed: busy ? null : onPressed,
+        style: TextButton.styleFrom(
+          padding: EdgeInsets.symmetric(horizontal: 8.r),
+          minimumSize: Size(0, 32.h),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-      'incoming' => (
-          Icons.person_add_alt_1_rounded,
-          AppColors.gold,
-          'They want to be friends',
-          'Accepting adds them to your Friends board.',
-          [
-            AppButton(
-              label: 'Decline',
-              variant: AppButtonVariant.outline,
-              size: AppButtonSize.small,
-              color: AppColors.textSecondary,
-              onPressed: busy ? null : onDecline,
-            ),
-            AppButton(
-              label: 'Accept',
-              size: AppButtonSize.small,
-              loading: busy,
-              onPressed: busy ? null : onAccept,
-            ),
-          ],
-        ),
-      'blocked' => (
-          Icons.block_rounded,
-          AppColors.wrong,
-          'You blocked this player',
-          'Unblock to let them send a new request.',
-          [
-            AppButton(
-              label: 'Unblock',
-              variant: AppButtonVariant.outline,
-              size: AppButtonSize.small,
-              icon: const Icon(Icons.lock_open_rounded),
-              loading: busy,
-              onPressed: busy ? null : onUnblock,
-            ),
-          ],
-        ),
-      _ => (
-          Icons.person_add_alt_1_rounded,
-          AppColors.primary,
-          'Not friends yet',
-          'Add them to spar freely and see each other on the Friends board.',
-          [
-            AppButton(
-              label: 'Add friend',
-              size: AppButtonSize.small,
-              icon: const Icon(Icons.person_add_alt_1_rounded),
-              loading: busy,
-              onPressed: busy ? null : onAdd,
-            ),
-          ],
-        ),
-    };
-
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: accent.withValues(alpha: 0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 17.r, color: accent),
-              SizedBox(width: 8.w),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12.5.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+        child: Text(
+          label,
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12.sp,
+            fontWeight: FontWeight.w800,
           ),
-          SizedBox(height: 3.h),
-          Text(
-            caption,
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 11.sp,
-              fontWeight: FontWeight.w600,
-              height: 1.35,
-            ),
+        ),
+      );
+    }
+    return Padding(
+      padding: EdgeInsets.only(right: 2.r),
+      child: Center(
+        child: SizedBox(
+          height: 32.h,
+          child: AppButton(
+            label: label,
+            variant: AppButtonVariant.secondary,
+            size: AppButtonSize.small,
+            icon: icon == null ? null : Icon(icon, size: 14.r),
+            loading: busy,
+            onPressed: busy ? null : onPressed,
           ),
-          SizedBox(height: 10.h),
-          Wrap(
-            spacing: 8.w,
-            runSpacing: 8.h,
-            children: actions,
-          ),
-        ],
+        ),
       ),
     );
   }

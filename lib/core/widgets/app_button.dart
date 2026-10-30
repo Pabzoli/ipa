@@ -54,25 +54,22 @@ class AppButton extends StatelessWidget {
 
     switch (variant) {
       case AppButtonVariant.primary:
-        backgroundColor = isEnabled
-            ? (color ?? AppColors.primary)
-            : AppColors.divider;
+        backgroundColor =
+            isEnabled ? (color ?? AppColors.primary) : AppColors.divider;
         foregroundColor = isEnabled ? Colors.white : AppColors.textMuted;
         borderColor = null;
         gradient = null;
         break;
       case AppButtonVariant.secondary:
-        backgroundColor = isEnabled
-            ? (color ?? AppColors.secondary)
-            : AppColors.divider;
+        backgroundColor =
+            isEnabled ? (color ?? AppColors.secondary) : AppColors.divider;
         foregroundColor = isEnabled ? Colors.white : AppColors.textMuted;
         borderColor = null;
         gradient = null;
         break;
       case AppButtonVariant.gradient:
-        backgroundColor = isEnabled
-            ? (color ?? AppColors.primary)
-            : AppColors.divider;
+        backgroundColor =
+            isEnabled ? (color ?? AppColors.primary) : AppColors.divider;
         foregroundColor = isEnabled ? Colors.white : AppColors.textMuted;
         borderColor = null;
         gradient = isEnabled
@@ -128,7 +125,12 @@ class AppButton extends StatelessWidget {
         break;
     }
 
-    final effectiveHeight = height ?? (size == AppButtonSize.small ? 40.0 : size == AppButtonSize.medium ? 48.0 : 56.0);
+    final effectiveHeight = height ??
+        (size == AppButtonSize.small
+            ? 40.0
+            : size == AppButtonSize.medium
+                ? 48.0
+                : 56.0);
 
     final child = loading
         ? SizedBox(
@@ -179,9 +181,9 @@ class AppButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(radius),
         border: edge == null ? null : Border.all(color: edge, width: 1.5),
         boxShadow: (variant == AppButtonVariant.primary ||
-                variant == AppButtonVariant.secondary ||
-                variant == AppButtonVariant.gradient) &&
-            isEnabled
+                    variant == AppButtonVariant.secondary ||
+                    variant == AppButtonVariant.gradient) &&
+                isEnabled
             ? [
                 BoxShadow(
                   color: backgroundColor.withValues(alpha: 0.3),

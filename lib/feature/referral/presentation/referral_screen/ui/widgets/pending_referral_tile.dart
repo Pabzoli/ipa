@@ -30,8 +30,7 @@ class PendingReferralTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final expiryLabel = _expiryLabel(expiresAt);
-    final quizProgress =
-        (quizzesCompleted / quizzesRequired).clamp(0.0, 1.0);
+    final quizProgress = (quizzesCompleted / quizzesRequired).clamp(0.0, 1.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

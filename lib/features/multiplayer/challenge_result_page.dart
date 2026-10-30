@@ -203,7 +203,8 @@ class _ResultBodyState extends State<_ResultBody>
         curve: const Interval(0.1, 0.75, curve: Curves.easeOut),
       ),
     );
-    _scoreAnim = CurvedAnimation(parent: _scoreCtrl, curve: Curves.easeOutCubic);
+    _scoreAnim =
+        CurvedAnimation(parent: _scoreCtrl, curve: Curves.easeOutCubic);
 
     _pageCtrl.forward();
     if (c.isSettled) _playOutcome();
@@ -291,8 +292,7 @@ class _ResultBodyState extends State<_ResultBody>
                 ),
 
               // ── Rewards + match facts ─────────────────────────────────
-              if (showOutcome)
-                _MatchSummaryCard(challenge: c, currentUid: uid),
+              if (showOutcome) _MatchSummaryCard(challenge: c, currentUid: uid),
 
               SizedBox(height: 24.h),
 
@@ -350,8 +350,7 @@ class _HeaderRow extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(kind.icon,
-                  color: AppColors.readable(color), size: 13.r),
+              Icon(kind.icon, color: AppColors.readable(color), size: 13.r),
               SizedBox(width: 6.w),
               Text(
                 kind.shortLabel,
@@ -407,7 +406,8 @@ class _OutcomeHero extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _Medallion(emoji: fx.glyph, color: color, size: 72.r, glyphSize: 34.sp),
+          _Medallion(
+              emoji: fx.glyph, color: color, size: 72.r, glyphSize: 34.sp),
           SizedBox(height: 18.h),
           Text(
             fx.headline,
@@ -642,9 +642,8 @@ class _PlayerScore extends StatelessWidget {
       animation: animation,
       builder: (_, __) {
         final value = score;
-        final shown = value == null
-            ? '—'
-            : '${(value * animation.value).round()}';
+        final shown =
+            value == null ? '—' : '${(value * animation.value).round()}';
 
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -709,10 +708,10 @@ class _MatchSummaryCard extends StatelessWidget {
     final wp = challenge.wpTotalFor(won: won, isDraw: isDraw);
     final bounty =
         challenge.bountyWinnerUid == currentUid ? challenge.bountyWP : 0;
-    final seriesPrize = challenge.seriesWinnerUid == currentUid &&
-            challenge.seriesPrizePaid
-        ? _seriesPrizeAc
-        : 0;
+    final seriesPrize =
+        challenge.seriesWinnerUid == currentUid && challenge.seriesPrizePaid
+            ? _seriesPrizeAc
+            : 0;
 
     final hasRewards = ac > 0 || wp > 0 || bounty > 0 || seriesPrize > 0;
     final caption = _caption(won: won, isDraw: isDraw);
@@ -868,7 +867,8 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(text, style: AppTypography.labelSmall.copyWith(letterSpacing: 1));
+    return Text(text,
+        style: AppTypography.labelSmall.copyWith(letterSpacing: 1));
   }
 }
 
@@ -897,7 +897,8 @@ class _InfoRow extends StatelessWidget {
             textAlign: TextAlign.end,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+            style:
+                AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.w800),
           ),
         ),
       ],

@@ -10,6 +10,9 @@ import 'package:quiz/core/services/prize_pool_service.dart';
 /// this number to players as what #1 is competing for, and the same rule
 /// decides what they are actually paid on Sunday. Silent drift means quoting
 /// players a number they never receive.
+///
+/// The rule: the admin's fixed amount when one is set, otherwise unset (₦0).
+/// Entry revenue and the legacy floor never size the pool.
 Map<String, double> _cfPool({
   num? entryCodeRevenue,
   num? adminPoolNaira,
@@ -19,12 +22,8 @@ Map<String, double> _cfPool({
   final admin = adminPoolNaira?.toDouble() ?? double.nan;
   // const isFixedPool = Number.isFinite(adminPool) && adminPool > 0;
   final isFixedPool = admin.isFinite && admin > 0;
-  // const revenuePool = Math.max(entryRevenue * 0.70, floor);
-  final revenue = entryCodeRevenue?.toDouble() ?? 0;
-  final floor = guaranteedFloor?.toDouble() ?? 0;
-  final revenuePool = revenue * 0.70 > floor ? revenue * 0.70 : floor;
-  // const prizePool   = isFixedPool ? adminPool : revenuePool;
-  return {'amount': isFixedPool ? admin : revenuePool};
+  // const prizePool   = isFixedPool ? adminPool : 0;
+  return {'amount': isFixedPool ? admin : 0};
 }
 
 double _cfPoolAmount({
@@ -68,16 +67,16 @@ void main() {
       );
     }
 
-    test('revenue only: 70% of entry revenue', () {
+    test('no fixed pool means the pool is unset — sales never fund it', () {
       expectParity(
         entryCodeRevenue: 10000,
         guaranteedFloor: 0,
-        expected: 7000,
-        source: PoolSource.revenue,
+        expected: 0,
+        source: PoolSource.unset,
       );
     });
 
-    test('admin fixed pool REPLACES the revenue figure', () {
+    test('admin fixed pool IS the pool, regardless of sales', () {
       expectParity(
         entryCodeRevenue: 100000,
         adminPoolNaira: 25000,
@@ -87,7 +86,7 @@ void main() {
       );
     });
 
-    test('admin fixed pool wins even when the floor is higher', () {
+    test('admin fixed pool wins even when revenue and floor are higher', () {
       expectParity(
         entryCodeRevenue: 1000,
         adminPoolNaira: 5000,
@@ -97,57 +96,56 @@ void main() {
       );
     });
 
-    test('adminPoolNaira of 0 is NOT an override (CF requires > 0)', () {
+    test('adminPoolNaira of 0 leaves the pool unset (CF requires > 0)', () {
       expectParity(
         entryCodeRevenue: 10000,
         adminPoolNaira: 0,
         guaranteedFloor: 0,
-        expected: 7000,
-        source: PoolSource.revenue,
+        expected: 0,
+        source: PoolSource.unset,
       );
     });
 
-    test('negative adminPoolNaira is NOT an override', () {
+    test('negative adminPoolNaira leaves the pool unset', () {
       expectParity(
         entryCodeRevenue: 10000,
         adminPoolNaira: -500,
         guaranteedFloor: 0,
-        expected: 7000,
-        source: PoolSource.revenue,
+        expected: 0,
+        source: PoolSource.unset,
       );
     });
 
-    test('low revenue is lifted to the guaranteed floor', () {
+    test('the floor no longer tops anything up', () {
       expectParity(
         entryCodeRevenue: 1000,
         guaranteedFloor: 20000,
-        expected: 20000,
-        source: PoolSource.floor,
+        expected: 0,
+        source: PoolSource.unset,
       );
     });
 
-    test('floor exactly equal to the revenue pool keeps the revenue source',
+    test('a legacy floor input equal to old revenue math still leaves it unset',
         () {
-      // 70% of 10000 == 7000 == floor. The CF's Math.max returns 7000 either
-      // way, so only the amount is contractual; the label is ours to choose.
+      // The floor is retired: it never sizes the pool, whatever it equals.
       expectParity(
         entryCodeRevenue: 10000,
         guaranteedFloor: 7000,
-        expected: 7000,
-        source: PoolSource.revenue,
+        expected: 0,
+        source: PoolSource.unset,
       );
     });
 
-    test('no revenue and no floor yields a zero pool', () {
+    test('no revenue and no pool yields a zero pool', () {
       expectParity(
         entryCodeRevenue: 0,
         guaranteedFloor: 0,
         expected: 0,
-        source: PoolSource.revenue,
+        source: PoolSource.unset,
       );
     });
 
-    test('missing fields (null) degrade to zero, never NaN', () {
+    test('missing fields (null) degrade to unset, never NaN', () {
       final p = PrizePoolService.projectPrizePool(
         entryCodeRevenue: null,
         adminPoolNaira: null,
@@ -155,14 +153,15 @@ void main() {
       );
       expect(p.amount, 0);
       expect(p.amount.isNaN, isFalse);
+      expect(p.source, PoolSource.unset);
     });
 
-    test('missing revenue but a floor still surfaces the floor', () {
+    test('missing revenue with a floor still leaves the pool unset', () {
       expectParity(
         entryCodeRevenue: null,
         guaranteedFloor: 30000,
-        expected: 30000,
-        source: PoolSource.floor,
+        expected: 0,
+        source: PoolSource.unset,
       );
     });
 
@@ -176,7 +175,7 @@ void main() {
       expect(p.guaranteedFloor, 5000);
       expect(p.adminPoolNaira, 15000);
       expect(p.isFixed, isTrue);
-      expect(p.isFloored, isFalse);
+      expect(p.isUnset, isFalse);
     });
   });
 

@@ -164,7 +164,8 @@ class _TermsAcceptCheckbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = AppTypography.bodyMedium.copyWith(color: AppColors.textPrimary);
+    final base =
+        AppTypography.bodyMedium.copyWith(color: AppColors.textPrimary);
     final link = base.copyWith(
       color: AppColors.primaryText,
       fontWeight: FontWeight.w800,
@@ -191,9 +192,15 @@ class _TermsAcceptCheckbox extends StatelessWidget {
                 style: base,
                 children: [
                   const TextSpan(text: 'I agree to the '),
-                  TextSpan(text: 'Terms of Service', style: link, recognizer: termsTap),
+                  TextSpan(
+                      text: 'Terms of Service',
+                      style: link,
+                      recognizer: termsTap),
                   const TextSpan(text: ' and '),
-                  TextSpan(text: 'Privacy Policy', style: link, recognizer: privacyTap),
+                  TextSpan(
+                      text: 'Privacy Policy',
+                      style: link,
+                      recognizer: privacyTap),
                   const TextSpan(text: '.'),
                 ],
               ),

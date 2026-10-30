@@ -23,8 +23,7 @@ import '../../core/constants/solo_economy.dart';
 
 /// Achievement purple: a fill hue that is too light for small text on white.
 const Color _kPurple = Color(0xFF8B5CF6);
-Color get _purpleText =>
-    AppColors.isDark ? _kPurple : const Color(0xFF6D28D9);
+Color get _purpleText => AppColors.isDark ? _kPurple : const Color(0xFF6D28D9);
 
 class SoloSummaryPage extends StatefulWidget {
   final int correctCount;
@@ -256,11 +255,11 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
       // A stale lock (e.g. a run left open elsewhere) blocks the replay
       // spend — name it instead of the generic message so the player knows
       // the Clear-run path on the home screen will fix it.
-      final msg = e.code == 'failed-precondition' &&
-              e.message == 'run_in_progress'
-          ? 'Finish your current run before starting another. '
-              'Clear it from the home screen, then try again.'
-          : 'Something went wrong — please try again.';
+      final msg =
+          e.code == 'failed-precondition' && e.message == 'run_in_progress'
+              ? 'Finish your current run before starting another. '
+                  'Clear it from the home screen, then try again.'
+              : 'Something went wrong — please try again.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg)),
       );
@@ -389,8 +388,7 @@ class _SoloSummaryPageState extends State<SoloSummaryPage>
                               ? 'Try Again  —  $kSoloRetryCost🪙'
                               : 'Try Again  —  Premium only',
                           icon: isPremium
-                              ? Text('🔄',
-                                  style: TextStyle(fontSize: 13.sp))
+                              ? Text('🔄', style: TextStyle(fontSize: 13.sp))
                               : Icon(Icons.lock_rounded),
                           variant: AppButtonVariant.outline,
                           color: isPremium
@@ -494,7 +492,8 @@ class _ResultHero extends StatelessWidget {
           end: Alignment.bottomCenter,
         ),
         borderRadius: BorderRadius.circular(24.r),
-        border: Border.all(color: tier.color.withValues(alpha: 0.25), width: 1.2),
+        border:
+            Border.all(color: tier.color.withValues(alpha: 0.25), width: 1.2),
       ),
       child: Column(
         children: [
@@ -505,8 +504,8 @@ class _ResultHero extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: tier.color.withValues(alpha: 0.16),
-              border:
-                  Border.all(color: tier.color.withValues(alpha: 0.4), width: 1.5),
+              border: Border.all(
+                  color: tier.color.withValues(alpha: 0.4), width: 1.5),
             ),
             child: Center(
               child: Text(tier.emoji, style: TextStyle(fontSize: 34.sp)),
@@ -595,8 +594,7 @@ class _StatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasRewards =
-        coinsEarned > 0 || wpEarned > 0 || achievementCoins > 0;
+    final hasRewards = coinsEarned > 0 || wpEarned > 0 || achievementCoins > 0;
 
     return Container(
       padding: EdgeInsets.all(18.r),
@@ -609,8 +607,7 @@ class _StatsCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // ── Difficulty badge (solo only) ────────────────────────
-          if (!isGauntlet)
-            _DifficultyPill(difficulty: soloDifficulty),
+          if (!isGauntlet) _DifficultyPill(difficulty: soloDifficulty),
           if (!isGauntlet) SizedBox(height: 14.h),
           // ── Accuracy ────────────────────────────────────────────
           Row(
@@ -681,8 +678,7 @@ class _StatsCard extends StatelessWidget {
             if (achievementCoins > 0) ...[
               SizedBox(height: 12.h),
               Container(
-                padding: EdgeInsets.symmetric(
-                    horizontal: 12.r, vertical: 10.r),
+                padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 10.r),
                 decoration: BoxDecoration(
                   color: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(14.r),
@@ -721,8 +717,9 @@ class _StatsCard extends StatelessWidget {
               children: titles.map((t) {
                 final display = t
                     .split(' ')
-                    .map((w) =>
-                        w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+                    .map((w) => w.isEmpty
+                        ? w
+                        : '${w[0].toUpperCase()}${w.substring(1)}')
                     .join(' ');
                 return AppChip(
                   label: display,
@@ -812,7 +809,8 @@ class _RewardBlock extends StatelessWidget {
     return Row(
       children: [
         if (emoji != null) Text(emoji!, style: TextStyle(fontSize: 18.sp)),
-        if (icon != null) Icon(icon, color: AppColors.readable(color), size: 18.r),
+        if (icon != null)
+          Icon(icon, color: AppColors.readable(color), size: 18.r),
         SizedBox(width: 8.w),
         Expanded(
           child: Column(

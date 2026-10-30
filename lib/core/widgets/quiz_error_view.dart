@@ -5,7 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import 'app_button.dart';
 
 class QuizErrorView extends StatefulWidget {
-  final String       message;
+  final String message;
   final VoidCallback onRetry;
 
   const QuizErrorView({
@@ -37,11 +37,11 @@ class _QuizErrorViewState extends State<QuizErrorView> {
           children: [
             ExcludeSemantics(
               child: Container(
-                width:  72,
+                width: 72,
                 height: 72,
                 decoration: BoxDecoration(
-                  color:  AppColors.wrong.withValues(alpha: 0.1),
-                  shape:  BoxShape.circle,
+                  color: AppColors.wrong.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
                   border: Border.all(
                     color: AppColors.wrong.withValues(alpha: 0.25),
                     width: 1.5,
@@ -58,9 +58,9 @@ class _QuizErrorViewState extends State<QuizErrorView> {
               child: Text(
                 widget.message,
                 style: TextStyle(
-                  color:    AppColors.textSecondary,
+                  color: AppColors.textSecondary,
                   fontSize: 15.sp,
-                  height:   1.5,
+                  height: 1.5,
                 ),
                 textAlign: TextAlign.center,
               ),

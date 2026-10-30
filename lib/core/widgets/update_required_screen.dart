@@ -78,7 +78,8 @@ class _UpdateRequiredScreenState extends State<UpdateRequiredScreen> {
       children: [
         Center(
           child: Container(
-            width: 96.r, height: 96.r,
+            width: 96.r,
+            height: 96.r,
             decoration: BoxDecoration(
               color: AppColors.primary.withValues(alpha: 0.12),
               shape: BoxShape.circle,
@@ -130,13 +131,13 @@ class _UpdateRequiredScreenState extends State<UpdateRequiredScreen> {
           ),
         ),
         SizedBox(height: 32.r),
-
         if (_s.apkUrl != null) ...[
           FilledButton.icon(
             onPressed: _working ? null : _openApk,
             icon: _working
                 ? const SizedBox(
-                    width: 18, height: 18,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white),
                   )
@@ -192,7 +193,6 @@ class _UpdateRequiredScreenState extends State<UpdateRequiredScreen> {
               ),
             ),
           ),
-
         if (_error != null) ...[
           SizedBox(height: 20.r),
           Text(
@@ -234,8 +234,8 @@ class _UpdateRequiredScreenState extends State<UpdateRequiredScreen> {
     if (!ok) {
       // A failed launch is usually "no browser installed to handle the
       // intent". Show the raw URL so the user can still get the file.
-      setState(() => _error =
-          'Could not open the download automatically.\n\n$url');
+      setState(
+          () => _error = 'Could not open the download automatically.\n\n$url');
     }
   }
 }

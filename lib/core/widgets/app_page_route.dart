@@ -9,8 +9,7 @@ class AppPageRoute<T> extends PageRouteBuilder<T> {
           reverseTransitionDuration: duration,
           pageBuilder: (context, animation, secondaryAnimation) =>
               builder(context),
-          transitionsBuilder:
-              (context, animation, secondaryAnimation, child) {
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
             final curved = CurvedAnimation(
               parent: animation,
               curve: Curves.easeOutCubic,

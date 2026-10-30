@@ -34,6 +34,7 @@ describe('leaderboard payout audit fixes', () => {
     const weekId = H.thisWeekId();
     await H.setDoc(db, `prize_pool/${weekId}`, {
       weekId, status: 'active', totalNaira: 0, entryCodeRevenue: 1000,
+      adminPoolNaira: 700,
     });
     // The highest scorer never bought an entry: must NOT be announced a winner.
     await H.mkUser(db, 'NOENTRY', {
@@ -53,7 +54,7 @@ describe('leaderboard payout audit fixes', () => {
 
     const pool = await H.getDoc(db, `prize_pool/${weekId}`);
     assert.deepEqual(pool.winners.map((w) => w.uid), ['E1', 'E2']);
-    // 70% of ₦1,000 = ₦700 → 50% and 30%. Never ₦0.
+    // Fixed pool of ₦700 → 50% and 30%. Never ₦0.
     assert.equal(pool.winners[0].prize, 350);
     assert.equal(pool.winners[1].prize, 210);
 
@@ -61,6 +62,25 @@ describe('leaderboard payout audit fixes', () => {
     assert.deepEqual(cycle.ranked.map((r) => r.uid), ['E1', 'E2']);
     assert.equal(cycle.ranked[0].share, pool.winners[0].prize,
       'the announced prize must equal the payable share');
+  });
+
+  it('weeklyReset: a week with no admin pool closes unset with zero shares', async () => {
+    const weekId = H.thisWeekId();
+    await H.setDoc(db, `prize_pool/${weekId}`, {
+      weekId, status: 'active', totalNaira: 0, entryCodeRevenue: 1000,
+    });
+    await H.mkUser(db, 'E1', {
+      username: 'E1', university: 'UNILAG', weeklyPoints: 8000,
+      leaderboardEntryWeekId: weekId, fcmToken: 'e1-token',
+    });
+
+    await fns.weeklyReset.run({});
+
+    const cycle = await H.getDoc(db, `leaderboardCycles/${weekId}`);
+    assert.equal(cycle.prizePool, 0, 'no admin pool means no pool');
+    assert.equal(cycle.poolSource, 'unset');
+    assert.deepEqual(cycle.ranked.map((r) => r.share), [0],
+      'entry sales never fund the pool');
   });
 
   it('submitPayoutDetails: a zero-share rank cannot submit a payout', async () => {

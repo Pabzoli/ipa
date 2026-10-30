@@ -26,7 +26,8 @@ Future<bool> confirmAccountDeletion(BuildContext context) async {
     builder: (_) => AlertDialog(
       backgroundColor: AppColors.surface,
       title: Text('Delete account?',
-          style: TextStyle(color: AppColors.errorText, fontWeight: FontWeight.w900)),
+          style: TextStyle(
+              color: AppColors.errorText, fontWeight: FontWeight.w900)),
       content: Text(
         'This permanently deletes your account, profile, match history, '
         'bank details and gameplay data. This cannot be '
@@ -44,7 +45,8 @@ Future<bool> confirmAccountDeletion(BuildContext context) async {
         TextButton(
           onPressed: () => Navigator.pop(context, true),
           child: Text('Delete forever',
-              style: TextStyle(color: AppColors.errorText, fontWeight: FontWeight.w900)),
+              style: TextStyle(
+                  color: AppColors.errorText, fontWeight: FontWeight.w900)),
         ),
       ],
     ),
@@ -58,14 +60,18 @@ Future<bool> confirmAccountDeletion(BuildContext context) async {
 /// because the UI has to disclose it — telling a user "everything was deleted"
 /// while quietly keeping financial records would itself be a privacy problem.
 class DeleteAccountResult {
-  final bool    success;
-  final String? error;          // user-facing message, non-null iff !success
-  final int     retainedCount;  // records kept for legal/accounting reasons
+  final bool success;
+  final String? error; // user-facing message, non-null iff !success
+  final int retainedCount; // records kept for legal/accounting reasons
 
   const DeleteAccountResult.ok(int retained)
-      : success = true, error = null, retainedCount = retained;
+      : success = true,
+        error = null,
+        retainedCount = retained;
   const DeleteAccountResult.failed(String message)
-      : success = false, error = message, retainedCount = 0;
+      : success = false,
+        error = message,
+        retainedCount = 0;
 }
 
 /// Performs the deletion. [onBusy] is called with true before the request and

@@ -21,8 +21,7 @@ class SoloDifficultyProvider extends ChangeNotifier {
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _difficulty =
-          normalizeSoloDifficulty(prefs.getString(prefsKey));
+      _difficulty = normalizeSoloDifficulty(prefs.getString(prefsKey));
     } catch (_) {
       _difficulty = 'easy';
     }

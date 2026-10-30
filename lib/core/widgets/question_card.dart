@@ -34,7 +34,7 @@ class QuestionCardWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<QuizController>();
-    final q    = ctrl.currentQuestion;
+    final q = ctrl.currentQuestion;
     if (q == null) return const SizedBox.shrink();
 
     return Padding(
@@ -47,19 +47,18 @@ class QuestionCardWidget extends StatelessWidget {
             BoxShadow(
               color: AppColors.shadow,
               blurRadius: 32,
-              offset:     const Offset(0, 8),
+              offset: const Offset(0, 8),
             ),
             BoxShadow(
-              color:
-                  AppColors.primary.withValues(alpha: 0.07),
-              blurRadius:   40,
+              color: AppColors.primary.withValues(alpha: 0.07),
+              blurRadius: 40,
               spreadRadius: -4,
             ),
           ],
         ),
         child: Card(
           // TODO: migrate to Theme.of(context).colorScheme.surfaceContainerHigh
-          color:     AppColors.surface,
+          color: AppColors.surface,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.feature),
@@ -74,7 +73,7 @@ class QuestionCardWidget extends StatelessWidget {
               children: [
                 // Animated ghost watermark — decorative only, excluded from a11y
                 Positioned(
-                  top:   -10,
+                  top: -10,
                   right: -4,
                   child: ExcludeSemantics(
                     child: AnimatedSwitcher(
@@ -83,13 +82,12 @@ class QuestionCardWidget extends StatelessWidget {
                           FadeTransition(opacity: animation, child: child),
                       child: Text(
                         '${ctrl.qIndex + 1}',
-                        key:   ValueKey(ctrl.qIndex),
+                        key: ValueKey(ctrl.qIndex),
                         style: TextStyle(
-                          color:
-                              AppColors.primary.withValues(alpha: 0.06),
-                          fontSize:   100,
+                          color: AppColors.primary.withValues(alpha: 0.06),
+                          fontSize: 100,
                           fontWeight: FontWeight.w900,
-                          height:     1,
+                          height: 1,
                         ),
                       ),
                     ),
@@ -106,10 +104,10 @@ class QuestionCardWidget extends StatelessWidget {
                       child: Text(
                         q.question,
                         style: TextStyle(
-                          color:         AppColors.textPrimary,
-                          fontSize:      19.sp,
-                          fontWeight:    FontWeight.w700,
-                          height:        1.5,
+                          color: AppColors.textPrimary,
+                          fontSize: 19.sp,
+                          fontWeight: FontWeight.w700,
+                          height: 1.5,
                           letterSpacing: -0.3,
                         ),
                       ),
@@ -136,8 +134,8 @@ class _AnimeTitleChip extends StatelessWidget {
     return Semantics(
       label: 'Anime: $title',
       child: Container(
-        padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md, vertical: 5),
+        padding:
+            const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 5),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -154,9 +152,9 @@ class _AnimeTitleChip extends StatelessWidget {
         child: Text(
           title.toUpperCase(),
           style: TextStyle(
-            color:         AppColors.primaryText,
-            fontSize:      10.sp,
-            fontWeight:    FontWeight.w800,
+            color: AppColors.primaryText,
+            fontSize: 10.sp,
+            fontWeight: FontWeight.w800,
             letterSpacing: 1.8,
           ),
         ),

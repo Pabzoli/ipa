@@ -28,8 +28,10 @@ FriendBoardEntry _friend(
 void main() {
   group('friendErrorMessage', () {
     test('maps every friend code to a plain sentence', () {
-      expect(friendErrorMessage('not_found'), 'No player found with that code.');
-      expect(friendErrorMessage('already_pending'), 'A request is already pending.');
+      expect(
+          friendErrorMessage('not_found'), 'No player found with that code.');
+      expect(friendErrorMessage('already_pending'),
+          'A request is already pending.');
       expect(
         friendErrorMessage('friend_limit_reached'),
         'Your friend list is full ($kFriendLimit). Remove a friend to add more.',
@@ -42,7 +44,8 @@ void main() {
         friendErrorMessage('request_cooldown'),
         'They turned your last request down. You can ask again in a week.',
       );
-      expect(friendErrorMessage('blocked'), 'You can\'t interact with this player.');
+      expect(friendErrorMessage('blocked'),
+          'You can\'t interact with this player.');
       expect(
         friendErrorMessage('nudge_limit_reached'),
         'You already nudged them today.',
@@ -50,8 +53,10 @@ void main() {
     });
 
     test('nudge turn codes share one message', () {
-      expect(friendErrorMessage('nothing_to_nudge'), 'Nothing needs them right now.');
-      expect(friendErrorMessage('not_their_turn'), 'Nothing needs them right now.');
+      expect(friendErrorMessage('nothing_to_nudge'),
+          'Nothing needs them right now.');
+      expect(friendErrorMessage('not_their_turn'),
+          'Nothing needs them right now.');
     });
 
     test('a nudge that could not be pushed says so and can be retried', () {
@@ -114,7 +119,9 @@ void main() {
 
     test('keeps each friend\'s turn flag and university', () {
       final rows = rankFriendsBoard(
-        friends: [_friend('b', points: 5, theirTurn: true, university: 'UNILAG')],
+        friends: [
+          _friend('b', points: 5, theirTurn: true, university: 'UNILAG')
+        ],
         myPoints: 1,
       );
       final b = rows.firstWhere((r) => !r.isMe);
@@ -130,7 +137,8 @@ void main() {
       expect(rows.single.rank, 1);
     });
 
-    test('friends where I owe a move sort first; ranks still follow points', () {
+    test('friends where I owe a move sort first; ranks still follow points',
+        () {
       final rows = rankFriendsBoard(
         friends: [
           _friend('b', points: 900),
@@ -158,7 +166,9 @@ void main() {
 
     test('carries nudged and played flags onto the row', () {
       final rows = rankFriendsBoard(
-        friends: [_friend('b', points: 5, nudgedToday: true, playedToday: true)],
+        friends: [
+          _friend('b', points: 5, nudgedToday: true, playedToday: true)
+        ],
         myPoints: 1,
       );
       final b = rows.firstWhere((r) => !r.isMe);
@@ -210,13 +220,16 @@ void main() {
       var notified = 0;
       void listener() => notified++;
       FriendsBoardFetch.friendNudgesToday.addListener(listener);
-      addTearDown(() => FriendsBoardFetch.friendNudgesToday.removeListener(listener));
+      addTearDown(
+          () => FriendsBoardFetch.friendNudgesToday.removeListener(listener));
 
       FriendsBoardFetch.markFriendNudgedToday('b');
       expect(notified, 1);
     });
 
-    test('clearing the board cache (sign-in or sign-out) forgets today\'s nudges', () {
+    test(
+        'clearing the board cache (sign-in or sign-out) forgets today\'s nudges',
+        () {
       FriendsBoardFetch.markFriendNudgedToday('b');
       FriendsBoardFetch.invalidateFriendsBoardCache();
       expect(FriendsBoardFetch.friendNudgesToday.value, isEmpty);

@@ -43,8 +43,10 @@ class _RegisterFormState extends State<RegisterForm> {
   @override
   void initState() {
     super.initState();
-    _termsTap = TapGestureRecognizer()..onTap = () => _open(const TermsOfServicePage());
-    _privacyTap = TapGestureRecognizer()..onTap = () => _open(const PrivacyPolicyPage());
+    _termsTap = TapGestureRecognizer()
+      ..onTap = () => _open(const TermsOfServicePage());
+    _privacyTap = TapGestureRecognizer()
+      ..onTap = () => _open(const PrivacyPolicyPage());
   }
 
   @override
@@ -83,7 +85,8 @@ class _RegisterFormState extends State<RegisterForm> {
     } on FirebaseAuthException catch (e) {
       _fail(_authError(e.code, e.message));
     } catch (_) {
-      _fail('Could not create your account. Check your connection and try again.');
+      _fail(
+          'Could not create your account. Check your connection and try again.');
     }
   }
 
@@ -200,8 +203,7 @@ class _RegisterFormState extends State<RegisterForm> {
               TextButton.icon(
                 onPressed: _loading
                     ? null
-                    : () =>
-                        setState(() => _showOptional = !_showOptional),
+                    : () => setState(() => _showOptional = !_showOptional),
                 icon: Icon(
                   _showOptional
                       ? Icons.expand_less_rounded
@@ -300,7 +302,8 @@ class _TermsCheckbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = AppTypography.bodyMedium.copyWith(color: AppColors.textPrimary);
+    final base =
+        AppTypography.bodyMedium.copyWith(color: AppColors.textPrimary);
     final link = base.copyWith(
       color: AppColors.primaryText,
       fontWeight: FontWeight.w800,
@@ -327,9 +330,15 @@ class _TermsCheckbox extends StatelessWidget {
                 style: base,
                 children: [
                   const TextSpan(text: 'I agree to the '),
-                  TextSpan(text: 'Terms of Service', style: link, recognizer: termsTap),
+                  TextSpan(
+                      text: 'Terms of Service',
+                      style: link,
+                      recognizer: termsTap),
                   const TextSpan(text: ' and '),
-                  TextSpan(text: 'Privacy Policy', style: link, recognizer: privacyTap),
+                  TextSpan(
+                      text: 'Privacy Policy',
+                      style: link,
+                      recognizer: privacyTap),
                   const TextSpan(text: '.'),
                 ],
               ),
@@ -362,8 +371,8 @@ class _UniversityDropdown extends StatelessWidget {
           color: AppColors.textMuted, size: 20.r),
       decoration: InputDecoration(
         labelText: 'University',
-        prefixIcon: Icon(Icons.school_outlined,
-            color: AppColors.textMuted, size: 20.r),
+        prefixIcon:
+            Icon(Icons.school_outlined, color: AppColors.textMuted, size: 20.r),
         contentPadding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 14.r),
       ),
       style: TextStyle(color: AppColors.textPrimary, fontSize: 15.sp),

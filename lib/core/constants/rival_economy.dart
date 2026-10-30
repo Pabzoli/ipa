@@ -75,6 +75,13 @@ const int kAcMaxStakePremium = 5000;
 const int kActiveChallengesFree = 3;
 const int kActiveChallengesPremium = 5;
 
+/// Walkaway fee for quitting a live duel (challenge or Quick Match) before
+/// your score is recorded. Server: QUIT_FEE_AC. Deducted in cancelRun on top
+/// of forfeiting the match, floored at zero so a broke player can still
+/// clear a stuck run. Without it, quitting to preview the fixed question set
+/// and replaying it was profitable.
+const int kChallengeQuitFeeAc = 100;
+
 /// Daily staked-duel create / join budget. Server: DAILY_CHALLENGE_CREATE_* /
 /// DAILY_CHALLENGE_JOIN_*. Keep the client copy in step with the server so a
 /// player is never blocked (or promised a slot) at the wrong number.

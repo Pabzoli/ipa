@@ -46,7 +46,7 @@ class QuizHeader extends StatelessWidget {
           const SizedBox(width: 14),
           _QuestionCounter(
             current: ctrl.qIndex + 1,
-            total:   ctrl.totalQuestions,
+            total: ctrl.totalQuestions,
           ),
           const Spacer(),
           _CoinPill(balance: ctrl.animeCoins),
@@ -55,11 +55,11 @@ class QuizHeader extends StatelessWidget {
           if (!ctrl.isGauntlet) ...[
             const SizedBox(width: 8),
             _HintButton(
-              coins:     ctrl.animeCoins,
+              coins: ctrl.animeCoins,
               hintsLeft: ctrl.hintsLeft,
               exhausted: ctrl.hintsExhausted,
               isLoading: ctrl.isHintLoading,
-              onTap:     ctrl.useHint,
+              onTap: ctrl.useHint,
             ),
           ],
         ],
@@ -77,23 +77,23 @@ class _CloseButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label:  'Quit quiz',
+      label: 'Quit quiz',
       button: true,
       child: GestureDetector(
-        onTap:     onTap,
-        behavior:  HitTestBehavior.opaque,
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
         child: Container(
-          width:  40,
+          width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color:  AppColors.surface,
-            shape:  BoxShape.circle,
+            color: AppColors.surface,
+            shape: BoxShape.circle,
             border: Border.all(color: AppColors.divider, width: 1),
           ),
           child: Icon(
             Icons.close_rounded,
             color: AppColors.textMuted,
-            size:  18,
+            size: 18,
           ),
         ),
       ),
@@ -119,19 +119,19 @@ class _QuestionCounter extends StatelessWidget {
               TextSpan(
                 text: '$current',
                 style: TextStyle(
-                  color:      AppColors.textPrimary,
-                  fontSize:   22,
+                  color: AppColors.textPrimary,
+                  fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  height:     1,
+                  height: 1,
                 ),
               ),
               TextSpan(
                 text: ' / $total',
                 style: TextStyle(
-                  color:      AppColors.textMuted,
-                  fontSize:   14,
+                  color: AppColors.textMuted,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  height:     1,
+                  height: 1,
                 ),
               ),
             ],
@@ -154,13 +154,11 @@ class _CoinPill extends StatelessWidget {
     return Semantics(
       label: '$balance anime coins',
       child: Container(
-        padding: EdgeInsets.symmetric(
-            horizontal: AppSpacing.md, vertical: 7),
+        padding: EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 7),
         decoration: BoxDecoration(
           color: accent.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(AppRadii.md),
-          border:
-              Border.all(color: accent.withValues(alpha: 0.3), width: 1),
+          border: Border.all(color: accent.withValues(alpha: 0.3), width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -172,21 +170,21 @@ class _CoinPill extends StatelessWidget {
               transitionBuilder: (child, animation) => SlideTransition(
                 position: Tween<Offset>(
                   begin: const Offset(0, 0.5),
-                  end:   Offset.zero,
+                  end: Offset.zero,
                 ).animate(animation),
                 child: FadeTransition(opacity: animation, child: child),
               ),
               child: FittedBox(
                 fit: BoxFit.scaleDown,
-                key:   ValueKey(balance),
+                key: ValueKey(balance),
                 child: Text(
                   '$balance',
                   // Key forces AnimatedSwitcher to treat each new value as a
                   // different child, triggering the slide-up transition.
                   style: TextStyle(
-                    color:         AppColors.readable(accent),
-                    fontWeight:    FontWeight.w800,
-                    fontSize:      14.sp,
+                    color: AppColors.readable(accent),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.sp,
                     letterSpacing: -0.3,
                   ),
                 ),
@@ -202,10 +200,10 @@ class _CoinPill extends StatelessWidget {
 // ── Hint button ────────────────────────────────────────────────────────────
 
 class _HintButton extends StatelessWidget {
-  final int          coins;
-  final int          hintsLeft;
-  final bool         exhausted;
-  final bool         isLoading;
+  final int coins;
+  final int hintsLeft;
+  final bool exhausted;
+  final bool isLoading;
   final VoidCallback onTap;
 
   const _HintButton({
@@ -219,10 +217,9 @@ class _HintButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canAfford = coins >= kHintCost;
-    final active    = !exhausted && canAfford && !isLoading;
-    final accent    = active || isLoading
-        ? AppColors.secondary
-        : AppColors.textMuted;
+    final active = !exhausted && canAfford && !isLoading;
+    final accent =
+        active || isLoading ? AppColors.secondary : AppColors.textMuted;
 
     final tooltip = isLoading
         ? 'Finding a wrong option…'
@@ -233,18 +230,18 @@ class _HintButton extends StatelessWidget {
                 : 'Hint  −$kHintCost 🪙  ($hintsLeft left)';
 
     return Semantics(
-      label:   tooltip,
-      button:  true,
+      label: tooltip,
+      button: true,
       enabled: active,
       child: Tooltip(
         message: tooltip,
         child: GestureDetector(
-          onTap:    active ? onTap : null,
+          onTap: active ? onTap : null,
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            curve:    Curves.easeOut,
-            padding:  EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+            curve: Curves.easeOut,
+            padding: EdgeInsets.symmetric(horizontal: 11, vertical: 7),
             decoration: BoxDecoration(
               color: active || isLoading
                   ? AppColors.secondary.withValues(alpha: 0.1)
@@ -285,19 +282,19 @@ class _HintButton extends StatelessWidget {
                   transitionBuilder: (child, animation) => SlideTransition(
                     position: Tween<Offset>(
                       begin: const Offset(0, 0.5),
-                      end:   Offset.zero,
+                      end: Offset.zero,
                     ).animate(animation),
                     child: FadeTransition(opacity: animation, child: child),
                   ),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    key:   ValueKey(hintsLeft),
+                    key: ValueKey(hintsLeft),
                     child: Text(
                       exhausted ? '0' : '$hintsLeft',
                       style: TextStyle(
-                        color:         accent,
-                        fontWeight:    FontWeight.w800,
-                        fontSize:      14.sp,
+                        color: accent,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14.sp,
                         letterSpacing: -0.3,
                       ),
                     ),
@@ -310,9 +307,8 @@ class _HintButton extends StatelessWidget {
                     child: Text(
                       '−$kHintCost🪙',
                       style: TextStyle(
-                        color:
-                            accent.withValues(alpha: 0.6),
-                        fontSize:   10.sp,
+                        color: accent.withValues(alpha: 0.6),
+                        fontSize: 10.sp,
                         fontWeight: FontWeight.w700,
                       ),
                     ),

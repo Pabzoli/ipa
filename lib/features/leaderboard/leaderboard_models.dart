@@ -128,7 +128,8 @@ class LeaderboardSnapshot {
   /// `prize_pool/{currentWeek}`.
   final Map<String, dynamic> pool;
 
-  /// `app_config/leaderboard_entry_config.guaranteedFloor`.
+  /// Legacy floor input. Always 0 under the fixed-pool model — kept so
+  /// pinned tests and old call sites keep compiling. Never sizes the pool.
   final double guaranteedFloor;
 
   /// The pool actually allocated last week, when a cycle has been calculated.

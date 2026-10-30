@@ -1,15 +1,15 @@
 {
   "version": "1.2.2",
-  "build": 7,
-  "file": "animequiz-7.apk",
-  "size": 67775199,
-  "released": "2026-10-28",
+  "build": 9,
+  "file": "animequiz-9.apk",
+  "size": 0,
+  "released": "2026-10-30",
   "minAndroid": "Android 7.0 (Nougat) or newer",
   "notes": [
-    "Email verification unlocks multiplayer, challenges, the leaderboard and payouts. Solo quizzes and gauntlets stay open while you verify.",
-    "Phone verification has been retired: no SMS step.",
-    "Referral rewards now require a verified email and the existing 3-quiz / 2-day activity rule.",
-    "Money calls need an account that is at least 7 days old, plus a verified email.",
-    "Security: account limits, disposable-email blocking and challenge farming caps are enforced on the server."
+    "Appearance control: System, Light or Dark.",
+    "Email verification unlocks multiplayer, challenges, the leaderboard and payouts. Phone verification retired.",
+    "Weekly pool is now a fixed amount set in advance; unset weeks show as not set.",
+    "Quitting a live duel now costs a 100 AC walkaway fee and forfeits the match.",
+    "Referral rewards need a verified email and the 3-quiz / 2-day rule; money calls need a 7-day-old account."
   ]
 }

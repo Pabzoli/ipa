@@ -23,7 +23,8 @@ String friendErrorMessage(String raw) {
   final s = raw.replaceFirst('Exception: ', '').trim();
   return switch (s) {
     'not_found' => 'No player found with that code.',
-    'inbox_full' => 'They can\'t accept more requests right now. Try again later.',
+    'inbox_full' =>
+      'They can\'t accept more requests right now. Try again later.',
     'request_limit_reached' =>
       'Daily request limit reached — 10 new requests per day.',
     'too_many_attempts' => 'Too many wrong codes today — try again tomorrow.',
@@ -35,7 +36,8 @@ String friendErrorMessage(String raw) {
     'peer_friend_limit' => 'They can\'t add more friends right now.',
     'request_cooldown' =>
       'They turned your last request down. You can ask again in a week.',
-    'cannot_accept_own_request' => 'That request is waiting for them to answer.',
+    'cannot_accept_own_request' =>
+      'That request is waiting for them to answer.',
     'not_pending' => 'That request is no longer pending.',
     'not_your_outgoing_request' => 'That request is no longer yours to cancel.',
     'not_blocked' => 'That player isn\'t blocked any more.',

@@ -123,8 +123,7 @@ class YourPositionCard extends StatelessWidget {
           if (!isEligible) ...[
             SizedBox(height: 12.h),
             Container(
-              padding:
-                  EdgeInsets.symmetric(horizontal: 10.r, vertical: 8.r),
+              padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 8.r),
               decoration: BoxDecoration(
                 color: AppColors.secondary.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10.r),
@@ -258,8 +257,9 @@ class _NextRankGap extends StatelessWidget {
       );
     }
 
-    final name =
-        (rivalName == null || rivalName!.isEmpty) ? 'the player above' : rivalName!;
+    final name = (rivalName == null || rivalName!.isEmpty)
+        ? 'the player above'
+        : rivalName!;
 
     // No overtake target resolved (an unranked neighbour, or a failed query):
     // state the goal rather than inventing a number.

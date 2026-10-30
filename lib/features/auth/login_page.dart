@@ -81,7 +81,8 @@ class _TermsGate extends StatelessWidget {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return const LoginPage();
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      stream:
+          FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
@@ -119,7 +120,8 @@ class _PostLoginGateState extends State<_PostLoginGate> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkDailyLoginBonus());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _checkDailyLoginBonus());
   }
 
   Future<void> _checkDailyLoginBonus() async {
@@ -278,7 +280,8 @@ class _LoginPageState extends State<LoginPage>
     try {
       await AuthService.instance.sendPasswordReset(email);
       if (mounted) {
-        setState(() => _notice = 'If an account exists, a reset email is on its way.');
+        setState(() =>
+            _notice = 'If an account exists, a reset email is on its way.');
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _error = _authError(e.code));

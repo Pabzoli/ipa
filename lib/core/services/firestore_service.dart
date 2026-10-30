@@ -756,7 +756,8 @@ class FirestoreService {
       ...AppUpdateService.instance.clientBuildStamp,
     });
     final data = Map<String, dynamic>.from(res.data as Map);
-    final raw = Map<String, dynamic>.from(data['expiresAt'] as Map? ?? const {});
+    final raw =
+        Map<String, dynamic>.from(data['expiresAt'] as Map? ?? const {});
     return SoloRunStart(
       expiresAt: raw.map((k, v) => MapEntry(k, (v as num).toInt())),
       sessionId: (data['sessionId'] as String?)?.trim() ?? '',
@@ -915,9 +916,8 @@ class FirestoreService {
   ) {
     final map = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
     for (final d in docs) {
-      final a = ((d.data()['animeTitle'] as String?) ?? '')
-          .trim()
-          .toLowerCase();
+      final a =
+          ((d.data()['animeTitle'] as String?) ?? '').trim().toLowerCase();
       map.putIfAbsent(a, () => []).add(d);
     }
     for (final list in map.values) {
@@ -936,10 +936,7 @@ class FirestoreService {
     final buckets = <String, Set<String>>{};
     if (_uid == null || titles.isEmpty) return buckets;
     const chunkSize = 10;
-    final distinct = titles
-        .toSet()
-        .map((t) => t.trim().toLowerCase())
-        .toList();
+    final distinct = titles.toSet().map((t) => t.trim().toLowerCase()).toList();
     for (int i = 0; i < distinct.length; i += chunkSize) {
       final chunk =
           distinct.sublist(i, (i + chunkSize).clamp(0, distinct.length));
@@ -951,11 +948,9 @@ class FirestoreService {
           .get(const GetOptions(source: Source.server));
       for (final doc in snap.docs) {
         final data = doc.data();
-        final a =
-            ((data['animeTitle'] as String?) ?? '').trim().toLowerCase();
-        var d = ((data['difficulty'] as String?) ?? 'medium')
-            .trim()
-            .toLowerCase();
+        final a = ((data['animeTitle'] as String?) ?? '').trim().toLowerCase();
+        var d =
+            ((data['difficulty'] as String?) ?? 'medium').trim().toLowerCase();
         if (d != 'easy' && d != 'medium' && d != 'hard') d = 'medium';
         buckets.putIfAbsent('$a::$d', () => <String>{}).add(doc.id);
       }
@@ -998,8 +993,7 @@ class FirestoreService {
     for (final k in keys) {
       seen.remove(k);
     }
-    tagged[tier] =
-        await _fetchTierPool(titles, tier, seenBuckets: seen);
+    tagged[tier] = await _fetchTierPool(titles, tier, seenBuckets: seen);
   }
 
   /// Tagged pool for one difficulty tier across [titles] (chunked for the
@@ -1023,9 +1017,8 @@ class FirestoreService {
           .where('difficulty', isEqualTo: difficulty)
           .get(const GetOptions(source: Source.server));
       out.addAll(snap.docs.where((d) {
-        final a = ((d.data()['animeTitle'] as String?) ?? '')
-            .trim()
-            .toLowerCase();
+        final a =
+            ((d.data()['animeTitle'] as String?) ?? '').trim().toLowerCase();
         return !(seenBuckets[_seenBucketKey(a, difficulty)]?.contains(d.id) ??
             false);
       }));
@@ -1059,9 +1052,7 @@ class FirestoreService {
         final isLegacy =
             !data.containsKey('difficulty') || data['difficulty'] == null;
         if (!isLegacy) return false;
-        final a = ((data['animeTitle'] as String?) ?? '')
-            .trim()
-            .toLowerCase();
+        final a = ((data['animeTitle'] as String?) ?? '').trim().toLowerCase();
         return !(seenBuckets[_seenBucketKey(a, 'medium')]?.contains(d.id) ??
             false);
       }));
@@ -1087,8 +1078,8 @@ class FirestoreService {
     required List<String> titles,
   }) {
     // Per-tier per-anime queues (each queue pre-shuffled).
-    final perTierAnime =
-        <String, Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>>{
+    final perTierAnime = <String,
+        Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>>{
       for (final tier in const ['easy', 'medium', 'hard'])
         tier: _groupDocsByAnime(tagged[tier] ?? const []),
     };
@@ -1283,8 +1274,7 @@ class FirestoreService {
       throw Exception('No anime titles provided.');
     }
 
-    final mix =
-        kSoloDifficultyMixes[normalizeSoloDifficulty(difficulty)]!;
+    final mix = kSoloDifficultyMixes[normalizeSoloDifficulty(difficulty)]!;
     final easyNeed = mix['easy']!;
     final mediumNeed = mix['medium']!;
     final hardNeed = mix['hard']!;
@@ -1309,21 +1299,28 @@ class FirestoreService {
       'hard': await _fetchTierPool(normalized, 'hard', seenBuckets: seen),
     };
     await _resetTierBucketIfShort(
-        titles: normalized, tier: 'easy', need: easyNeed,
-        tagged: tagged, seen: seen);
+        titles: normalized,
+        tier: 'easy',
+        need: easyNeed,
+        tagged: tagged,
+        seen: seen);
     await _resetTierBucketIfShort(
-        titles: normalized, tier: 'medium', need: mediumNeed,
-        tagged: tagged, seen: seen);
+        titles: normalized,
+        tier: 'medium',
+        need: mediumNeed,
+        tagged: tagged,
+        seen: seen);
     await _resetTierBucketIfShort(
-        titles: normalized, tier: 'hard', need: hardNeed,
-        tagged: tagged, seen: seen);
+        titles: normalized,
+        tier: 'hard',
+        need: hardNeed,
+        tagged: tagged,
+        seen: seen);
 
     // Interleaved deal order: E,M,H round-robin (starts easy, ends easy).
     final slotOrder = <String>[
       for (int i = 0;
-          i <
-              [easyNeed, mediumNeed, hardNeed]
-                  .reduce((a, b) => a > b ? a : b);
+          i < [easyNeed, mediumNeed, hardNeed].reduce((a, b) => a > b ? a : b);
           i++) ...[
         if (i < easyNeed) 'easy',
         if (i < mediumNeed) 'medium',
@@ -1341,8 +1338,7 @@ class FirestoreService {
       // Whole unseen pool (tagged + legacy) exhausted: reset the medium
       // buckets (legacy source of truth lives there) and refetch legacy
       // unfiltered. Tagged tiers were already reset individually above.
-      final mKeys =
-          normalized.map((t) => _seenBucketKey(t, 'medium')).toSet();
+      final mKeys = normalized.map((t) => _seenBucketKey(t, 'medium')).toSet();
       debugPrint(
         '[FirestoreService] total unseen pool short '
         '(${taggedHave + legacy.length}/$need) �?resetting medium buckets',
@@ -1849,11 +1845,11 @@ class FirestoreService {
         '${prev.day.toString().padLeft(2, '0')}';
   }
 
-/// One-shot read of `prize_pool/{currentWeek}`.
+  /// One-shot read of `prize_pool/{currentWeek}`.
   ///
-  /// Carries the three inputs the weekly reset actually pools from:
-  /// `entryCodeRevenue` (accrued by redeemCode), `adminPoolNaira` (optional
-  /// admin override) and `status`. Feed these into
+  /// Carries the pool inputs: `entryCodeRevenue` (accrued by redeemCode,
+  /// accounting only), `adminPoolNaira` (the fixed pool — the only thing
+  /// that sizes it) and `status`. Feed these into
   /// [PrizePoolService.projectPrizePool] rather than showing `totalNaira` �?
   /// `totalNaira` is legacy ad revenue that the reset never reads, so it is
   /// NOT the number anyone is paid.
@@ -1868,10 +1864,8 @@ class FirestoreService {
   /// whole leaderboard.
   Future<Map<String, dynamic>> fetchPrizePool() async {
     try {
-      final snap = await _db
-          .collection('prize_pool')
-          .doc(currentWeekId())
-          .get();
+      final snap =
+          await _db.collection('prize_pool').doc(currentWeekId()).get();
       return snap.data() ??
           <String, dynamic>{
             'totalNaira': 0.0,
@@ -1908,17 +1902,17 @@ class FirestoreService {
         );
   }
 
-  // ─── Guaranteed entry floor (app_config/leaderboard_entry_config) ─────────
+  // ─── Guaranteed entry floor (retired) ───────────────────────────────────
 
   static double? _floorCache;
   static DateTime? _floorCacheTime;
 
-  /// `app_config/leaderboard_entry_config.guaranteedFloor` �?the
-  /// developer-funded minimum weekly pool, set by `setLeaderboardFloor`.
+  /// Legacy floor reader, retained for back-compat only.
   ///
-  /// Readable by any authenticated client (firestore.rules). It is an
-  /// admin-set constant that changes rarely, so it is cached for 30 minutes
-  /// rather than held open as a second live listener.
+  /// The fixed-pool model has no floor: `runWeeklyReset` sizes the pool from
+  /// `adminPoolNaira` alone and records `guaranteedFloor: 0`. No live call
+  /// site uses this anymore; new code must not call it.
+  @Deprecated('Fixed-pool model has no floor; do not call.')
   Future<double> guaranteedFloor() async {
     final cached = _floorCache;
     final at = _floorCacheTime;
@@ -1967,8 +1961,7 @@ class FirestoreService {
       return cached;
     }
     try {
-      final snap =
-          await _db.collection('leaderboardCycles').doc(week).get();
+      final snap = await _db.collection('leaderboardCycles').doc(week).get();
       if (!snap.exists) {
         _lastPoolCacheWeek = week;
         _lastPoolCache = null;
@@ -2367,8 +2360,7 @@ class FirestoreService {
       if (rUid.isEmpty || rUid == 'ghost') continue;
       final name = (data['opponent'] as String?) ?? 'Rival';
       final outcome = data['outcome'] as String?;
-      final ts =
-          (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+      final ts = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
       var entry = byUid[rUid];
       if (entry == null) {
         entry = RivalSummary(
@@ -2462,10 +2454,8 @@ class FirestoreService {
     if (me == null || otherUids.isEmpty) return {};
     final entries = await Future.wait(otherUids.map((u) async {
       try {
-        final snap = await _db
-            .collection('rivalries')
-            .doc(rivalryDocId(me, u))
-            .get();
+        final snap =
+            await _db.collection('rivalries').doc(rivalryDocId(me, u)).get();
         return MapEntry<String, Map<String, dynamic>?>(u, snap.data());
       } catch (_) {
         return MapEntry<String, Map<String, dynamic>?>(u, null);
@@ -2494,7 +2484,9 @@ class FirestoreService {
     final out = <RivalCandidate>[];
     for (final doc in snap.docs) {
       if (doc.id == _uid) continue;
-      if (kBoardHiddenUids.contains(doc.id)) continue; // ghost admin: never a rival
+      if (kBoardHiddenUids.contains(doc.id)) {
+        continue; // ghost admin: never a rival
+      }
       final data = doc.data();
       out.add(RivalCandidate(
         uid: doc.id,
@@ -2626,8 +2618,7 @@ class FirestoreService {
   Future<Map<String, dynamic>?> getLeaderboardCycle(String weekId) async {
     if (_uid == null) return null;
     try {
-      final snap =
-          await _db.collection('leaderboardCycles').doc(weekId).get();
+      final snap = await _db.collection('leaderboardCycles').doc(weekId).get();
       return snap.exists ? snap.data() : null;
     } catch (e) {
       debugPrint('[FirestoreService] getLeaderboardCycle error: $e');
@@ -2685,10 +2676,8 @@ class FirestoreService {
 
         String? claimStatus;
         try {
-          final claim = await doc.reference
-              .collection('pendingClaim')
-              .doc(uid)
-              .get();
+          final claim =
+              await doc.reference.collection('pendingClaim').doc(uid).get();
           if (claim.exists) {
             claimStatus = claim.data()?['status'] as String?;
           }
@@ -2905,7 +2894,8 @@ class FirestoreService {
   /// Throws [FirebaseFunctionsException]: not_friends / not_their_turn /
   /// nothing_to_nudge / nudge_limit_reached / nudge_not_delivered. Success and
   /// nudge_limit_reached both update [FriendsBoardFetch.friendNudgesToday].
-  Future<void> nudgeFriend({required String friendUid, String? challengeId}) async {
+  Future<void> nudgeFriend(
+      {required String friendUid, String? challengeId}) async {
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('nudgeFriend');
     try {
@@ -3065,8 +3055,8 @@ extension FriendsBoardFetch on FirestoreService {
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('getFriendsBoard');
-      final res = await callable.call(
-          {...AppUpdateService.instance.clientBuildStamp});
+      final res =
+          await callable.call({...AppUpdateService.instance.clientBuildStamp});
       final data = Map<String, dynamic>.from(res.data as Map);
       final raw = (data['friends'] as List?) ?? const [];
       final friends = raw

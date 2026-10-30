@@ -24,6 +24,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/providers/user_data_provider.dart';
 import '../../core/services/ad_service.dart';
+import '../../core/constants/rival_economy.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_dialog.dart';
@@ -73,7 +74,6 @@ class QuestionsPage extends StatefulWidget {
   /// Server-minted Gauntlet run returned by `enterDailyGauntlet` (runV2). The
   /// controller resolves its sanitized questions from it.
   final String? gauntletRunId;
-
 
   const QuestionsPage({
     super.key,
@@ -252,20 +252,12 @@ class _QuestionsPageState extends State<QuestionsPage>
   }
 
   void _confirmQuit() {
-    // A live challenge cannot be quit — but once the final submission has
-    // failed there is no way to finish in place (the last answer is locked and
-    // there is no submit control), so let the player leave. The server settles
-    // the abandoned challenge as a forfeit, exactly as if they had walked away.
-    if (widget.mode == QuizMode.asyncChallenge && !_controller.submitFailed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You cannot quit an active challenge!'),
-          backgroundColor: AppColors.wrong,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+    // A live duel CAN be quit — but walking away costs the 100 AC fee and
+    // forfeits the match, and locked answers stand, so quitting to preview
+    // the fixed question set gains nothing. Once the final submission has
+    // failed there is no way to finish in place (the last answer is locked
+    // and there is no submit control), so let the player leave freely. The
+    // server settles an abandoned challenge as a forfeit.
     if (_quitDialogOpen || _controller.isNavigating) return;
 
     _quitDialogOpen = true;
@@ -278,8 +270,12 @@ class _QuestionsPageState extends State<QuestionsPage>
         title: 'Quit Quiz?',
         content: widget.isGauntlet && widget.gauntletTicketId != null
             ? 'Your progress will be lost.\n\n'
-                  'The retry fee is non-refundable.'
-            : 'Your progress will be lost.',
+                'The retry fee is non-refundable.'
+            : widget.mode == QuizMode.asyncChallenge &&
+                    !_controller.submitFailed
+                ? 'Your locked answers stand and the match is forfeited.\n\n'
+                    'A $kChallengeQuitFeeAc AC walkaway fee applies.'
+                : 'Your progress will be lost.',
         actions: [
           AppButton(
             label: 'Keep Playing',
@@ -345,7 +341,8 @@ class BlitzClockBar extends StatelessWidget {
     final mm = left ~/ 60;
     final ss = (left % 60).toString().padLeft(2, '0');
     final urgent = left <= 15;
-    final color = urgent ? AppColors.wrong : AppColors.readable(AppColors.amber);
+    final color =
+        urgent ? AppColors.wrong : AppColors.readable(AppColors.amber);
     return Padding(
       padding: EdgeInsets.fromLTRB(16.r, 10.r, 16.r, 0),
       child: Container(

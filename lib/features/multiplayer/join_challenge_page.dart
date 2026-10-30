@@ -44,14 +44,12 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   /// Matches the server: DAILY_CHALLENGE_JOIN_FREE / PREMIUM (5 / 8). Was
   /// 5/3, which blocked free players two joins early and premium three early.
   int get _maxJoinsPerDay {
-    final premium =
-        context.read<UserDataProvider>().premiumActive;
+    final premium = context.read<UserDataProvider>().premiumActive;
     return premium ? kDailyJoinPremium : kDailyJoinFree;
   }
 
   int get _maxActiveChallenges {
-    final premium =
-        context.read<UserDataProvider>().premiumActive;
+    final premium = context.read<UserDataProvider>().premiumActive;
     return premium ? kActiveChallengesPremium : kActiveChallengesFree;
   }
 
@@ -62,9 +60,8 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
   @override
   void initState() {
     super.initState();
-    _joinCountSub = FirestoreService.instance
-        .challengesJoinedTodayStream()
-        .listen((count) {
+    _joinCountSub =
+        FirestoreService.instance.challengesJoinedTodayStream().listen((count) {
       if (mounted) {
         setState(() => _joinsToday = count);
       }
@@ -297,28 +294,28 @@ class _JoinChallengePageState extends State<JoinChallengePage> {
       _error = null;
     });
 
-try {
-        await FirebaseFunctions.instanceFor(region: 'us-central1')
-            .httpsCallable('joinChallenge')
-            .call({
-          'challengeId': _found!.challengeId,
-          'deviceId': await DeviceIdService.instance.value(),
-          ...AppUpdateService.instance.clientBuildStamp,
-        });
+    try {
+      await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('joinChallenge')
+          .call({
+        'challengeId': _found!.challengeId,
+        'deviceId': await DeviceIdService.instance.value(),
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
 
-        if (!mounted) return;
+      if (!mounted) return;
 
-        Navigator.pushReplacement(
-          context,
-          AppPageRoute(
-            builder: (_) => QuestionsPage(
-              mode: QuizMode.asyncChallenge,
-              questionIds: _found!.questionIds,
-              challengeId: _found!.challengeId,
-              isCreator: false,
-            ),
+      Navigator.pushReplacement(
+        context,
+        AppPageRoute(
+          builder: (_) => QuestionsPage(
+            mode: QuizMode.asyncChallenge,
+            questionIds: _found!.questionIds,
+            challengeId: _found!.challengeId,
+            isCreator: false,
           ),
-        );
+        ),
+      );
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
 
@@ -371,7 +368,8 @@ try {
             onPressed: () => Navigator.pop(ctx, true),
             child: Text('Decline',
                 style: TextStyle(
-                    color: AppColors.readable(AppColors.wrong), fontWeight: FontWeight.w700)),
+                    color: AppColors.readable(AppColors.wrong),
+                    fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -438,11 +436,7 @@ try {
         _found!.opponentUid != null &&
         _found!.opponentUid == uid;
     final canAccept =
-        _found != null &&
-        !_joining &&
-        !_looking &&
-        !_atDailyLimit &&
-        canAfford;
+        _found != null && !_joining && !_looking && !_atDailyLimit && canAfford;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
@@ -473,9 +467,8 @@ try {
                       hasError: _error != null,
                       onChanged: _onBoxChanged,
                       onKey: _onBoxKey,
-                      onClear: _codeComplete || _error != null
-                          ? _clearCode
-                          : null,
+                      onClear:
+                          _codeComplete || _error != null ? _clearCode : null,
                     ),
                     if (_atDailyLimit && _error == null) ...[
                       SizedBox(height: 12.h),
@@ -514,8 +507,7 @@ try {
                               key: ValueKey(_found!.challengeId),
                               padding: EdgeInsets.only(top: 14.r),
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.stretch,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   _FoundChallengeCard(
                                     challenge: _found!,
@@ -547,7 +539,8 @@ try {
                                       child: OutlinedButton(
                                         onPressed: _declining ? null : _decline,
                                         style: OutlinedButton.styleFrom(
-                                          foregroundColor: AppColors.readable(AppColors.wrong),
+                                          foregroundColor: AppColors.readable(
+                                              AppColors.wrong),
                                           side: BorderSide(
                                               color: AppColors.wrong
                                                   .withValues(alpha: 0.45)),
@@ -649,8 +642,6 @@ class _JoinHeader extends StatelessWidget {
     );
   }
 }
-
-
 
 class _JoinBlueColors {
   static const blue = Color(0xFF3B82F6);
@@ -929,8 +920,7 @@ class _CodeBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor =
-        hasError ? AppColors.wrong : AppColors.divider;
+    final borderColor = hasError ? AppColors.wrong : AppColors.divider;
 
     return SizedBox(
       width: 44,
@@ -951,8 +941,7 @@ class _CodeBox extends StatelessWidget {
             ),
           ],
           style: TextStyle(
-            color:
-                hasError ? AppColors.wrong : AppColors.textPrimary,
+            color: hasError ? AppColors.wrong : AppColors.textPrimary,
             fontSize: 23,
             fontWeight: FontWeight.w900,
           ),
@@ -973,9 +962,7 @@ class _CodeBox extends StatelessWidget {
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(13),
               borderSide: BorderSide(
-                color: hasError
-                    ? AppColors.wrong
-                    : AppColors.skyBright,
+                color: hasError ? AppColors.wrong : AppColors.skyBright,
                 width: 1.8,
               ),
             ),
@@ -1143,8 +1130,7 @@ class _FoundChallengeCard extends StatelessWidget {
                 SizedBox(width: 10.w),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         challenge.creatorUsername,
@@ -1182,9 +1168,8 @@ class _FoundChallengeCard extends StatelessWidget {
                   child: _InfoTile(
                     label: 'STAKE',
                     value: wp > 0 ? '$stake AC + $wp WP' : '$stake AC',
-                    valueColor: AppColors.readable(canAfford
-                        ? AppColors.correct
-                        : AppColors.wrong),
+                    valueColor: AppColors.readable(
+                        canAfford ? AppColors.correct : AppColors.wrong),
                     icon: Icons.monetization_on_outlined,
                   ),
                 ),

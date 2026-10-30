@@ -95,7 +95,6 @@ class ReferralCashoutState {
   bool get hasClaim => claim != null;
 
   /// 0..1 bar fill. A submitted claim always shows a full bar.
-  double get progress => claim != null
-      ? 1.0
-      : referralCashoutProgress(qualifiedCount);
+  double get progress =>
+      claim != null ? 1.0 : referralCashoutProgress(qualifiedCount);
 }

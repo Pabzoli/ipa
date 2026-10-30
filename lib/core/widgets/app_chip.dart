@@ -46,14 +46,10 @@ class AppChip extends StatelessWidget {
         vertical: AppSpacing.sm,
       ),
       decoration: BoxDecoration(
-        color: selected
-            ? color.withValues(alpha: 0.15)
-            : AppColors.surfaceAlt,
+        color: selected ? color.withValues(alpha: 0.15) : AppColors.surfaceAlt,
         borderRadius: BorderRadius.circular(AppRadii.full),
         border: Border.all(
-          color: selected
-              ? color.withValues(alpha: 0.4)
-              : AppColors.divider,
+          color: selected ? color.withValues(alpha: 0.4) : AppColors.divider,
         ),
       ),
       child: content,

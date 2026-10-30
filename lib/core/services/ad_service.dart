@@ -39,11 +39,11 @@ class AdService {
   static String get _rewardedId {
     if (_isDebug) {
       return Platform.isAndroid
-          ? 'ca-app-pub-3940256099942544/5224354917'   // Android test
-          : 'ca-app-pub-3940256099942544/1712485313';  // iOS test
+          ? 'ca-app-pub-3940256099942544/5224354917' // Android test
+          : 'ca-app-pub-3940256099942544/1712485313'; // iOS test
     }
     return Platform.isAndroid
-        ? 'ca-app-pub-9195964766205519/8333794938'   // your existing Android ID
+        ? 'ca-app-pub-9195964766205519/8333794938' // your existing Android ID
         : 'ca-app-pub-9195964766205519/3107536339';
   }
 
@@ -51,11 +51,11 @@ class AdService {
   static String get _interstitialId {
     if (_isDebug) {
       return Platform.isAndroid
-          ? 'ca-app-pub-3940256099942544/1033173712'   // Android test
-          : 'ca-app-pub-3940256099942544/4411468910';  // iOS test
+          ? 'ca-app-pub-3940256099942544/1033173712' // Android test
+          : 'ca-app-pub-3940256099942544/4411468910'; // iOS test
     }
     return Platform.isAndroid
-        ? 'ca-app-pub-9195964766205519/7020713265'   // your existing Android ID
+        ? 'ca-app-pub-9195964766205519/7020713265' // your existing Android ID
         : 'ca-app-pub-9195964766205519/8027175151';
   }
 
@@ -64,8 +64,8 @@ class AdService {
   static String get _appOpenAdId {
     if (_isDebug) {
       return Platform.isAndroid
-          ? 'ca-app-pub-3940256099942544/9257395921'   // Android test
-          : 'ca-app-pub-3940256099942544/5575463023';  // iOS test
+          ? 'ca-app-pub-3940256099942544/9257395921' // Android test
+          : 'ca-app-pub-3940256099942544/5575463023'; // iOS test
     }
     return Platform.isAndroid
         ? 'ca-app-pub-9195964766205519/2949625797'
@@ -73,13 +73,13 @@ class AdService {
   }
 
 // ── State ─────────────────────────────────────────────────────────────────
-  RewardedAd?     _rewardedAd;
+  RewardedAd? _rewardedAd;
   InterstitialAd? _interstitialAd;
-  AppOpenAd?      _appOpenAd;
+  AppOpenAd? _appOpenAd;
 
-  bool _rewardedLoading     = false;
+  bool _rewardedLoading = false;
   bool _interstitialLoading = false;
-  bool _appOpenLoading      = false;
+  bool _appOpenLoading = false;
 
   DateTime? _appOpenAdLoadTime;
   static const Duration _appOpenMaxAge = Duration(hours: 4);
@@ -110,13 +110,13 @@ class AdService {
   bool _isAdShowing = false;
 
   // ── Session-level interstitial throttling (reset on app restart) ──────────
-  static int _sessionResultCount        = 0;  // increments every result screen
+  static int _sessionResultCount = 0; // increments every result screen
   static int _sessionInterstitialsShown = 0;
   static DateTime? _lastInterstitialTime;
 
-  static const int _interstitialEvery   = 3;   // trigger every Nth result
-  static const int _sessionMax          = 5;   // hard cap per session
-  static const int _cooldownSeconds     = 90;  // minimum gap (seconds)
+  static const int _interstitialEvery = 3; // trigger every Nth result
+  static const int _sessionMax = 5; // hard cap per session
+  static const int _cooldownSeconds = 90; // minimum gap (seconds)
 
   // 30-second cooldown between rewarded ad views — short enough to let users
   // comfortably grind the Earn Coins screen (10 ads = ~5 min) while still
@@ -161,9 +161,7 @@ class AdService {
     if (_sessionInterstitialsShown >= _sessionMax) return false;
     if (_sessionResultCount % _interstitialEvery != 0) return false;
     if (_lastInterstitialTime != null &&
-        DateTime.now()
-                .difference(_lastInterstitialTime!)
-                .inSeconds <
+        DateTime.now().difference(_lastInterstitialTime!).inSeconds <
             _cooldownSeconds) {
       return false;
     }
@@ -218,9 +216,9 @@ class AdService {
   /// ad not loaded, or the loaded ad has expired (>4 h old).
   void showAppOpenAdIfReady({required bool isPremium}) {
     if (!appOpenAdsEnabled) return;
-    if (isPremium)      return;
-    if (_quizActive)    return;
-    if (_isAdShowing)   return;
+    if (isPremium) return;
+    if (_quizActive) return;
+    if (_isAdShowing) return;
 
     // Rate-limit — skip if an app-open was shown less than 30 min ago.
     final now = DateTime.now();
@@ -247,14 +245,14 @@ class AdService {
     _appOpenAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
-        _appOpenAd   = null;
+        _appOpenAd = null;
         _isAdShowing = false;
         _loadAppOpenAd(); // pre-load immediately for next foreground
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         debugPrint('[AdService] app open ad failed to show: $error');
         ad.dispose();
-        _appOpenAd   = null;
+        _appOpenAd = null;
         _isAdShowing = false;
         _loadAppOpenAd();
       },
@@ -266,8 +264,6 @@ class AdService {
     if (_appOpenAdLoadTime == null) return true;
     return DateTime.now().difference(_appOpenAdLoadTime!) > _appOpenMaxAge;
   }
-
-
 
   /// How many seconds remain before the next rewarded ad is available.
   /// Returns 0 when the cooldown has elapsed or no ad has been watched yet.
@@ -332,7 +328,7 @@ class AdService {
       onAdDismissedFullScreenContent: (ad) async {
         ad.dispose();
         _rewardedAd = null;
-        _isAdShowing = false;   // ← release concurrency gate
+        _isAdShowing = false; // ← release concurrency gate
         loadRewardedAd(); // pre-load next ad immediately
 
         if (!userCompletedWatch) {
@@ -375,31 +371,36 @@ class AdService {
             if (context.mounted) onComplete(coins);
           } else if (data['error'] == 'daily_limit_reached') {
             if (context.mounted) {
-              _showSnackBar(context, "You've reached the 10-ad daily limit. Come back tomorrow!");
+              _showSnackBar(context,
+                  "You've reached the 10-ad daily limit. Come back tomorrow!");
             }
           } else if (data['error'] == 'ad_cooldown_active') {
             if (context.mounted) {
-              _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
+              _showSnackBar(context,
+                  'Ad not available right now. Try again in a moment.');
             }
           } else if (data['error'] == 'ad_session_invalid') {
             if (context.mounted) {
-              _showSnackBar(context, 'Ad verification expired. Please try again.');
+              _showSnackBar(
+                  context, 'Ad verification expired. Please try again.');
             }
           }
         } catch (e) {
           debugPrint('[AdService] recordAdWatch error: $e');
           if (context.mounted) {
-            _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
+            _showSnackBar(
+                context, 'Ad not available right now. Try again in a moment.');
           }
         }
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         ad.dispose();
         _rewardedAd = null;
-        _isAdShowing = false;   // ← release concurrency gate
+        _isAdShowing = false; // ← release concurrency gate
         loadRewardedAd();
         if (context.mounted) {
-          _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
+          _showSnackBar(
+              context, 'Ad not available right now. Try again in a moment.');
         }
       },
     );
@@ -433,13 +434,13 @@ class AdService {
       onAdDismissedFullScreenContent: (ad) {
         ad.dispose();
         _interstitialAd = null;
-        _isAdShowing = false;   // ← release concurrency gate
+        _isAdShowing = false; // ← release concurrency gate
         _loadInterstitial();
       },
       onAdFailedToShowFullScreenContent: (ad, _) {
         ad.dispose();
         _interstitialAd = null;
-        _isAdShowing = false;   // ← release concurrency gate
+        _isAdShowing = false; // ← release concurrency gate
         _loadInterstitial();
       },
     );
@@ -456,7 +457,7 @@ class AdService {
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
-          _rewardedAd      = ad;
+          _rewardedAd = ad;
           _rewardedLoading = false;
         },
         onAdFailedToLoad: (_) {
@@ -475,7 +476,7 @@ class AdService {
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
-          _interstitialAd      = ad;
+          _interstitialAd = ad;
           _interstitialLoading = false;
         },
         onAdFailedToLoad: (_) {
@@ -494,9 +495,9 @@ class AdService {
       request: const AdRequest(),
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (ad) {
-          _appOpenAd       = ad;
+          _appOpenAd = ad;
           _appOpenAdLoadTime = DateTime.now();
-          _appOpenLoading  = false;
+          _appOpenLoading = false;
         },
         onAdFailedToLoad: (error) {
           debugPrint('[AdService] app open ad failed to load: $error');
@@ -510,7 +511,8 @@ class AdService {
 
   // ── Private — helpers ─────────────────────────────────────────────────────
 
-  String _todayUtc() => DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  String _todayUtc() =>
+      DateTime.now().toUtc().toIso8601String().substring(0, 10);
 
   /// Local daily count — used only for optimistic UI. Server is authoritative.
   Future<void> _incrementLocalDailyCount() async {
@@ -582,7 +584,7 @@ class AdService {
     _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) async {
         ad.dispose();
-        _rewardedAd  = null;
+        _rewardedAd = null;
         _isAdShowing = false;
         loadRewardedAd(); // pre-load next ad immediately
 
@@ -595,9 +597,10 @@ class AdService {
 
         // ── Full watch confirmed — call Cloud Function ────────────────────────
         try {
-          final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
-              .httpsCallable('grantAdQMToken')
-              .call<Map<Object?, Object?>>({});
+          final result =
+              await FirebaseFunctions.instanceFor(region: 'us-central1')
+                  .httpsCallable('grantAdQMToken')
+                  .call<Map<Object?, Object?>>({});
 
           final data = Map<String, dynamic>.from(result.data);
           if (data['success'] == true) {
@@ -618,11 +621,12 @@ class AdService {
       onAdFailedToShowFullScreenContent: (ad, error) {
         debugPrint('[AdService] showQMTokenAd failed to show: $error');
         ad.dispose();
-        _rewardedAd  = null;
+        _rewardedAd = null;
         _isAdShowing = false;
         loadRewardedAd();
         if (context.mounted) {
-          _showSnackBar(context, 'Ad not available right now. Try again in a moment.');
+          _showSnackBar(
+              context, 'Ad not available right now. Try again in a moment.');
         }
       },
     );

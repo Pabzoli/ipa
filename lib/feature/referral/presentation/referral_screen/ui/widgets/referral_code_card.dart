@@ -45,7 +45,8 @@ class ReferralCodeCard extends StatelessWidget {
                 onPressed: hasCode ? onCopy : null,
                 icon: Icon(
                   Icons.copy_rounded,
-                  color: hasCode ? AppColors.textSecondary : AppColors.textMuted,
+                  color:
+                      hasCode ? AppColors.textSecondary : AppColors.textMuted,
                   size: 20.r,
                 ),
               ),

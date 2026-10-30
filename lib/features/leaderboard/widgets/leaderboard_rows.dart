@@ -348,8 +348,7 @@ class RankRow extends StatelessWidget {
                         ),
                         if (isMe) ...[
                           SizedBox(width: 5.w),
-                          _MiniTag(
-                              label: 'YOU', color: AppColors.primaryText),
+                          _MiniTag(label: 'YOU', color: AppColors.primaryText),
                         ],
                         if (isRival) ...[
                           SizedBox(width: 5.w),

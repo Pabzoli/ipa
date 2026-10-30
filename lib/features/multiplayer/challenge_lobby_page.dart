@@ -256,9 +256,7 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
 
     switch (c.status) {
       case ChallengeStatus.waiting:
-        return isCreator
-            ? 'Waiting for opponent to join…'
-            : 'Pending';
+        return isCreator ? 'Waiting for opponent to join…' : 'Pending';
       case ChallengeStatus.opponentJoined:
         return 'Opponent joined — Ready to play';
       case ChallengeStatus.creatorSubmitted:
@@ -335,7 +333,9 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
       c.status == ChallengeStatus.creatorSubmitted;
 
   bool get _canAccept {
-    if (isCreator || !_isJoinableStatus || c.opponentScore != null) return false;
+    if (isCreator || !_isJoinableStatus || c.opponentScore != null) {
+      return false;
+    }
 
     // Rival challenges are directly assigned to one opponent.
     // Code challenges can still be accepted by any non-creator who has the code.
@@ -632,10 +632,10 @@ class _ChallengeLobbyContentState extends State<ChallengeLobbyContent> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isAccepting = false);
-      final premiumActive =
-          context.read<UserDataProvider>().premiumActive;
+      final premiumActive = context.read<UserDataProvider>().premiumActive;
       final message = e is FirebaseFunctionsException
-          ? _friendlyAcceptError(e.message ?? e.code, premiumActive: premiumActive)
+          ? _friendlyAcceptError(e.message ?? e.code,
+              premiumActive: premiumActive)
           : _friendlyAcceptError(e.toString(), premiumActive: premiumActive);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -789,8 +789,8 @@ class _Arena extends StatelessWidget {
                           score: challenge.creatorScore,
                           scoreVisible: creatorScoreVisible,
                           isYou: isCreator,
-                          isWinner:
-                              isCompleted && challenge.outcome == 'creator_wins',
+                          isWinner: isCompleted &&
+                              challenge.outcome == 'creator_wins',
                           color: AppColors.secondary,
                           alignEnd: false,
                         ),
@@ -801,8 +801,8 @@ class _Arena extends StatelessWidget {
                           score: challenge.opponentScore,
                           scoreVisible: opponentScoreVisible,
                           isYou: isOpponent,
-                          isWinner:
-                              isCompleted && challenge.outcome == 'opponent_wins',
+                          isWinner: isCompleted &&
+                              challenge.outcome == 'opponent_wins',
                           color: AppColors.readable(AppColors.primary),
                           alignEnd: true,
                         ),
@@ -867,7 +867,10 @@ class _SlashPainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [right.withValues(alpha: 0.55), right.withValues(alpha: 0.12)],
+          colors: [
+            right.withValues(alpha: 0.55),
+            right.withValues(alpha: 0.12)
+          ],
         ).createShader(rect),
     );
     canvas.drawLine(
@@ -955,8 +958,7 @@ class _Fighter extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isWinner)
-                  Text('👑', style: AppTypography.titleMedium),
+                if (isWinner) Text('👑', style: AppTypography.titleMedium),
                 if (isWinner && isYou) SizedBox(width: 6.w),
                 if (isYou)
                   Container(
@@ -990,8 +992,8 @@ class _Fighter extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: alignEnd ? TextAlign.end : TextAlign.start,
-            style: AppTypography.labelLarge
-                .copyWith(color: AppColors.textPrimary),
+            style:
+                AppTypography.labelLarge.copyWith(color: AppColors.textPrimary),
           ),
           SizedBox(height: 4.h),
           Text(
@@ -1313,8 +1315,8 @@ class _CodeShare extends StatelessWidget {
                       code,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppTypography.heading3
-                          .copyWith(letterSpacing: 2.5),
+                      style:
+                          AppTypography.heading3.copyWith(letterSpacing: 2.5),
                     ),
                   ],
                 ),

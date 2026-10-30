@@ -3,8 +3,11 @@
 // Invariants under test:
 //   • getQuizRun decides the question set and difficulty; the response never
 //     contains correctAnswerIndex.
-//   • submitAnswer locks a solo answer and returns {correct, correctIndex}
-//     for the locked question only (never the full key, never future answers).
+//   • submitAnswer locks a solo answer and a duel answer, returning
+//     {correct, correctIndex} for the solo lock and an acknowledgement for
+//     the duel lock (correctness stays hidden until the result). Duel locks
+//     are the anti-preview mechanism: submitRun scores challenge/quickmatch
+//     runs from the locked records and ignores the client array.
 //   • submitRun scores against the server-held key and pays exactly once.
 //   • one active run per user; cancelRun releases it.
 //   • useQuizHint eliminates a wrong option server-side and charges 10 AC.
@@ -460,7 +463,14 @@ describe('server-minted challenge run', () => {
     );
 
     const doc = await H.getDoc(db, `quizRuns/${run.runId}`);
-    const settled = await settle('A', run.runId, doc.answerKey.slice());
+    assert.ok(Array.isArray(doc.answerKey) && doc.answerKey.length === 10);
+    for (let i = 0; i < 10; i++) {
+      const locked = await answer('A', run.runId, i, doc.answerKey[i]);
+      assert.equal(locked.correct, true);
+    }
+    // The client array is ignored for duels: even an all-wrong array settles
+    // at the locked 10/10.
+    const settled = await settle('A', run.runId, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     assert.equal(settled.correctCount, 10);
     assert.equal(
       (await H.getDoc(db, `challenges/${created.challengeId}`)).creatorScore,

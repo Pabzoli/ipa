@@ -22,7 +22,10 @@ import 'admin_payout_service.dart';
 /// Every callable is ADMIN_UIDS-gated server-side. [isAdminUid] here is a UX
 /// gate only.
 class AdminReferralCashoutsPage extends StatefulWidget {
-  const AdminReferralCashoutsPage({super.key});
+  /// When true, renders only the tab body (no Scaffold/AppBar) so the admin
+  /// console can host it under its own navigation.
+  final bool embedded;
+  const AdminReferralCashoutsPage({super.key, this.embedded = false});
 
   @override
   State<AdminReferralCashoutsPage> createState() =>
@@ -31,8 +34,7 @@ class AdminReferralCashoutsPage extends StatefulWidget {
 
 enum _LoadState { loading, denied, error, ready }
 
-class _AdminReferralCashoutsPageState
-    extends State<AdminReferralCashoutsPage> {
+class _AdminReferralCashoutsPageState extends State<AdminReferralCashoutsPage> {
   _LoadState _state = _LoadState.loading;
   String _message = '';
   AdminReferralCashoutSnapshot? _snapshot;
@@ -72,8 +74,7 @@ class _AdminReferralCashoutsPageState
     }
 
     try {
-      final snapshot =
-          await AdminPayoutService.instance.listReferralCashouts();
+      final snapshot = await AdminPayoutService.instance.listReferralCashouts();
       if (!mounted) return;
       setState(() {
         _snapshot = snapshot;
@@ -114,7 +115,8 @@ class _AdminReferralCashoutsPageState
   }
 
   Future<void> _topUp() async {
-    final reserve = _snapshot?.reserve ?? const AdminReferralCashoutReserve.empty();
+    final reserve =
+        _snapshot?.reserve ?? const AdminReferralCashoutReserve.empty();
     final amount = await showAppDialog<int>(
       context,
       builder: (_) => _TopUpDialog(reserve: reserve),
@@ -122,8 +124,7 @@ class _AdminReferralCashoutsPageState
     if (amount == null || !mounted) return;
 
     try {
-      await AdminPayoutService.instance
-          .fundReferralCashoutReserve(amount);
+      await AdminPayoutService.instance.fundReferralCashoutReserve(amount);
       if (!mounted) return;
       _snack('${_naira(amount)} added to the cashout budget.');
       await _refresh();
@@ -151,6 +152,25 @@ class _AdminReferralCashoutsPageState
 
   @override
   Widget build(BuildContext context) {
+    final content = switch (_state) {
+      _LoadState.loading => const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      _LoadState.denied => _CenteredMessage(
+          icon: Icons.lock_outline_rounded,
+          title: 'Not authorized',
+          message: _message,
+          onRetry: _load,
+        ),
+      _LoadState.error => _CenteredMessage(
+          icon: Icons.cloud_off_rounded,
+          title: 'Could not load',
+          message: _message,
+          onRetry: _load,
+        ),
+      _LoadState.ready => _readyBody(),
+    };
+    if (widget.embedded) return content;
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
       appBar: AppBar(
@@ -184,26 +204,7 @@ class _AdminReferralCashoutsPageState
             ),
         ],
       ),
-      body: SafeArea(
-        child: switch (_state) {
-          _LoadState.loading => const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            ),
-          _LoadState.denied => _CenteredMessage(
-              icon: Icons.lock_outline_rounded,
-              title: 'Not authorized',
-              message: _message,
-              onRetry: _load,
-            ),
-          _LoadState.error => _CenteredMessage(
-              icon: Icons.cloud_off_rounded,
-              title: 'Could not load',
-              message: _message,
-              onRetry: _load,
-            ),
-          _LoadState.ready => _readyBody(),
-        },
-      ),
+      body: SafeArea(child: content),
     );
   }
 

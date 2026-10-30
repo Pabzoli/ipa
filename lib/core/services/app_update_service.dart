@@ -39,12 +39,16 @@ class AppUpdateState {
   /// fail OPEN on purpose: a config or platform hiccup must never be able to
   /// lock every player out of the app. The server-side gate is what actually
   /// protects money, and it fails open for the same reason.
-  bool get updateRequired => !kIsWeb && minBuild != null && installedBuild < minBuild!;
+  bool get updateRequired =>
+      !kIsWeb && minBuild != null && installedBuild < minBuild!;
 
   /// A newer build exists but this install is not required to move.
   bool get newerBuildAvailable =>
-      !kIsWeb && minBuild != null && installedBuild >= minBuild! && latestBuild != null
-      && installedBuild < latestBuild!;
+      !kIsWeb &&
+      minBuild != null &&
+      installedBuild >= minBuild! &&
+      latestBuild != null &&
+      installedBuild < latestBuild!;
 }
 
 /// App-wide, app-lifetime owner of the update gate.
@@ -206,6 +210,7 @@ class AppUpdateService extends ChangeNotifier {
     if (v == null || v < 1) return null;
     return v;
   }
+
   /// Strictly positive integers only. A float, string or zero is treated as
   /// "no gate configured" rather than coerced, mirroring the server.
   static int? _asPositiveInt(Object? v) {

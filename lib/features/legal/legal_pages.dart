@@ -19,8 +19,7 @@ class TermsOfServicePage extends StatelessWidget {
     return _LegalScaffold(
       title: 'Terms of Service',
       fullUrl: '$kShopUrl/terms.html',
-      intro:
-          'A short summary of how AnimeQuiz works. The full Terms are the '
+      intro: 'A short summary of how AnimeQuiz works. The full Terms are the '
           'binding document.',
       sections: const [
         _LegalSection(
@@ -71,8 +70,7 @@ class PrivacyPolicyPage extends StatelessWidget {
     return _LegalScaffold(
       title: 'Privacy Policy',
       fullUrl: kPrivacyPolicyUrl,
-      intro:
-          'A short summary of the personal data AnimeQuiz uses. The full '
+      intro: 'A short summary of the personal data AnimeQuiz uses. The full '
           'policy is the binding document.',
       sections: const [
         _LegalSection(

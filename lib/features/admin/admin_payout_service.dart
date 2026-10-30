@@ -179,13 +179,14 @@ class AdminClaimInfo {
 /// getPrizePoolStatus.
 ///
 /// Two figures matter and they are easy to confuse:
-  ///   * [revenueBasedPool] — what the pool would be from leaderboard entry
-  ///     sales alone (70% of revenue, never below the floor).
-  ///   * [effectivePool] — what it WILL actually be. Equal to [adminPoolNaira]
-  ///     when the admin has fixed it, otherwise [revenueBasedPool].
-  ///
-  /// There is no rollover term: expired claims are forfeited, never carried
-  /// forward, so a week is funded only by its own entries or your fixed amount.
+///   * [effectivePool] — what the pool WILL actually be: the fixed amount
+///     when one is set, otherwise 0 (unset). Nothing funds the pool
+///     automatically.
+///   * [entryCodeRevenue] — leaderboard-entry sales so far this week,
+///     tracked for accounting only. It does not size the pool.
+///
+/// There is no rollover term: expired claims are forfeited, never carried
+/// forward.
 class PrizePoolStatus {
   final String weekId;
   final double entryCodeRevenue;
@@ -230,10 +231,8 @@ class PrizePoolStatus {
     );
   }
 
-  /// Difference between the fixed pool and what sales alone would produce.
-  /// Positive means the admin is adding their own money; negative means the
-  /// fixed amount is smaller than the revenue-based figure.
-  double get differenceFromRevenue => effectivePool - revenueBasedPool;
+  /// True when a fixed pool is set for the week.
+  bool get isUnset => !isFixed;
 }
 
 /// One leaderboard cycle with its payment queue.
@@ -286,8 +285,7 @@ class AdminPayoutCycle {
       totalCodeRevenue: ((map['totalCodeRevenue'] as num?)?.toDouble()) ?? 0.0,
       prizePool: ((map['prizePool'] as num?)?.toDouble()) ?? 0.0,
       houseCut: ((map['houseCut'] as num?)?.toDouble()) ?? 0.0,
-      guaranteedFloor:
-          ((map['guaranteedFloor'] as num?)?.toDouble()) ?? 0.0,
+      guaranteedFloor: ((map['guaranteedFloor'] as num?)?.toDouble()) ?? 0.0,
       eligibleCount: ((map['eligibleCount'] as num?)?.toInt()) ?? 0,
       status: map['status'] as String?,
       calculatedAt: parseTs(map['calculatedAt']),
@@ -297,8 +295,8 @@ class AdminPayoutCycle {
       claimsMarked: ((map['claimsMarked'] as num?)?.toInt()) ?? 0,
       paidCount: ((map['paidCount'] as num?)?.toInt()) ?? 0,
       claims: rawClaims
-          .map((c) => AdminClaimInfo.fromMap(
-              Map<String, dynamic>.from(c as Map)))
+          .map((c) =>
+              AdminClaimInfo.fromMap(Map<String, dynamic>.from(c as Map)))
           .toList(),
     );
   }
@@ -308,10 +306,9 @@ class AdminPayoutCycle {
       claims.where((c) => c.queueState == AdminQueueState.pending).length;
 
   /// Total still owed across the pending queue.
-  double get pendingAmount =>
-      claims
-          .where((c) => c.queueState == AdminQueueState.pending)
-          .fold<double>(0, (sum, c) => sum + c.share);
+  double get pendingAmount => claims
+      .where((c) => c.queueState == AdminQueueState.pending)
+      .fold<double>(0, (sum, c) => sum + c.share);
 
   /// Winners who submitted but whose claim has since expired. Their share is
   /// forfeited — there is nothing left to transfer to them.
@@ -367,33 +364,30 @@ class AdminPayoutService {
       final data = Map<String, dynamic>.from(res.data as Map);
       final raw = (data['cycles'] as List?) ?? const [];
       return raw
-          .map((c) => AdminPayoutCycle.fromMap(
-              Map<String, dynamic>.from(c as Map)))
+          .map((c) =>
+              AdminPayoutCycle.fromMap(Map<String, dynamic>.from(c as Map)))
           .toList();
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
   /// Live prize-pool figures for the current week, plus what the pool WILL be.
   ///
-  /// [effectivePool] is the number that matters: the admin's fixed amount when
-  /// one is set, otherwise the revenue-based figure (70% of entry sales, floored
-  /// at the guaranteed minimum). There is no rollover term — each week's pool is
-  /// funded only by that week's own entries or by the admin's fixed figure.
+  /// [effectivePool] is the number that matters: the fixed amount when one is
+  /// set, otherwise 0 (unset). Nothing funds the pool automatically.
   Future<PrizePoolStatus> getPrizePoolStatus() async {
     try {
       final res = await _functions.httpsCallable('getPrizePoolStatus').call({});
-      return PrizePoolStatus.fromMap(Map<String, dynamic>.from(res.data as Map));
+      return PrizePoolStatus.fromMap(
+          Map<String, dynamic>.from(res.data as Map));
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
-  /// Fixes the current week's prize pool to [amount] naira, REPLACING the
-  /// revenue-based figure rather than adding to it.
+  /// Fixes the current week's prize pool to [amount] naira. Until this is
+  /// set, the week's pool is unset.
   ///
   /// Admin-gated server-side. Refused once the week has closed, because
   /// winners' shares are already assigned from the snapshotted pool.
@@ -406,30 +400,29 @@ class AdminPayoutService {
       final ok = data['success'] == true;
       if (!ok) {
         throw AdminPayoutException(
-            code: 'internal', message: (data['message'] as String?) ?? 'Failed');
+            code: 'internal',
+            message: (data['message'] as String?) ?? 'Failed');
       }
       return getPrizePoolStatus();
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
-/// Reverts the current week to the revenue-based pool (70% of entry sales,
-/// floored at the guaranteed minimum, with no rollover). Admin-gated, same
-/// current-week-only restriction.
+  /// Removes the current week's fixed pool, leaving the pool unset until a new
+  /// amount is set. Admin-gated, same current-week-only restriction.
   Future<PrizePoolStatus> clearPrizePool() async {
     try {
       final res = await _functions.httpsCallable('clearPrizePool').call({});
       final data = Map<String, dynamic>.from(res.data as Map);
       if (data['success'] != true) {
         throw AdminPayoutException(
-            code: 'internal', message: (data['message'] as String?) ?? 'Failed');
+            code: 'internal',
+            message: (data['message'] as String?) ?? 'Failed');
       }
       return getPrizePoolStatus();
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
@@ -471,8 +464,7 @@ class AdminPayoutService {
     String? payoutReference,
   }) async {
     try {
-      final res =
-          await _functions.httpsCallable('markLeaderboardPayout').call({
+      final res = await _functions.httpsCallable('markLeaderboardPayout').call({
         'weekId': weekId,
         'uid': uid,
         'paid': paid,
@@ -489,15 +481,13 @@ class AdminPayoutService {
             (paid ? 'Recorded as sent.' : 'Mark reverted.'),
       );
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
   /// Invokes `exportPayoutLog` and returns the CSV text. Bookkeeping fields
   /// only — never account numbers.
-  Future<({int rowCount, String csv})>
-      exportPayoutLog({
+  Future<({int rowCount, String csv})> exportPayoutLog({
     String? fromWeekId,
     String? toWeekId,
   }) async {
@@ -512,8 +502,7 @@ class AdminPayoutService {
         csv: (data['csv'] as String?) ?? '',
       );
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
@@ -523,8 +512,7 @@ class AdminPayoutService {
   Future<({int scored, List<({String uid, int score, String band})> scores})>
       scoreFraudForWeek({required String weekId}) async {
     try {
-      final res =
-          await _functions.httpsCallable('scoreFraudForWeek').call({
+      final res = await _functions.httpsCallable('scoreFraudForWeek').call({
         'weekId': weekId,
       });
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -541,8 +529,7 @@ class AdminPayoutService {
         }).toList(),
       );
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
@@ -574,7 +561,8 @@ class AdminPayoutService {
     int limit = 200,
   }) async {
     try {
-      final res = await _functions.httpsCallable('listReferralCashoutClaims').call({
+      final res =
+          await _functions.httpsCallable('listReferralCashoutClaims').call({
         if (status != null) 'status': status,
         'limit': limit,
       });
@@ -582,8 +570,7 @@ class AdminPayoutService {
         Map<String, dynamic>.from(res.data as Map),
       );
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
@@ -609,11 +596,11 @@ class AdminPayoutService {
       final data = Map<String, dynamic>.from(res.data as Map);
       if (data['success'] != true) {
         throw AdminPayoutException(
-            code: 'internal', message: (data['message'] as String?) ?? 'Failed');
+            code: 'internal',
+            message: (data['message'] as String?) ?? 'Failed');
       }
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 
@@ -634,8 +621,7 @@ class AdminPayoutService {
         Map<String, dynamic>.from((data['reserve'] as Map?) ?? const {}),
       );
     } on FirebaseFunctionsException catch (e) {
-      throw AdminPayoutException(
-          code: e.code, message: _adminErrorMessage(e));
+      throw AdminPayoutException(code: e.code, message: _adminErrorMessage(e));
     }
   }
 

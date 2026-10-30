@@ -64,8 +64,7 @@ const String kNoRefundsPolicyUrl = '$kShopUrl/refund.html';
 /// round-trip needed). This route exists for the Android "Update required"
 /// wall, where a user stuck on an outdated build may not be able to sign in and
 /// therefore cannot self-serve in-app.
-const String kDeleteRequestMailtoUrl =
-    'mailto:$kSupportEmail'
+const String kDeleteRequestMailtoUrl = 'mailto:$kSupportEmail'
     '?subject=AnimeQuiz%20%E2%80%93%20Account%20deletion%20request'
     '&body=Please%20delete%20my%20AnimeQuiz%20account.%0A%0A'
     'Registered%20email%3A%0A%0A%0A(I%20understand%20all%20of%20my%20account%20data%20'

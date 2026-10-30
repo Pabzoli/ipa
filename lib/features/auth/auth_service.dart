@@ -12,12 +12,12 @@ class AuthService {
   static final AuthService instance = AuthService._();
 
   final _auth = FirebaseAuth.instance;
-  final _db   = FirebaseFirestore.instance;
+  final _db = FirebaseFirestore.instance;
 
   // ── Stream ────────────────────────────────────────────────────────────────
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
-  User?         get currentUser      => _auth.currentUser;
+  User? get currentUser => _auth.currentUser;
 
   // ── Sign Up ───────────────────────────────────────────────────────────────
 
@@ -31,9 +31,9 @@ class AuthService {
     required String email,
     required String password,
     required String username,
-    required bool   termsAccepted,
-    String?         university,
-    String?         referredBy,
+    required bool termsAccepted,
+    String? university,
+    String? referredBy,
   }) async {
     if (!termsAccepted) {
       throw const SignUpException(
@@ -91,7 +91,8 @@ class AuthService {
         'email': email.trim(),
         'deviceId': await DeviceIdService.instance.value(),
         'termsAccepted': true,
-        if (university != null && university.isNotEmpty) 'university': university,
+        if (university != null && university.isNotEmpty)
+          'university': university,
         if (validReferredBy != null) 'referredBy': validReferredBy,
         ...AppUpdateService.instance.clientBuildStamp,
       });

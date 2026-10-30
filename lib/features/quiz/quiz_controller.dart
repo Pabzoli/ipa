@@ -314,6 +314,15 @@ class QuizController extends ChangeNotifier {
   /// True while a solo answer is being locked server-side.
   bool _submittingAnswer = false;
 
+  /// In-flight duel answer locks by question index (optimistic: the UI never
+  /// waits for these). Awaited at final submit so transient failures become a
+  /// short wait instead of lost points.
+  final Map<int, Future<bool>> _pendingLocks = {};
+
+  /// Duel questions whose background lock gave up (permanent server states
+  /// are excluded — those surface at submit). Retried once at final submit.
+  final Set<int> _lockFailed = {};
+
   /// True once the run settled; suppresses cancelRun in dispose.
   bool _completed = false;
 
@@ -467,9 +476,53 @@ class QuizController extends ChangeNotifier {
       _revealedCorrect = List<int?>.filled(taken.length, null);
       _submittingAnswer = false;
       _completed = false;
+      _pendingLocks.clear();
+      _lockFailed.clear();
+      // Duel resume: the server returns our own locked picks. Skip past
+      // them — replaying locked questions is pointless (already scored) and
+      // re-showing them is the preview this fixes.
+      var resumeIndex = 0;
+      if (mode == QuizMode.asyncChallenge) {
+        final locked = run['lockedAnswers'];
+        if (locked is List && locked.isNotEmpty) {
+          while (resumeIndex < locked.length &&
+              resumeIndex < taken.length &&
+              locked[resumeIndex] is int) {
+            resumeIndex++;
+          }
+          if (resumeIndex > 0) {
+            _selectedAnswers = List<int>.generate(
+              resumeIndex,
+              (i) => (locked[i] as num).toInt(),
+              growable: true,
+            );
+            _answerTimings = List<int>.filled(resumeIndex, -1, growable: true);
+            _answerResults =
+                List<bool?>.filled(resumeIndex, null, growable: true);
+            _qIndex = resumeIndex;
+          }
+        }
+      }
       _serverGauntletPerQuestionWP = const [];
 
       _notify();
+
+      if (resumeIndex >= taken.length && taken.isNotEmpty) {
+        // Killed after locking the last answer but before the submit
+        // landed: everything is already scored, so settle immediately
+        // instead of replaying the set.
+        _isNavigating = true;
+        _notify();
+        Future.microtask(() async {
+          if (_disposed) return;
+          if (mode == QuizMode.asyncChallenge) {
+            await _finishChallenge();
+          } else {
+            await _submitToServer();
+          }
+        });
+        return;
+      }
 
       if (taken.isNotEmpty) {
         _questionStartTime = DateTime.now();
@@ -573,7 +626,10 @@ class QuizController extends ChangeNotifier {
   // ── Select option ──────────────────────────────────────────────────────────
 
   Future<void> selectOption(int index) async {
-    if (_showResult || _isNavigating || _submittingAnswer || currentQuestion == null) {
+    if (_showResult ||
+        _isNavigating ||
+        _submittingAnswer ||
+        currentQuestion == null) {
       return;
     }
 
@@ -586,9 +642,13 @@ class QuizController extends ChangeNotifier {
     _submittingAnswer = true;
     bool? correct;
 
-    // Solo locks each answer server-side and gets {correct, correctIndex}.
-    // Blitz and challenges are end-only: no answer leaves the client until
-    // settlement.
+    // Solo answers lock server-side and the UI waits: it learns {correct,
+    // correctIndex} for the locked question before advancing. Duels take the
+    // optimistic path above (_fireDuelLock) and never reach this branch.
+    //
+    // The lock is the anti-preview mechanism: quitting (or killing the app)
+    // leaves locked answers standing, and a resume continues from the first
+    // unlocked question instead of replaying the fixed set for free.
     //
     // The tap highlights instantly (optimistic) and correctness is revealed
     // when the lock returns — the tile shows a spinner meanwhile. The timer
@@ -597,6 +657,16 @@ class QuizController extends ChangeNotifier {
     // On a wrong solo answer the server also reveals the correct option for
     // that locked question only (no probing: the answer can no longer change).
     int? revealedCorrect;
+    if (mode == QuizMode.asyncChallenge && _runId != null) {
+      // Optimistic duel lock: highlight now, lock in the background, advance
+      // on the normal dwell. The player never waits for the network — the
+      // lock lands while they read the next question. Correctness stays
+      // hidden until the result; the lock is an acknowledgement only, but it
+      // is a REAL lock: quitting leaves it standing, which is what kills the
+      // preview-then-replay exploit without slowing the duel down.
+      _fireDuelLock(index);
+      return;
+    }
     if (mode == QuizMode.solo && _runId != null) {
       _selectedOption = index;
       _notify();
@@ -620,7 +690,8 @@ class QuizController extends ChangeNotifier {
         _submittingAnswer = false;
         _selectedOption = -1;
         _notify();
-        debugPrint('[QuizController] submitAnswer failed: ${e.code} ${e.message}');
+        debugPrint(
+            '[QuizController] submitAnswer failed: ${e.code} ${e.message}');
         // Permanent states: retrying the same lock can never succeed, so
         // surface a specific message with no Retry action.
         final expired = e.code == 'failed-precondition' &&
@@ -709,6 +780,106 @@ class QuizController extends ChangeNotifier {
     });
   }
 
+  /// Optimistic duel answer lock (challenge / quick-match). Sets the selection
+  /// UI state synchronously so the tap feels instant, fires the server lock
+  /// in the background, and advances on the normal 900 ms dwell. The player
+  /// never waits for a round trip — the lock lands while they read the next
+  /// question. Re-taps during the dwell are ignored via [_showResult], so the
+  /// locked answer always matches the recorded one.
+  void _fireDuelLock(int index) {
+    final lockIndex = _qIndex;
+    final lockRunId = _runId;
+    if (lockRunId == null) return;
+    _selectedOption = index;
+    _showResult = true;
+    _notify();
+    _timer?.cancel();
+    _pendingLocks[lockIndex] = _lockDuelAnswer(lockRunId, lockIndex, index);
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (!_disposed) _advance();
+    });
+  }
+
+  /// Locks one duel answer server-side with retries. Returns true when the
+  /// lock landed. Permanent server states (cancelled run, filled seat, dead
+  /// challenge, forced update) return false immediately — those surface at
+  /// final submit instead of mid-duel.
+  Future<bool> _lockDuelAnswer(
+    String runId,
+    int questionIndex,
+    int selectedAnswer,
+  ) async {
+    const maxAttempts = 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await _invokeSubmitCallable('submitAnswer', {
+          'runId': runId,
+          'questionIndex': questionIndex,
+          'selectedAnswer': selectedAnswer,
+          ...AppUpdateService.instance.clientBuildStamp,
+        });
+        _lockFailed.remove(questionIndex);
+        return true;
+      } on FirebaseFunctionsException catch (e) {
+        final msg = e.message ?? '';
+        if (e.code == 'failed-precondition' &&
+            (msg == 'run_cancelled' ||
+                msg == 'run_expired' ||
+                msg == 'run_already_submitted' ||
+                msg == 'score_already_submitted' ||
+                msg == 'challenge_not_active' ||
+                msg == 'challenge_not_found' ||
+                msg.contains('App update required') ||
+                msg == 'legacy_quiz_path')) {
+          debugPrint('[QuizController] duel lock refused: ${e.code} $msg');
+          return false;
+        }
+      } catch (e) {
+        debugPrint('[QuizController] duel lock failed (attempt $attempt): $e');
+      }
+      if (attempt < maxAttempts) {
+        await Future.delayed(Duration(seconds: attempt));
+      }
+    }
+    _lockFailed.add(questionIndex);
+    return false;
+  }
+
+  /// Waits for in-flight duel locks (usually already done) and retries the
+  /// ones that gave up, so transient network failures become a short wait at
+  /// submit instead of lost points. Bounded: a dead network fails fast into
+  /// the normal submit error path.
+  Future<void> _awaitPendingLocks() async {
+    if (_pendingLocks.isEmpty) return;
+    try {
+      await Future.wait(_pendingLocks.values).timeout(
+        const Duration(seconds: 10),
+      );
+    } catch (_) {
+      // Timeouts and lock errors are handled below; never trap the submit.
+    }
+    if (_lockFailed.isEmpty || _disposed) return;
+    final retry = _lockFailed.toList();
+    _lockFailed.clear();
+    final runId = _runId;
+    if (runId == null) return;
+    for (final i in retry) {
+      if (_disposed) return;
+      if (i < 0 || i >= _selectedAnswers.length) continue;
+      try {
+        await _invokeSubmitCallable('submitAnswer', {
+          'runId': runId,
+          'questionIndex': i,
+          'selectedAnswer': _selectedAnswers[i],
+          ...AppUpdateService.instance.clientBuildStamp,
+        }).timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Still failing: the gap scores -1 via the server fill, and the
+        // submit below surfaces a dead run honestly.
+      }
+    }
+  }
+
   // ── Advance ────────────────────────────────────────────────────────────────
 
   void _advance() {
@@ -720,10 +891,12 @@ class QuizController extends ChangeNotifier {
       return;
     }
 
-    // Best-effort lock for a timed-out solo question. The final submitRun
-    // treats any missing slot as -1 regardless, so a dropped request cannot
-    // change the score.
-    if (mode == QuizMode.solo && _runId != null && _selectedOption == -1) {
+    // Best-effort lock for a timed-out question. The final submitRun treats
+    // any missing slot as -1 regardless, so a dropped request cannot change
+    // the score — but locking it keeps duel resumes exact.
+    if ((mode == QuizMode.solo || mode == QuizMode.asyncChallenge) &&
+        _runId != null &&
+        _selectedOption == -1) {
       unawaited(() async {
         try {
           await _invokeSubmitCallable('submitAnswer', {
@@ -842,16 +1015,16 @@ class QuizController extends ChangeNotifier {
         final correctCount = (data['correctCount'] as num?)?.toInt() ?? 0;
         final totalWP = (data['totalWP'] as num?)?.toInt() ?? 0;
         final acEarned = (data['acEarned'] as num?)?.toInt() ?? 0;
-        final achievementCoins =
-            (data['achievementAC'] as num?)?.toInt() ?? 0;
+        final achievementCoins = (data['achievementAC'] as num?)?.toInt() ?? 0;
 
         if (isGauntlet) {
           final answeredCount =
               (data['answeredCount'] as num?)?.toInt() ?? correctCount;
-          final perQuestion = (data['perQuestionWP'] as List<dynamic>? ?? const [])
-              .whereType<num>()
-              .map((n) => n.toInt())
-              .toList();
+          final perQuestion =
+              (data['perQuestionWP'] as List<dynamic>? ?? const [])
+                  .whereType<num>()
+                  .map((n) => n.toInt())
+                  .toList();
           _serverGauntletPerQuestionWP = perQuestion;
           onSoloComplete(
             correctCount,
@@ -991,9 +1164,7 @@ class QuizController extends ChangeNotifier {
   /// timeout or failure so the submission proceeds without a token.
   Future<Map<String, String>> _integrityWithBudget(String action) async {
     try {
-      return await PlayIntegrityService.instance
-          .tokenFields(action)
-          .timeout(
+      return await PlayIntegrityService.instance.tokenFields(action).timeout(
             const Duration(milliseconds: 600),
             onTimeout: () => const <String, String>{},
           );
@@ -1014,6 +1185,10 @@ class QuizController extends ChangeNotifier {
     // creatorScore / opponentScore straight to Firestore, which made the payout
     // input client-attested — a patched client could claim a perfect score and
     // take the opponent's stake. firestore.rules now denies that write.
+    // Drain optimistic locks first: usually instant, occasionally a short
+    // wait that saves points on a flaky network.
+    await _awaitPendingLocks();
+    if (_disposed) return;
     try {
       // The server rejects an empty id; keeping the call unconditional lets
       // the retry path surface the real server error instead of a local one.
@@ -1096,6 +1271,10 @@ class QuizController extends ChangeNotifier {
   // the player can retry (same pattern as _finishChallenge).
 
   Future<void> _finishQuickMatch() async {
+    // Drain optimistic locks first: usually instant, occasionally a short
+    // wait that saves points on a flaky network.
+    await _awaitPendingLocks();
+    if (_disposed) return;
     try {
       // The server rejects an empty id; keeping the call unconditional lets
       // the retry path surface the real server error instead of a local one.

@@ -1,33 +1,32 @@
-/// Where a projected prize-pool figure came from, so the UI can be honest about
-/// whether the admin has fixed this week's pool or it floats with sales.
+/// Where a projected prize-pool figure came from.
 enum PoolSource {
-  /// `prize_pool/{weekId}.adminPoolNaira` was set: a fixed amount that
-  /// REPLACES the revenue-based figure outright.
+  /// `prize_pool/{weekId}.adminPoolNaira` was set: the fixed amount you set
+  /// for the week.
   adminFixed,
 
-  /// 70% of leaderboard-entry revenue, above the guaranteed floor.
-  revenue,
-
-  /// Entry revenue was too low, so the pool sits at the developer-funded
-  /// `app_config/leaderboard_entry_config.guaranteedFloor`.
-  floor,
+  /// No fixed pool was set for the week yet — the pool is unset (₦0) until
+  /// you set it. Entry sales never fund the pool automatically.
+  unset,
 }
 
 /// The result of projecting this week's prize pool.
 class PoolProjection {
-  /// Naira available to the top 3 this week.
+  /// Naira available to the top 3 this week: your fixed amount, or 0 when no
+  /// pool has been set yet.
   final double amount;
 
   /// Which branch of the CF rule produced [amount].
   final PoolSource source;
 
-  /// Cumulative leaderboard-entry revenue booked so far this week.
+  /// Cumulative leaderboard-entry revenue booked so far this week. Tracked
+  /// for accounting only — it does NOT fund the pool.
   final double entryCodeRevenue;
 
-  /// `app_config/leaderboard_entry_config.guaranteedFloor` (may be 0).
+  /// Legacy floor input, kept so old call sites keep compiling. Ignored by
+  /// the sizing rule: there is no automatic top-up.
   final double guaranteedFloor;
 
-  /// The admin's fixed override, when one is set.
+  /// The admin's fixed pool, when one is set.
   final double? adminPoolNaira;
 
   const PoolProjection({
@@ -38,12 +37,11 @@ class PoolProjection {
     required this.adminPoolNaira,
   });
 
-  /// True when the admin pinned the pool regardless of how many entries sell.
+  /// True when the pool was set for the week.
   bool get isFixed => source == PoolSource.adminFixed;
 
-  /// True when the pool is currently sitting on the guaranteed floor rather
-  /// than on real sales — i.e. the figure is a subsidy, not revenue.
-  bool get isFloored => source == PoolSource.floor;
+  /// True when no pool has been set yet.
+  bool get isUnset => source == PoolSource.unset;
 }
 
 /// Utility class — prize pool projection, formatting, countdown.
@@ -53,23 +51,21 @@ class PoolProjection {
 /// ─────────────────────────────────────────────────────────────────────────────
 /// CONTRACT WITH THE BACKEND
 /// [projectPrizePool] is a client-side mirror of the pool-sizing rule in
-/// `runWeeklyReset` (functions/index.js, the block that computes `prizePool`).
-/// The two MUST stay in step, because the leaderboard shows this number as a
-/// live projection and the same rule decides what winners are actually paid at
-/// the Sunday reset. `test/prize_pool_service_test.dart` pins the cases against
+/// `runWeeklyReset` (functions/index.js). The two MUST stay in step, because
+/// the leaderboard shows this number and the same rule decides what winners
+/// are actually paid at the Sunday reset. `test/prize_pool_service_test.dart` pins the cases against
 /// the CF's literal behaviour so a change on either side fails loudly.
 ///
 /// The CF rule, verbatim:
 /// ```js
 /// const adminPool   = Number(poolData.adminPoolNaira);
 /// const isFixedPool = Number.isFinite(adminPool) && adminPool > 0;
-/// const revenuePool = Math.max(entryRevenue * 0.70, floor);
-/// const prizePool   = isFixedPool ? adminPool : revenuePool;
+/// const prizePool   = isFixedPool ? adminPool : 0;
 /// ```
-/// Note what it does NOT use: `prize_pool.totalNaira` is legacy ad revenue,
-/// never read by the reset. Deriving the displayed pool from it (as the UI
-/// previously did) showed players a completely different number from the one
-/// they would be paid.
+/// There is no revenue share, no floor, and no rollover: until a fixed pool
+/// is set, the pool is unset (₦0). Note what it does NOT use:
+/// `prize_pool.entryCodeRevenue` (tracked for accounting only) and
+/// `prize_pool.totalNaira` (legacy ad revenue) — neither sizes the pool.
 class PrizePoolService {
   PrizePoolService._();
 
@@ -82,10 +78,6 @@ class PrizePoolService {
     2: 0.30,
     3: 0.20,
   };
-
-  /// Share of this week's leaderboard-entry revenue that funds the pool.
-  /// The remaining 30% is the house cut. Mirrored from `index.js`.
-  static const double revenueShare = 0.70;
 
   /// Returns prize amount (in naira) for each rank given the total pool.
   static Map<int, double> calculatePrizes(double totalNaira) {
@@ -108,8 +100,10 @@ class PrizePoolService {
 
   // ─── Live pool projection (CF parity) ─────────────────────────────────────
 
-  /// Projects this week's prize pool using exactly the inputs and priority
-  /// order the weekly reset uses. Safe to call every frame with live values.
+  /// Projects this week's prize pool exactly as the weekly reset sizes it:
+  /// your fixed amount when one is set, otherwise unset (₦0). Entry revenue
+  /// and the legacy floor input are recorded on the projection for display
+  /// but never size the pool. Safe to call every frame with live values.
   ///
   /// Null / NaN / Infinity inputs are coerced to 0 exactly as `Number(x) || 0`
   /// does in the CF, so a missing field can never poison the figure.
@@ -122,7 +116,7 @@ class PrizePoolService {
     final floor = _coerce(guaranteedFloor);
     final admin = _coerce(adminPoolNaira);
 
-    // Priority 1 — an admin-set fixed pool REPLACES the revenue figure.
+    // A fixed pool you set is the whole pool.
     if (admin > 0) {
       return PoolProjection(
         amount: admin,
@@ -133,21 +127,10 @@ class PrizePoolService {
       );
     }
 
-    // Priority 2 — 70% of entry revenue, never below the floor.
-    final revenuePool = revenue * revenueShare;
-    if (floor > revenuePool) {
-      return PoolProjection(
-        amount: floor,
-        source: PoolSource.floor,
-        entryCodeRevenue: revenue,
-        guaranteedFloor: floor,
-        adminPoolNaira: null,
-      );
-    }
-
+    // Nothing set yet — the pool is unset until you set it.
     return PoolProjection(
-      amount: revenuePool,
-      source: PoolSource.revenue,
+      amount: 0,
+      source: PoolSource.unset,
       entryCodeRevenue: revenue,
       guaranteedFloor: floor,
       adminPoolNaira: null,
@@ -234,8 +217,7 @@ class PrizePoolService {
   /// deterministically; production always leaves it null.
   static DateTime weekStartUtc({DateTime? now}) {
     final current = (now ?? DateTime.now()).toUtc();
-    final midnight =
-        DateTime.utc(current.year, current.month, current.day);
+    final midnight = DateTime.utc(current.year, current.month, current.day);
     return midnight.subtract(Duration(days: current.weekday - 1));
   }
 

@@ -19,9 +19,7 @@ class WeeklyPointsPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final userData = context.watch<UserDataProvider>();
     final text = label ??
-        (userData.isLeaderboardEligible
-            ? '${userData.weeklyPoints} WP'
-            : '—');
+        (userData.isLeaderboardEligible ? '${userData.weeklyPoints} WP' : '—');
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

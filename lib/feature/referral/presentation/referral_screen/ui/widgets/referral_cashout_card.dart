@@ -38,7 +38,8 @@ class ReferralCashoutCard extends StatelessWidget {
 
     return AppCard(
       tier: AppCardTier.elevated,
-      accentColor: claim?.isPaid == true ? AppColors.correct : AppColors.primary,
+      accentColor:
+          claim?.isPaid == true ? AppColors.correct : AppColors.primary,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

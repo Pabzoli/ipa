@@ -97,7 +97,8 @@ class _AddFriendPageState extends State<AddFriendPage> {
         );
         // Filter after the read so already-linked players don't eat the list.
         suggestions = raw
-            .where((r) => !linked.contains(r.uid) && r.uid != service.currentUid)
+            .where(
+                (r) => !linked.contains(r.uid) && r.uid != service.currentUid)
             .take(12)
             .toList();
         campus = _CampusState.loaded;
@@ -155,7 +156,8 @@ class _AddFriendPageState extends State<AddFriendPage> {
       if (!mounted) return;
       _codeCtrl.clear();
       setState(() => _sending = false);
-      _toast(status == 'active' ? 'You are now friends!' : 'Friend request sent!');
+      _toast(
+          status == 'active' ? 'You are now friends!' : 'Friend request sent!');
       _reload();
     } catch (e) {
       if (!mounted) return;
@@ -195,7 +197,8 @@ class _AddFriendPageState extends State<AddFriendPage> {
       final status =
           await FirestoreService.instance.sendFriendRequest(uid: uid);
       if (!mounted) return;
-      _toast(status == 'active' ? 'You are now friends!' : 'Friend request sent!');
+      _toast(
+          status == 'active' ? 'You are now friends!' : 'Friend request sent!');
       _reload();
     } catch (e) {
       if (!mounted) return;
@@ -243,7 +246,8 @@ class _AddFriendPageState extends State<AddFriendPage> {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
                     child: Center(
-                      child: CircularProgressIndicator(color: AppColors.primary),
+                      child:
+                          CircularProgressIndicator(color: AppColors.primary),
                     ),
                   );
                 }
@@ -539,10 +543,15 @@ class _AddFriendPageState extends State<AddFriendPage> {
           ),
         ];
       case _CampusState.failed:
-        return [const FriendInlineNote('Could not load campus players. Pull down to retry.')];
+        return [
+          const FriendInlineNote(
+              'Could not load campus players. Pull down to retry.')
+        ];
       case _CampusState.loaded:
         if (data.suggestions.isEmpty) {
-          return [const FriendInlineNote('No new players from your campus this week.')];
+          return [
+            const FriendInlineNote('No new players from your campus this week.')
+          ];
         }
         return [
           for (final r in data.suggestions)
@@ -565,6 +574,6 @@ class _AddFriendPageState extends State<AddFriendPage> {
     }
   }
 
-  static String _linkName(FriendLink l) => l.username.isEmpty ? 'Player' : l.username;
+  static String _linkName(FriendLink l) =>
+      l.username.isEmpty ? 'Player' : l.username;
 }
-

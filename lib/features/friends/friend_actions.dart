@@ -180,7 +180,7 @@ class _FriendManageSheetState extends State<_FriendManageSheet> {
                   Text(
                     label,
                     style: AppTypography.labelLarge
-                  .copyWith(color: AppColors.readable(color)),
+                        .copyWith(color: AppColors.readable(color)),
                   ),
                   SizedBox(height: 2.h),
                   Text(

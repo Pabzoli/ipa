@@ -131,7 +131,8 @@ class ReferralRemoteDataSource {
     required String accountNumber,
     required String beneficiaryName,
   }) async {
-    final integrity = await PlayIntegrityService.instance.tokenFields('cashout');
+    final integrity =
+        await PlayIntegrityService.instance.tokenFields('cashout');
     try {
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('claimReferralCashout')

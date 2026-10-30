@@ -20,9 +20,9 @@ class CoinBalanceWidget extends StatelessWidget {
 
     return Ink(
       decoration: BoxDecoration(
-        color:        AppColors.accent.withValues(alpha: 0.13),
+        color: AppColors.accent.withValues(alpha: 0.13),
         borderRadius: BorderRadius.circular(AppRadii.xl),
-        border:       Border.all(
+        border: Border.all(
           color: AppColors.accent.withValues(alpha: 0.38),
           width: 1.2,
         ),
@@ -49,7 +49,7 @@ class CoinBalanceWidget extends StatelessWidget {
                   style: TextStyle(
                     color: AppColors.readable(AppColors.accent),
                     fontWeight: FontWeight.w800,
-                    fontSize:   14.sp,
+                    fontSize: 14.sp,
                     fontFamily: AppTypography.fontFamily,
                   ),
                 ),

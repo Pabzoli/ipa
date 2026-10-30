@@ -40,9 +40,9 @@ class OptionsListWidget extends StatefulWidget {
 
 class _OptionsListWidgetState extends State<OptionsListWidget>
     with TickerProviderStateMixin {
-  List<AnimationController> _ctrlList  = [];
-  List<Animation<double>>   _fadeList  = [];
-  List<Animation<Offset>>   _slideList = [];
+  List<AnimationController> _ctrlList = [];
+  List<Animation<double>> _fadeList = [];
+  List<Animation<Offset>> _slideList = [];
   bool _initialized = false;
 
   // ── Setup ──────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ class _OptionsListWidgetState extends State<OptionsListWidget>
     _ctrlList = List.generate(
       count,
       (_) => AnimationController(
-        vsync:    this,
+        vsync: this,
         duration: const Duration(milliseconds: 280),
       ),
     );
@@ -65,7 +65,7 @@ class _OptionsListWidgetState extends State<OptionsListWidget>
         .map(
           (c) => Tween<Offset>(
             begin: const Offset(0, 0.07),
-            end:   Offset.zero,
+            end: Offset.zero,
           ).animate(CurvedAnimation(parent: c, curve: Curves.easeOut)),
         )
         .toList();
@@ -88,7 +88,7 @@ class _OptionsListWidgetState extends State<OptionsListWidget>
     _initialized = true;
 
     final ctrl = context.read<QuizController>();
-    final q    = ctrl.currentQuestion;
+    final q = ctrl.currentQuestion;
     if (q == null) return;
 
     _setup(q.options.length);
@@ -108,7 +108,7 @@ class _OptionsListWidgetState extends State<OptionsListWidget>
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<QuizController>();
-    final q    = ctrl.currentQuestion;
+    final q = ctrl.currentQuestion;
 
     if (q == null || _fadeList.isEmpty) return const SizedBox.shrink();
 

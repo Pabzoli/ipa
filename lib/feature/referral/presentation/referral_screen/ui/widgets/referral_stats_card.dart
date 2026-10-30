@@ -84,7 +84,8 @@ class _StatTile extends StatelessWidget {
             child: Text(value, style: AppTypography.heading3),
           ),
           SizedBox(height: AppSpacing.xs),
-          Text(label, textAlign: TextAlign.center, style: AppTypography.bodySmall),
+          Text(label,
+              textAlign: TextAlign.center, style: AppTypography.bodySmall),
         ],
       ),
     );

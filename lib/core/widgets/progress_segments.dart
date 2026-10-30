@@ -39,8 +39,8 @@ class QuizProgressSegments extends StatelessWidget {
                 padding: EdgeInsets.only(
                     right: i < ctrl.totalQuestions - 1 ? 4.r : 0),
                 child: _Segment(
-                  color:      color,
-                  isCurrent:  i == ctrl.qIndex,
+                  color: color,
+                  isCurrent: i == ctrl.qIndex,
                   justFilled: i == ctrl.selectedAnswers.length - 1,
                 ),
               ),
@@ -55,8 +55,8 @@ class QuizProgressSegments extends StatelessWidget {
 // ─── Individual segment ─────────────────────────────────────────────────────
 class _Segment extends StatefulWidget {
   final Color color;
-  final bool  isCurrent;
-  final bool  justFilled;
+  final bool isCurrent;
+  final bool justFilled;
   const _Segment({
     required this.color,
     required this.isCurrent,
@@ -70,7 +70,7 @@ class _Segment extends StatefulWidget {
 class _SegmentState extends State<_Segment>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double>   _scale;
+  late Animation<double> _scale;
 
   @override
   void initState() {
@@ -104,7 +104,8 @@ class _SegmentState extends State<_Segment>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _scale,
-      builder: (_, child) => Transform.scale(scaleY: _scale.value, child: child),
+      builder: (_, child) =>
+          Transform.scale(scaleY: _scale.value, child: child),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,

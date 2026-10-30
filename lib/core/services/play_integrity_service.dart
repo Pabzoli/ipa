@@ -30,22 +30,20 @@ class PlayIntegrityService {
       return const {};
     }
     try {
-      final challenge = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('getIntegrityChallenge')
-          .call<Map<Object?, Object?>>({
-            'action': action,
-            ...AppUpdateService.instance.clientBuildStamp,
-          })
-          .timeout(_timeout);
+      final challenge =
+          await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('getIntegrityChallenge')
+              .call<Map<Object?, Object?>>({
+        'action': action,
+        ...AppUpdateService.instance.clientBuildStamp,
+      }).timeout(_timeout);
       final nonce = challenge.data['nonce'] as String?;
       if (nonce == null || nonce.isEmpty) return const {};
 
-      final token = await _channel
-          .invokeMethod<String>('requestToken', {
-            'nonce': nonce,
-            'cloudProjectNumber': _cloudProjectNumber,
-          })
-          .timeout(_timeout);
+      final token = await _channel.invokeMethod<String>('requestToken', {
+        'nonce': nonce,
+        'cloudProjectNumber': _cloudProjectNumber,
+      }).timeout(_timeout);
       if (token == null || token.isEmpty) return const {};
 
       return {'integrityToken': token, 'integrityNonce': nonce};

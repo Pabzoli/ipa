@@ -46,7 +46,8 @@ class AppSheet extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: AppColors.divider,
-                    borderRadius: BorderRadius.all(Radius.circular(AppRadii.full)),
+                    borderRadius:
+                        BorderRadius.all(Radius.circular(AppRadii.full)),
                   ),
                   child: const SizedBox(height: 4),
                 ),

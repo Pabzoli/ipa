@@ -219,9 +219,8 @@ class _AppearanceSettingsCard extends StatelessWidget {
                 selected ? color.withValues(alpha: 0.14) : Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadii.md),
             border: Border.all(
-              color: selected
-                  ? color.withValues(alpha: 0.4)
-                  : Colors.transparent,
+              color:
+                  selected ? color.withValues(alpha: 0.4) : Colors.transparent,
             ),
           ),
           child: Column(
@@ -229,9 +228,8 @@ class _AppearanceSettingsCard extends StatelessWidget {
               Icon(
                 option.icon,
                 size: 18.r,
-                color: selected
-                    ? AppColors.readable(color)
-                    : AppColors.textMuted,
+                color:
+                    selected ? AppColors.readable(color) : AppColors.textMuted,
               ),
               SizedBox(height: 5.h),
               Text(
@@ -332,9 +330,8 @@ class _DifficultySettingsCard extends StatelessWidget {
               Icon(
                 _icons[id],
                 size: 18.r,
-                color: selected
-                    ? AppColors.readable(color)
-                    : AppColors.textMuted,
+                color:
+                    selected ? AppColors.readable(color) : AppColors.textMuted,
               ),
               SizedBox(height: 5.h),
               Text(

@@ -102,8 +102,7 @@ class _PurchasesPageState extends State<PurchasesPage> {
                             action: AppButton(
                               label: 'Open the shop',
                               size: AppButtonSize.small,
-                              onPressed: () =>
-                                  launchUrl(Uri.parse(kShopUrl)),
+                              onPressed: () => launchUrl(Uri.parse(kShopUrl)),
                             ),
                           ),
                         )
@@ -196,8 +195,8 @@ class _PurchaseCard extends StatelessWidget {
             SizedBox(height: 8.h),
             Text(
               'Redeemed ${_date(entry.redeemedAt)}',
-              style: AppTypography.bodySmall.copyWith(
-                  color: AppColors.readable(AppColors.correct)),
+              style: AppTypography.bodySmall
+                  .copyWith(color: AppColors.readable(AppColors.correct)),
             ),
           ],
           if (entry.isPending) ...[
@@ -368,8 +367,18 @@ class _ScrollableCenter extends StatelessWidget {
 }
 
 const List<String> _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 String _date(DateTime? d) {
@@ -391,8 +400,9 @@ String _money(PurchaseEntry entry) {
     if (i > 0 && (digits.length - i) % 3 == 0) grouped.write(',');
     grouped.write(digits[i]);
   }
-  final formatted =
-      parts.length > 1 ? '${grouped.toString()}.${parts[1]}' : grouped.toString();
+  final formatted = parts.length > 1
+      ? '${grouped.toString()}.${parts[1]}'
+      : grouped.toString();
   return entry.currency == 'NGN'
       ? '₦$formatted'
       : '${entry.currency} $formatted';

@@ -73,7 +73,8 @@ extension ChallengeKindX on ChallengeKind {
   /// at create/join time. Only Rival and Code are "staked" — Quick Match and
   /// Spar are always free-to-enter, so their result copy must never talk
   /// about a stake.
-  bool get isStaked => this == ChallengeKind.rival || this == ChallengeKind.code;
+  bool get isStaked =>
+      this == ChallengeKind.rival || this == ChallengeKind.code;
 
   /// True when the mode additionally risks Weekly Points. Rival stakes both
   /// currencies; Code stakes AC only.

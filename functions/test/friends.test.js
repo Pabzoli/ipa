@@ -388,24 +388,30 @@ describe('friends', () => {
     assert.equal((await pairDoc('A', 'B')).status, 'pending');
   });
 
-  it('raw-uid requests are limited to the same campus cohort', async () => {
+  it('raw-uid requests are limited to the same campus or paid cohort', async () => {
     const week = H.thisWeekId();
     await db.collection('users').doc('A').update({ university: 'UNILAG', leaderboardEntryWeekId: week });
     await db.collection('users').doc('B').update({ university: 'UNILAG', leaderboardEntryWeekId: week });
-    await db.collection('users').doc('C').update({ university: 'OAU', leaderboardEntryWeekId: week });
+    await db.collection('users').doc('C').update({ university: 'OAU', leaderboardEntryWeekId: week + '-prev' });
+    await db.collection('users').doc('D').update({ university: 'OAU', leaderboardEntryWeekId: week });
+    // Different campus AND a different paid week: indistinguishable from unknown.
     await H.rejectsWith(
       fns.sendFriendRequest.run(H.req('A', { uid: 'C', ...STAMP })),
       'not-found', 'not_found');
     assert.equal(await pairDoc('A', 'C'), null);
     await fns.sendFriendRequest.run(H.req('A', { uid: 'B', ...STAMP }));
     assert.equal((await pairDoc('A', 'B')).status, 'pending');
+    // Same paid week but a different campus (a Rankings board row the caller
+    // paid to read): allowed via the paid cohort.
+    await fns.sendFriendRequest.run(H.req('A', { uid: 'D', ...STAMP }));
+    assert.equal((await pairDoc('A', 'D')).status, 'pending');
   });
 
   it('raw-uid requests are allowed for a player you have played', async () => {
     const week = H.thisWeekId();
     await db.collection('users').doc('A').update({ university: 'UNILAG', leaderboardEntryWeekId: week });
-    await db.collection('users').doc('C').update({ university: 'OAU', leaderboardEntryWeekId: week });
-    // Different campus and no match yet: still indistinguishable from unknown.
+    await db.collection('users').doc('C').update({ university: 'OAU', leaderboardEntryWeekId: week + '-prev' });
+    // Different campus, different paid week and no match yet: still indistinguishable from unknown.
     await H.rejectsWith(
       fns.sendFriendRequest.run(H.req('A', { uid: 'C', ...STAMP })),
       'not-found', 'not_found');

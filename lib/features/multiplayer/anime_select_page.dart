@@ -67,8 +67,7 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
     Color(0xFF22D3EE),
   ];
 
-  String _emoji(String title) =>
-      _emojiMap[title.toLowerCase().trim()] ?? '✨';
+  String _emoji(String title) => _emojiMap[title.toLowerCase().trim()] ?? '✨';
 
   Color _accent(String title) {
     final index = title.codeUnits.fold<int>(0, (sum, value) => sum + value) %
@@ -147,9 +146,7 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
         child: Column(
           children: [
             _TopBar(
-              subtitle: _hasOpponent
-                  ? 'vs @${widget.opponentUsername}'
-                  : null,
+              subtitle: _hasOpponent ? 'vs @${widget.opponentUsername}' : null,
               enabled: _selectedTitle == null,
               onBack: () => Navigator.pop(context),
             ),
@@ -169,8 +166,8 @@ class _AnimeSelectPageState extends State<AnimeSelectPage> {
                                 physics: const AlwaysScrollableScrollPhysics(
                                   parent: BouncingScrollPhysics(),
                                 ),
-                                padding: EdgeInsets.fromLTRB(
-                                    16.r, 6.r, 16.r, 32.r),
+                                padding:
+                                    EdgeInsets.fromLTRB(16.r, 6.r, 16.r, 32.r),
                                 itemCount: _titles.length,
                                 gridDelegate:
                                     SliverGridDelegateWithFixedCrossAxisCount(
@@ -295,9 +292,8 @@ class _AnimeTile extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(AppRadii.xl),
           border: Border.all(
-            color: selected
-                ? AppColors.primary
-                : accent.withValues(alpha: 0.20),
+            color:
+                selected ? AppColors.primary : accent.withValues(alpha: 0.20),
             width: selected ? 1.7 : 1,
           ),
         ),

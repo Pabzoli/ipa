@@ -14,13 +14,13 @@ class QuizLoadingSkeletonView extends StatefulWidget {
 class _QuizLoadingSkeletonViewState extends State<QuizLoadingSkeletonView>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  late Animation<double>   _opacity;
+  late Animation<double> _opacity;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      vsync:    this,
+      vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
     _opacity = Tween<double>(begin: 0.30, end: 0.70).animate(
@@ -49,7 +49,9 @@ class _QuizLoadingSkeletonViewState extends State<QuizLoadingSkeletonView>
               const AppSkeleton(height: 12, width: 140, radius: AppRadii.sm),
               const SizedBox(height: 20),
               AppSkeleton(
-                  height: 156, width: double.infinity, radius: AppRadii.feature),
+                  height: 156,
+                  width: double.infinity,
+                  radius: AppRadii.feature),
               const SizedBox(height: 20),
               AppSkeleton(
                   height: 56, width: double.infinity, radius: AppRadii.xl),

@@ -139,8 +139,7 @@ class AppColors {
 
   /// Swaps the active palette. Call before anything rebuilds.
   static void use(Brightness brightness) {
-    _palette =
-        brightness == Brightness.light ? kLightPalette : kDarkPalette;
+    _palette = brightness == Brightness.light ? kLightPalette : kDarkPalette;
   }
 
   /// Restores dark — for tests that must not leak palette state between cases.
@@ -192,42 +191,48 @@ class AppColors {
   }
 
   // Brand — identical in both themes, so these stay `const`.
-  static const primary    = Color(0xFFE63946);
-  static const secondary  = Color(0xFF457B9D);
-  static const accent     = Color(0xFFF4A261);
+  static const primary = Color(0xFFE63946);
+  static const secondary = Color(0xFF457B9D);
+  static const accent = Color(0xFFF4A261);
 
   // Gradients (status — brand-locked)
-  static const List<Color> winGradient  = [Color(0xFF11998E), Color(0xFF38EF7D)];
-  static const List<Color> loseGradient = [Color(0xFFEB3349), Color(0xFFF45C43)];
-  static const List<Color> drawGradient = [Color(0xFFF7971E), Color(0xFFFFD200)];
+  static const List<Color> winGradient = [Color(0xFF11998E), Color(0xFF38EF7D)];
+  static const List<Color> loseGradient = [
+    Color(0xFFEB3349),
+    Color(0xFFF45C43)
+  ];
+  static const List<Color> drawGradient = [
+    Color(0xFFF7971E),
+    Color(0xFFFFD200)
+  ];
 
   // Surface (adaptive)
-  static Color get surface    => _palette.surface;
+  static Color get surface => _palette.surface;
   static Color get surfaceAlt => _palette.surfaceAlt;
   static Color get surfaceDim => _palette.surfaceDim;
 
   // Text (adaptive)
-  static Color get textPrimary   => _palette.textPrimary;
+  static Color get textPrimary => _palette.textPrimary;
   static Color get textSecondary => _palette.textSecondary;
-  static Color get textMuted     => _palette.textMuted;
+  static Color get textMuted => _palette.textMuted;
 
   // Status (fills stay vivid; `*Text` variants are for glyphs and labels)
   static const correct = Color(0xFF38EF7D);
-  static const wrong   = Color(0xFFE63946);
-  static Color get locked  => _palette.locked;
+  static const wrong = Color(0xFFE63946);
+  static Color get locked => _palette.locked;
   static Color get divider => _palette.divider;
-  static const amber   = Color(0xFFF59E0B);
+  static const amber = Color(0xFFF59E0B);
 
   static Color get primaryText => _palette.primaryText;
   static Color get successText => _palette.successText;
   static Color get warningText => _palette.warningText;
-  static Color get errorText   => _palette.errorText;
+  static Color get errorText => _palette.errorText;
 
   // Backdrops (adaptive)
   static List<Color> get heroGradient => _palette.heroGradient;
   static List<Color> get cardGradient => _palette.cardGradient;
-  static Color get shadow             => _palette.shadow;
-  static Color get overlayScrim       => _palette.overlayScrim;
+  static Color get shadow => _palette.shadow;
+  static Color get overlayScrim => _palette.overlayScrim;
 
   /// Success snackbar surface: dark green in both themes so the white snackbar
   /// content stays legible — the vivid [correct] mint is a fill, not a surface
@@ -236,20 +241,21 @@ class AppColors {
 
   // Extended palette (brand-locked)
   static const crimsonBright = Color(0xFFFF6B7A);
-  static const gold      = Color(0xFFFFD700);
-  static const silver    = Color(0xFFD0D0D0);
-  static const bronze    = Color(0xFFCD7F32);
-  static const rival     = Color(0xFFFF6B00);
-  static const win       = Color(0xFF4ADE80);
-  static const draw      = Color(0xFFFBBF24);
-  static const lose      = Color(0xFFFB7185);
-  static const coinGold  = Color(0xFFFBBF24); // quiz_header coin accent (semantically separate from draw)
+  static const gold = Color(0xFFFFD700);
+  static const silver = Color(0xFFD0D0D0);
+  static const bronze = Color(0xFFCD7F32);
+  static const rival = Color(0xFFFF6B00);
+  static const win = Color(0xFF4ADE80);
+  static const draw = Color(0xFFFBBF24);
+  static const lose = Color(0xFFFB7185);
+  static const coinGold = Color(
+      0xFFFBBF24); // quiz_header coin accent (semantically separate from draw)
   static const skyBright = Color(0xFF70AEFF);
 
   // Stable alpha tints — pre-baked to replace withOpacity() on fixed colors
-  static const primarySoft    = Color(0x1AE63946); // primary @ ~10%
-  static const primaryBorder  = Color(0x59E63946); // primary @ ~35%
-  static const secondarySoft  = Color(0x1F457B9D); // secondary @ ~12%
+  static const primarySoft = Color(0x1AE63946); // primary @ ~10%
+  static const primaryBorder = Color(0x59E63946); // primary @ ~35%
+  static const secondarySoft = Color(0x1F457B9D); // secondary @ ~12%
   static const secondaryBorder = Color(0x59457B9D); // secondary @ ~35%
 
   // Semantic aliases
@@ -272,8 +278,10 @@ class AppSpacing {
   static const double lg = 16.0;
   static const double xl = 24.0;
   static const double xxl = 32.0;
-  static const double page = 24.0; // canonical page gutter (semantic alias of xl)
-  static const double rhythm = 48.0; // large section-breath gaps (coin/premium pages)
+  static const double page =
+      24.0; // canonical page gutter (semantic alias of xl)
+  static const double rhythm =
+      48.0; // large section-breath gaps (coin/premium pages)
 }
 
 // ─── Typography Scale ──────────────────────────────────────────────────────
@@ -286,97 +294,97 @@ class AppTypography {
   static const String fontFamily = 'Nunito';
 
   static TextStyle get heading1 => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 32.sp,
-    fontWeight: FontWeight.w900,
-    height: 1.1,
-    letterSpacing: -0.5,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 32.sp,
+        fontWeight: FontWeight.w900,
+        height: 1.1,
+        letterSpacing: -0.5,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get heading2 => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 24.sp,
-    fontWeight: FontWeight.w900,
-    height: 1.2,
-    letterSpacing: -0.3,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 24.sp,
+        fontWeight: FontWeight.w900,
+        height: 1.2,
+        letterSpacing: -0.3,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get heading3 => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 20.sp,
-    fontWeight: FontWeight.w800,
-    height: 1.3,
-    letterSpacing: -0.2,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 20.sp,
+        fontWeight: FontWeight.w800,
+        height: 1.3,
+        letterSpacing: -0.2,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get titleLarge => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 18.sp,
-    fontWeight: FontWeight.w800,
-    height: 1.3,
-    letterSpacing: -0.2,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 18.sp,
+        fontWeight: FontWeight.w800,
+        height: 1.3,
+        letterSpacing: -0.2,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get titleMedium => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 16.sp,
-    fontWeight: FontWeight.w700,
-    height: 1.4,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 16.sp,
+        fontWeight: FontWeight.w700,
+        height: 1.4,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get bodyLarge => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 15.sp,
-    fontWeight: FontWeight.w600,
-    height: 1.5,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 15.sp,
+        fontWeight: FontWeight.w600,
+        height: 1.5,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get bodyMedium => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 13.sp,
-    fontWeight: FontWeight.w600,
-    height: 1.5,
-    color: AppColors.textSecondary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 13.sp,
+        fontWeight: FontWeight.w600,
+        height: 1.5,
+        color: AppColors.textSecondary,
+      );
 
   static TextStyle get bodySmall => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 12.sp,
-    fontWeight: FontWeight.w600,
-    height: 1.5,
-    color: AppColors.textMuted,
-  );
+        fontFamily: fontFamily,
+        fontSize: 12.sp,
+        fontWeight: FontWeight.w600,
+        height: 1.5,
+        color: AppColors.textMuted,
+      );
 
   static TextStyle get labelLarge => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 14.sp,
-    fontWeight: FontWeight.w700,
-    height: 1.2,
-    color: AppColors.textPrimary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 14.sp,
+        fontWeight: FontWeight.w700,
+        height: 1.2,
+        color: AppColors.textPrimary,
+      );
 
   static TextStyle get labelMedium => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 11.sp,
-    fontWeight: FontWeight.w700,
-    height: 1.2,
-    color: AppColors.textSecondary,
-  );
+        fontFamily: fontFamily,
+        fontSize: 11.sp,
+        fontWeight: FontWeight.w700,
+        height: 1.2,
+        color: AppColors.textSecondary,
+      );
 
   static TextStyle get labelSmall => TextStyle(
-    fontFamily: fontFamily,
-    fontSize: 9.sp,
-    fontWeight: FontWeight.w800,
-    height: 1.2,
-    letterSpacing: 0.5,
-    color: AppColors.textMuted,
-  );
+        fontFamily: fontFamily,
+        fontSize: 9.sp,
+        fontWeight: FontWeight.w800,
+        height: 1.2,
+        letterSpacing: 0.5,
+        color: AppColors.textMuted,
+      );
 }
 
 // ─── Corner Radii ──────────────────────────────────────────────────────────
@@ -440,9 +448,7 @@ class AppTheme {
       scaffoldBackgroundColor: palette.surfaceDim,
       canvasColor: palette.surfaceDim,
       fontFamily: AppTypography.fontFamily,
-
       iconTheme: IconThemeData(color: palette.textPrimary),
-
       appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -451,13 +457,11 @@ class AppTheme {
         titleTextStyle: AppTypography.heading2,
         iconTheme: IconThemeData(color: palette.textPrimary),
       ),
-
       dividerTheme: DividerThemeData(
         color: palette.divider,
         thickness: 1,
         space: 1,
       ),
-
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -473,7 +477,6 @@ class AppTheme {
           ),
         ),
       ),
-
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: palette.surface,
@@ -493,7 +496,6 @@ class AppTheme {
             AppTypography.bodyMedium.copyWith(color: palette.textSecondary),
         hintStyle: AppTypography.bodySmall,
       ),
-
       cardTheme: CardThemeData(
         color: palette.surface,
         elevation: 0,
@@ -501,7 +503,6 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppRadii.xl),
         ),
       ),
-
       snackBarTheme: SnackBarThemeData(
         // Inverse surface, like Material 3: snackbars stay a dark bar in both
         // themes, so the many `backgroundColor: AppColors.wrong` error
@@ -516,7 +517,6 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppRadii.md),
         ),
       ),
-
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: AppColors.primary,
       ),
@@ -556,8 +556,7 @@ class AppDecorations {
         border: Border.all(color: glowColor.withValues(alpha: 0.5), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: glowColor
-                .withValues(alpha: AppColors.isDark ? 0.25 : 0.14),
+            color: glowColor.withValues(alpha: AppColors.isDark ? 0.25 : 0.14),
             blurRadius: 20,
             spreadRadius: 0,
           ),

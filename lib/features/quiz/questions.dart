@@ -56,8 +56,7 @@ class AnimeQuestion {
     // always end up in the valid tier set (easy/medium/hard), never an
     // arbitrary coerced value, so any non-valid raw value falls back to
     // 'medium'. The offending doc is logged so it can be backfilled/fixed.
-    final normalized =
-        raw is String ? raw.trim().toLowerCase() : null;
+    final normalized = raw is String ? raw.trim().toLowerCase() : null;
     if (normalized != null && kQuestionDifficulties.contains(normalized)) {
       return normalized;
     }
@@ -106,16 +105,10 @@ class AnimeQuestion {
 
     return AnimeQuestion(
       id: doc.id,
-
       question: d['question'] as String,
-
       options: _optionsListOf(d['options']),
-
-      correctAnswerIndex:
-          (d['correctAnswerIndex'] as num).toInt(),
-
+      correctAnswerIndex: (d['correctAnswerIndex'] as num).toInt(),
       animeTitle: d['animeTitle'] as String,
-
       difficulty: _difficultyOrLegacyFallback(d, doc.id),
     );
   }

@@ -394,8 +394,7 @@ class _SearchingDialogState extends State<_SearchingDialog>
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('joinMatchmakingQueue');
-      final result = await callable
-          .call<Map<Object?, Object?>>({
+      final result = await callable.call<Map<Object?, Object?>>({
         'deviceId': await DeviceIdService.instance.value(),
         ...AppUpdateService.instance.clientBuildStamp,
       });
@@ -423,7 +422,8 @@ class _SearchingDialogState extends State<_SearchingDialog>
           challengeId: data['challengeId']?.toString() ?? '',
           isGhost: true,
           isCreator: true,
-          opponentName: data['ghostUsername']?.toString() ?? 'Recorded Opponent',
+          opponentName:
+              data['ghostUsername']?.toString() ?? 'Recorded Opponent',
           animeTitle: animeTitle,
         ));
         return;
@@ -1331,8 +1331,7 @@ class _MatchedDialogState extends State<_MatchedDialog> {
               Text('Beat their score to win',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                      color:
-                          AppColors.readable(AppColors.crimsonBright),
+                      color: AppColors.readable(AppColors.crimsonBright),
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w700)),
             ],
@@ -1395,4 +1394,3 @@ class _BattlePremiumChip extends StatelessWidget {
     );
   }
 }
-

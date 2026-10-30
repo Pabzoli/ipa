@@ -87,9 +87,8 @@ class ReferralBody extends StatelessWidget {
         final rewardedInWindow = rewarded
             .where((entry) => entry.rewardedAt?.isAfter(cutoff) ?? false)
             .length;
-        final qualifiedForCashout = entries
-            .where((entry) => entry.leaderboardEntryPurchased)
-            .length;
+        final qualifiedForCashout =
+            entries.where((entry) => entry.leaderboardEntryPurchased).length;
 
         return RefreshIndicator(
           color: AppColors.primary,
@@ -168,7 +167,8 @@ class ReferralBody extends StatelessWidget {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Cashout claim submitted. You will be notified on status change.'),
+        content: Text(
+            'Cashout claim submitted. You will be notified on status change.'),
       ),
     );
     await onRefresh();

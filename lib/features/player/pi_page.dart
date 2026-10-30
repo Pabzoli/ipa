@@ -175,7 +175,8 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
             onPressed: () => Navigator.pop(context, true),
             child: Text('Sign out',
                 style: TextStyle(
-                    color: AppColors.readable(AppColors.wrong), fontWeight: FontWeight.w700)),
+                    color: AppColors.readable(AppColors.wrong),
+                    fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -221,7 +222,8 @@ class _PInformState extends State<PInform> with SingleTickerProviderStateMixin {
         backgroundColor: AppColors.surface,
         title: Text('Account deleted',
             style: TextStyle(
-                color: AppColors.readable(AppColors.correct), fontWeight: FontWeight.w900)),
+                color: AppColors.readable(AppColors.correct),
+                fontWeight: FontWeight.w900)),
         content: Text(
           deletionSuccessMessage(result.retainedCount),
           style: TextStyle(color: AppColors.textSecondary, height: 1.45),
@@ -631,6 +633,7 @@ class _ProfileTabBar extends StatelessWidget {
 // ─── Edit Username Dialog ──────────────────────────────────────────────────
 class _EditUsernameDialog extends StatefulWidget {
   final TextEditingController controller;
+
   /// Returns true when the save succeeded (dialog closes); false keeps it open.
   final Future<bool> Function(String) onSave;
   const _EditUsernameDialog({required this.controller, required this.onSave});
@@ -2258,7 +2261,8 @@ class _AchievementCardState extends State<_AchievementCard> {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(14.r),
         border: Border.all(
-          color: isMaxed ? item.color.withValues(alpha: 0.45) : AppColors.divider,
+          color:
+              isMaxed ? item.color.withValues(alpha: 0.45) : AppColors.divider,
           width: isMaxed ? 1.5 : 1,
         ),
       ),
@@ -2463,7 +2467,8 @@ class _AchievementIcon extends StatelessWidget {
       width: 40.w,
       height: 40.h,
       decoration: BoxDecoration(
-        color: active ? item.color.withValues(alpha: 0.14) : AppColors.surfaceAlt,
+        color:
+            active ? item.color.withValues(alpha: 0.14) : AppColors.surfaceAlt,
         borderRadius: BorderRadius.circular(12.r),
       ),
       child: Icon(
@@ -2500,7 +2505,9 @@ class _TierPip extends StatelessWidget {
           decoration: BoxDecoration(
             color: earned
                 ? color.withValues(alpha: 0.18)
-                : (isNext ? color.withValues(alpha: 0.10) : AppColors.surfaceAlt),
+                : (isNext
+                    ? color.withValues(alpha: 0.10)
+                    : AppColors.surfaceAlt),
             borderRadius: BorderRadius.circular(7.r),
             border: Border.all(
               color: earned
@@ -2793,4 +2800,3 @@ class _HistoryTypeBadge extends StatelessWidget {
     );
   }
 }
-

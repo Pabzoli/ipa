@@ -24,11 +24,10 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/app_page_route.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_back_button.dart';
+import 'admin_console_page.dart';
 import 'admin_payout_service.dart';
-import 'admin_referral_cashouts_page.dart';
 
 /// Formats whole/kobo naira with thousands separators, e.g. ₦12,500.
 /// Amounts always come from the server — this only renders them.
@@ -62,7 +61,10 @@ String _formatTime(DateTime? t) {
 // ─── Dashboard ──────────────────────────────────────────────────────────────
 
 class AdminPayoutDashboard extends StatefulWidget {
-  const AdminPayoutDashboard({super.key});
+  /// When true, renders only the tab body (no Scaffold/AppBar) so the admin
+  /// console can host it under its own navigation.
+  final bool embedded;
+  const AdminPayoutDashboard({super.key, this.embedded = false});
 
   @override
   State<AdminPayoutDashboard> createState() => _AdminPayoutDashboardState();
@@ -187,8 +189,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
     if (_poolSaving) return;
     setState(() => _poolSaving = true);
     try {
-      final pool =
-          await AdminPayoutService.instance.setPrizePool(amount);
+      final pool = await AdminPayoutService.instance.setPrizePool(amount);
       if (!mounted) return;
       setState(() => _pool = pool);
       _snack('Prize pool for ${pool.weekId} fixed at '
@@ -209,7 +210,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
       final pool = await AdminPayoutService.instance.clearPrizePool();
       if (!mounted) return;
       setState(() => _pool = pool);
-      _snack('Reverted to the revenue-based pool.');
+      _snack('Fixed amount removed. Pool is now unset.');
     } on AdminPayoutException catch (e) {
       if (mounted) _snack(e.message);
     } catch (_) {
@@ -225,8 +226,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
     await _loadPool();
     try {
       final results = await Future.wait([
-        AdminPayoutService.instance
-            .listPayoutClaims(weekId: _selectedWeekId),
+        AdminPayoutService.instance.listPayoutClaims(weekId: _selectedWeekId),
         AdminPayoutService.instance.bankCodeToName(),
       ]);
       if (!mounted) return;
@@ -354,6 +354,18 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    final content = switch (_state) {
+      _LoadState.loading => const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      _LoadState.denied => _DeniedView(
+          message: _message,
+          onRetry: _load,
+        ),
+      _LoadState.error => _ErrorView(message: _message, onRetry: _load),
+      _LoadState.ready => _readyBody(),
+    };
+    if (widget.embedded) return content;
     return Scaffold(
       backgroundColor: AppColors.surfaceDim,
       appBar: AppBar(
@@ -372,14 +384,16 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
         actions: [
           // Always available (even if the cycle list failed): the referral
           // cashout queue is independent of weekly leaderboard cycles.
+          // Standalone entry now routes into the unified console.
           IconButton(
-            tooltip: 'Referral cashouts (separate budget)',
-            onPressed: () => Navigator.of(context).push(
-              AppPageRoute(
-                builder: (_) => const AdminReferralCashoutsPage(),
-              ),
-            ),
+            tooltip: 'Open admin console · referrals',
+            onPressed: () => AdminConsolePage.open(context, tab: 2),
             icon: const Icon(Icons.savings_outlined),
+          ),
+          IconButton(
+            tooltip: 'Open admin console · house',
+            onPressed: () => AdminConsolePage.open(context, tab: 3),
+            icon: const Icon(Icons.shield_outlined),
           ),
           if (_state == _LoadState.ready)
             IconButton(
@@ -428,19 +442,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
             ),
         ],
       ),
-      body: SafeArea(
-        child: switch (_state) {
-          _LoadState.loading => const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            ),
-          _LoadState.denied => _DeniedView(
-              message: _message,
-              onRetry: _load,
-            ),
-          _LoadState.error => _ErrorView(message: _message, onRetry: _load),
-          _LoadState.ready => _readyBody(),
-        },
-      ),
+      body: SafeArea(child: content),
     );
   }
 
@@ -502,8 +504,8 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
 // ─── Prize pool card ─────────────────────────────────────────────────────────
 //
 // Sets the CURRENT week's prize pool to one fixed naira amount. The amount
-// REPLACES the revenue-based figure (70% of entry sales) rather than adding to
-// it — one number you control, not a total you have to predict.
+// is the pool for the week — one number you control, not a total you have to
+// predict.
 //
 // Only the current week is editable. Once weeklyReset has snapshotted the
 // cycle, winners' shares are already derived from the pool, so the server
@@ -594,7 +596,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           ),
         ),
         content: Text(
-          'This REPLACES the revenue-based pool for week ${pool?.weekId ?? ''}.\n\n'
+          'This sets the pool for week ${pool?.weekId ?? ''}.\n\n'
           'When the week closes, this is the amount the winning shares are '
           'calculated from, and it becomes a real payout obligation you pay by '
           'hand.',
@@ -633,7 +635,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           borderRadius: BorderRadius.circular(16.r),
         ),
         title: Text(
-          'Revert to revenue-based pool?',
+          'Remove fixed amount?',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 16.sp,
@@ -641,8 +643,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           ),
         ),
         content: Text(
-          'The fixed amount is removed. This week goes back to 70% of '
-          'leaderboard entry sales.',
+          'The fixed amount is removed. This week has no pool until you set a new amount.',
           style: TextStyle(
             color: AppColors.textSecondary,
             fontSize: 12.sp,
@@ -728,9 +729,6 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
       );
     }
 
-    final diff = pool.differenceFromRevenue;
-    final diffColor = diff >= 0 ? AppColors.correct : AppColors.accent;
-
     return Container(
       padding: EdgeInsets.all(16.r),
       decoration: BoxDecoration(
@@ -760,18 +758,21 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
                 decoration: BoxDecoration(
-                  color: (pool.isFixed ? AppColors.primary : AppColors.textMuted)
-                      .withValues(alpha: 0.12),
+                  color:
+                      (pool.isFixed ? AppColors.primary : AppColors.textMuted)
+                          .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8.r),
                   border: Border.all(
-                    color: (pool.isFixed ? AppColors.primary : AppColors.textMuted)
-                        .withValues(alpha: 0.35),
+                    color:
+                        (pool.isFixed ? AppColors.primary : AppColors.textMuted)
+                            .withValues(alpha: 0.35),
                   ),
                 ),
                 child: Text(
-                  pool.isFixed ? 'FIXED' : 'FROM SALES',
+                  pool.isFixed ? 'FIXED' : 'NOT SET',
                   style: TextStyle(
-                    color: pool.isFixed ? AppColors.primary : AppColors.textMuted,
+                    color:
+                        pool.isFixed ? AppColors.primary : AppColors.textMuted,
                     fontSize: 10.sp,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.5,
@@ -782,9 +783,11 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           ),
           SizedBox(height: 10.h),
           Text(
-            formatNaira(pool.effectivePool),
+            pool.isFixed ? formatNaira(pool.effectivePool) : 'No pool set',
             style: TextStyle(
-              color: AppColors.readable(AppColors.correct),
+              color: pool.isFixed
+                  ? AppColors.readable(AppColors.correct)
+                  : AppColors.textSecondary,
               fontSize: 26.sp,
               fontWeight: FontWeight.w900,
               letterSpacing: -0.5,
@@ -792,37 +795,14 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           ),
           Text(
             pool.isFixed
-                ? 'Fixed by you — replaces the sales-based figure'
-                : '70% of ${formatNaira(pool.entryCodeRevenue)} entry sales',
+                ? 'Fixed by you for this week'
+                : 'Set an amount below — nothing is funded automatically',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 11.sp,
               fontWeight: FontWeight.w600,
             ),
           ),
-          if (pool.isFixed) ...[
-            SizedBox(height: 4.h),
-            Row(
-              children: [
-                Icon(
-                  diff >= 0
-                      ? Icons.trending_up_rounded
-                      : Icons.trending_down_rounded,
-                  color: diffColor,
-                  size: 13.r,
-                ),
-                SizedBox(width: 5.w),
-                Text(
-                  '${diff >= 0 ? '+' : ''}${formatNaira(diff)} vs sales-based',
-                  style: TextStyle(
-                    color: diffColor,
-                    fontSize: 11.sp,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ],
           SizedBox(height: 12.h),
           if (pool.weekClosed)
             Container(
@@ -969,9 +949,8 @@ class _CycleSelector extends StatelessWidget {
                   Text(
                     c.weekId,
                     style: TextStyle(
-                      color: active
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
+                      color:
+                          active ? AppColors.primary : AppColors.textSecondary,
                       fontSize: 13.sp,
                       fontWeight: FontWeight.w900,
                     ),
@@ -979,8 +958,8 @@ class _CycleSelector extends StatelessWidget {
                   if (c.pendingCount > 0) ...[
                     SizedBox(width: 7.w),
                     Container(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: 7.r, vertical: 2.r),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 7.r, vertical: 2.r),
                       decoration: BoxDecoration(
                         color: AppColors.accent.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(10.r),
@@ -1104,8 +1083,6 @@ class _StatGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final stats = <(String, String)>[
       ('Revenue', formatNaira(cycle.totalCodeRevenue)),
-      ('House cut', formatNaira(cycle.houseCut)),
-      ('Floor', formatNaira(cycle.guaranteedFloor)),
       ('Winners', '${cycle.eligibleCount}'),
       ('Submitted', '${cycle.claimsSubmitted}'),
       ('Paid', '${cycle.paidCount}'),
@@ -1118,8 +1095,7 @@ class _StatGrid extends StatelessWidget {
       children: [
         for (final s in stats)
           Container(
-            padding:
-                EdgeInsets.symmetric(horizontal: 10.r, vertical: 7.r),
+            padding: EdgeInsets.symmetric(horizontal: 10.r, vertical: 7.r),
             decoration: BoxDecoration(
               color: AppColors.surfaceAlt,
               borderRadius: BorderRadius.circular(9.r),
@@ -1190,8 +1166,7 @@ class _FilterRow extends StatelessWidget {
           GestureDetector(
             onTap: () => onSelect(f),
             child: Container(
-              padding:
-                  EdgeInsets.symmetric(horizontal: 12.r, vertical: 7.r),
+              padding: EdgeInsets.symmetric(horizontal: 12.r, vertical: 7.r),
               decoration: BoxDecoration(
                 color: f == active
                     ? AppColors.primary.withValues(alpha: 0.14)
@@ -1206,9 +1181,8 @@ class _FilterRow extends StatelessWidget {
               child: Text(
                 '$f · ${_countFor(f)}',
                 style: TextStyle(
-                  color: f == active
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
+                  color:
+                      f == active ? AppColors.primary : AppColors.textSecondary,
                   fontSize: 11.sp,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1459,8 +1433,8 @@ class _FraudChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.textMuted.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(8.r),
-          border: Border.all(
-              color: AppColors.textMuted.withValues(alpha: 0.30)),
+          border:
+              Border.all(color: AppColors.textMuted.withValues(alpha: 0.30)),
         ),
         child: Text(
           'RISK: NOT SCORED',
@@ -1843,9 +1817,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                       .withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(10.r),
                   border: Border.all(
-                    color: (_outcomeOk
-                            ? AppColors.secondary
-                            : AppColors.accent)
+                    color: (_outcomeOk ? AppColors.secondary : AppColors.accent)
                         .withValues(alpha: 0.35),
                   ),
                 ),
@@ -1927,12 +1899,9 @@ class _ReviewRow extends StatelessWidget {
             child: Text(
               value,
               style: TextStyle(
-                color: highlight
-                    ? AppColors.correct
-                    : AppColors.textPrimary,
+                color: highlight ? AppColors.correct : AppColors.textPrimary,
                 fontSize: 13.sp,
-                fontWeight:
-                    highlight ? FontWeight.w900 : FontWeight.w700,
+                fontWeight: highlight ? FontWeight.w900 : FontWeight.w700,
               ),
             ),
           ),
@@ -2060,8 +2029,7 @@ class _EmptyQueue extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(Icons.inbox_outlined,
-              color: AppColors.textMuted, size: 32.r),
+          Icon(Icons.inbox_outlined, color: AppColors.textMuted, size: 32.r),
           SizedBox(height: 10.h),
           Text(
             filter == 'Awaiting payment'
@@ -2098,11 +2066,7 @@ class AdminPayoutEntry extends StatelessWidget {
         return Padding(
           padding: EdgeInsets.fromLTRB(20.r, 10.r, 20.r, 0.r),
           child: GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              AppPageRoute(
-                builder: (_) => const AdminPayoutDashboard(),
-              ),
-            ),
+            onTap: () => AdminConsolePage.open(context),
             child: Container(
               padding: EdgeInsets.all(14.r),
               decoration: BoxDecoration(
@@ -2118,8 +2082,7 @@ class AdminPayoutEntry extends StatelessWidget {
                     width: 38.r,
                     height: 38.r,
                     decoration: BoxDecoration(
-                      color:
-                          AppColors.wrong.withValues(alpha: 0.14),
+                      color: AppColors.wrong.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(10.r),
                     ),
                     alignment: Alignment.center,
@@ -2135,7 +2098,7 @@ class AdminPayoutEntry extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Payout admin',
+                          'Admin console',
                           style: TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 14.sp,
@@ -2143,7 +2106,7 @@ class AdminPayoutEntry extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Pay weekly winner prizes',
+                          'Payouts · referrals · house engine',
                           style: TextStyle(
                             color: AppColors.textMuted,
                             fontSize: 11.sp,

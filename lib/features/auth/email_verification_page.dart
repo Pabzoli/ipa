@@ -71,9 +71,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       setState(() {
         _sending = false;
         _remainingToday = (data['remainingToday'] as num?)?.toInt();
-        _notice = ok
-            ? 'Email sent. Check your inbox and spam folder.'
-            : null;
+        _notice = ok ? 'Email sent. Check your inbox and spam folder.' : null;
         if (!ok) {
           _error = (data['remainingToday'] as num?) == 0
               ? 'You have reached today\'s limit for verification emails. Try again tomorrow.'
@@ -83,12 +81,18 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       final wait = (data['retryAfterSeconds'] as num?)?.toInt() ?? 0;
       _startCountdown(ok ? 60 : wait);
     } on AuthFlowException catch (e) {
-      if (mounted) setState(() { _sending = false; _error = e.message; });
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _error = e.message;
+        });
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _sending = false;
-        _error = 'Could not send the email. Check your connection and try again.';
+        _error =
+            'Could not send the email. Check your connection and try again.';
       });
     }
   }
@@ -108,7 +112,8 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       }
       setState(() {
         _checking = false;
-        _error = 'Not verified yet. Open the link in the email, then try again.';
+        _error =
+            'Not verified yet. Open the link in the email, then try again.';
       });
     } catch (_) {
       if (!mounted) return;
@@ -246,9 +251,8 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                     : 'Resend verification email',
                 variant: AppButtonVariant.outline,
                 loading: _sending,
-                onPressed: busy || _secondsLeft > 0 || email.isEmpty
-                    ? null
-                    : _resend,
+                onPressed:
+                    busy || _secondsLeft > 0 || email.isEmpty ? null : _resend,
               ),
               if (_remainingToday != null) ...[
                 SizedBox(height: AppSpacing.sm),
@@ -321,11 +325,14 @@ class _ChangeEmailSheetState extends State<_ChangeEmailSheet> {
       Navigator.of(context).pop(true);
     } on FirebaseAuthException catch (e) {
       _fail(switch (e.code) {
-        'wrong-password' || 'invalid-credential' => 'That password is not correct.',
+        'wrong-password' ||
+        'invalid-credential' =>
+          'That password is not correct.',
         'invalid-email' => 'That email address is not valid.',
         'email-already-in-use' => 'Another account already uses that email.',
         'too-many-requests' => 'Too many attempts. Try again later.',
-        'network-request-failed' => 'No connection. Check your internet and try again.',
+        'network-request-failed' =>
+          'No connection. Check your internet and try again.',
         _ => e.message ?? 'Could not change your email. Try again.',
       });
     } on AuthFlowException catch (e) {
@@ -334,7 +341,8 @@ class _ChangeEmailSheetState extends State<_ChangeEmailSheet> {
       // The server's messages are written for the player.
       _fail(e.message ?? 'Could not change your email. Try again.');
     } catch (_) {
-      _fail('Could not change your email. Check your connection and try again.');
+      _fail(
+          'Could not change your email. Check your connection and try again.');
     }
   }
 
@@ -369,8 +377,9 @@ class _ChangeEmailSheetState extends State<_ChangeEmailSheet> {
               keyboardType: TextInputType.emailAddress,
               enabled: !_loading,
               textInputAction: TextInputAction.next,
-              validator: (v) =>
-                  (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
+              validator: (v) => (v == null || !v.contains('@'))
+                  ? 'Enter a valid email'
+                  : null,
             ),
             SizedBox(height: AppSpacing.md),
             AuthTextField(
@@ -381,7 +390,8 @@ class _ChangeEmailSheetState extends State<_ChangeEmailSheet> {
               enabled: !_loading,
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _submit(),
-              validator: (v) => (v == null || v.isEmpty) ? 'Enter your password' : null,
+              validator: (v) =>
+                  (v == null || v.isEmpty) ? 'Enter your password' : null,
             ),
             AuthInlineError(message: _error),
             SizedBox(height: AppSpacing.lg),

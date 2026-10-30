@@ -136,7 +136,8 @@ class ShareService {
       );
     } catch (error) {
       debugPrint('[ShareService] text share failed: $error');
-      _notify(messenger, 'Could not open the share sheet. Copy the code instead.');
+      _notify(
+          messenger, 'Could not open the share sheet. Copy the code instead.');
       return ShareResult.unavailable;
     }
   }

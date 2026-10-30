@@ -53,13 +53,13 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final ctrl  = context.watch<QuizController>();
-    final q     = ctrl.currentQuestion;
+    final ctrl = context.watch<QuizController>();
+    final q = ctrl.currentQuestion;
     if (q == null) return const SizedBox.shrink();
 
-    final i       = widget.optionIndex;
-    final label   = i < _labels.length ? _labels[i] : '${i + 1}';
-    final elim    = ctrl.currentEliminated;
+    final i = widget.optionIndex;
+    final label = i < _labels.length ? _labels[i] : '${i + 1}';
+    final elim = ctrl.currentEliminated;
 
     // ── Eliminated option ──────────────────────────────────────────────────
     if (elim.contains(i)) {
@@ -69,16 +69,16 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
             opacity: 0.22,
             child: _TileContent(
               colors: _TileColors(
-                border:     AppColors.divider,
-                bg:         AppColors.surface,
-                text:       AppColors.textMuted,
-                badge:      AppColors.textMuted,
-                badgeFill:  false,
-                shadows:    const [],
-                trailing:   null,
+                border: AppColors.divider,
+                bg: AppColors.surface,
+                text: AppColors.textMuted,
+                badge: AppColors.textMuted,
+                badgeFill: false,
+                shadows: const [],
+                trailing: null,
               ),
-              label:         label,
-              text:          q.options[i],
+              label: label,
+              text: q.options[i],
               strikethrough: true,
             ),
           ),
@@ -117,7 +117,8 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
     // as "checking", not a frozen tap.
     final lockingThis =
         ctrl.isLockingAnswer && i == ctrl.selectedOption && !ctrl.showResult;
-    final semanticLabel = lockingThis ? '$semanticSuffix — checking' : semanticSuffix;
+    final semanticLabel =
+        lockingThis ? '$semanticSuffix — checking' : semanticSuffix;
     final tileColors = lockingThis
         ? _TileColors(
             border: colors.border,
@@ -135,31 +136,29 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
         : colors;
 
     return Semantics(
-      label:    'Option $label: ${q.options[i]}$semanticLabel',
-      button:   isInteractive,
+      label: 'Option $label: ${q.options[i]}$semanticLabel',
+      button: isInteractive,
       selected: i == ctrl.selectedOption,
-      enabled:  isInteractive,
+      enabled: isInteractive,
       child: GestureDetector(
-        onTapDown: isInteractive
-            ? (_) => setState(() => _pressed = true)
-            : null,
+        onTapDown:
+            isInteractive ? (_) => setState(() => _pressed = true) : null,
         onTapUp: isInteractive
             ? (_) {
                 setState(() => _pressed = false);
                 ctrl.selectOption(i);
               }
             : null,
-        onTapCancel: isInteractive
-            ? () => setState(() => _pressed = false)
-            : null,
+        onTapCancel:
+            isInteractive ? () => setState(() => _pressed = false) : null,
         child: AnimatedScale(
-          scale:    _pressed ? 0.97 : 1.0,
+          scale: _pressed ? 0.97 : 1.0,
           duration: const Duration(milliseconds: 150),
-          curve:    Curves.easeOut,
+          curve: Curves.easeOut,
           child: _TileContent(
-            colors:        tileColors,
-            label:         label,
-            text:          q.options[i],
+            colors: tileColors,
+            label: label,
+            text: q.options[i],
             strikethrough: false,
           ),
         ),
@@ -210,58 +209,58 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
       if (i == selectedOption) {
         if (result == true) {
           return _TileColors(
-            border:    AppColors.correct,
-            bg:        AppColors.correct.withValues(alpha: 0.13),
-            text:      AppColors.successText,
-            badge:     AppColors.successText,
+            border: AppColors.correct,
+            bg: AppColors.correct.withValues(alpha: 0.13),
+            text: AppColors.successText,
+            badge: AppColors.successText,
             badgeFill: true,
             shadows: [
               BoxShadow(
                 color: AppColors.correct.withValues(alpha: 0.2),
                 blurRadius: 20,
-                offset:     const Offset(0, 4),
+                offset: const Offset(0, 4),
               ),
             ],
             trailing: Icon(
               Icons.check_circle_rounded,
               color: AppColors.successText,
-              size:  22,
+              size: 22,
             ),
           );
         }
         if (result == false) {
           return _TileColors(
-            border:    AppColors.wrong,
-            bg:        AppColors.wrong.withValues(alpha: 0.11),
-            text:      AppColors.errorText,
-            badge:     AppColors.errorText,
+            border: AppColors.wrong,
+            bg: AppColors.wrong.withValues(alpha: 0.11),
+            text: AppColors.errorText,
+            badge: AppColors.errorText,
             badgeFill: true,
             shadows: [
               BoxShadow(
                 color: AppColors.wrong.withValues(alpha: 0.15),
                 blurRadius: 14,
-                offset:     const Offset(0, 3),
+                offset: const Offset(0, 3),
               ),
             ],
             trailing: Icon(
               Icons.cancel_rounded,
               color: AppColors.errorText,
-              size:  22,
+              size: 22,
             ),
           );
         }
         // Gauntlet / challenge: correctness is withheld until settlement.
         return _TileColors(
-          border:    AppColors.secondary,
-          bg:        AppColors.secondary.withValues(alpha: 0.1),
-          text:      AppColors.secondary,
-          badge:     AppColors.secondary,
+          border: AppColors.secondary,
+          bg: AppColors.secondary.withValues(alpha: 0.1),
+          text: AppColors.secondary,
+          badge: AppColors.secondary,
           badgeFill: true,
-          shadows:   const [],
-          trailing:  Icon(
+          shadows: const [],
+          trailing: Icon(
             Icons.lock_rounded,
             color: AppColors.secondary,
-            size:  20,
+            size: 20,
           ),
         );
       }
@@ -269,40 +268,40 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
       if (result != null) {
         // Solo reveal: dim the options that were not chosen.
         return _TileColors(
-          border:    AppColors.divider.withValues(alpha: 0.4),
-          bg:        AppColors.surface.withValues(alpha: 0.35),
-          text:      AppColors.textMuted.withValues(alpha: 0.5),
-          badge:     AppColors.textMuted.withValues(alpha: 0.4),
+          border: AppColors.divider.withValues(alpha: 0.4),
+          bg: AppColors.surface.withValues(alpha: 0.35),
+          text: AppColors.textMuted.withValues(alpha: 0.5),
+          badge: AppColors.textMuted.withValues(alpha: 0.4),
           badgeFill: false,
-          shadows:   const [],
-          trailing:  null,
+          shadows: const [],
+          trailing: null,
         );
       }
 
       // End-only mode: keep the tiles readable but non-interactive.
       return _TileColors(
-        border:    AppColors.divider,
-        bg:        AppColors.surface.withValues(alpha: 0.7),
-        text:      AppColors.textSecondary,
-        badge:     AppColors.textSecondary,
+        border: AppColors.divider,
+        bg: AppColors.surface.withValues(alpha: 0.7),
+        text: AppColors.textSecondary,
+        badge: AppColors.textSecondary,
         badgeFill: false,
-        shadows:   const [],
-        trailing:  null,
+        shadows: const [],
+        trailing: null,
       );
     }
 
     if (i == selectedOption) {
       return _TileColors(
-        border:    AppColors.secondary,
-        bg:        AppColors.secondary.withValues(alpha: 0.1),
-        text:      AppColors.secondary,
-        badge:     AppColors.secondary,
+        border: AppColors.secondary,
+        bg: AppColors.secondary.withValues(alpha: 0.1),
+        text: AppColors.secondary,
+        badge: AppColors.secondary,
         badgeFill: true,
         shadows: [
           BoxShadow(
             color: AppColors.secondary.withValues(alpha: 0.15),
             blurRadius: 12,
-            offset:     const Offset(0, 3),
+            offset: const Offset(0, 3),
           ),
         ],
         trailing: null,
@@ -311,13 +310,13 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
 
     // Default idle state
     return _TileColors(
-      border:    AppColors.divider,
-      bg:        AppColors.surface,
-      text:      AppColors.textPrimary,
-      badge:     AppColors.textSecondary,
+      border: AppColors.divider,
+      bg: AppColors.surface,
+      text: AppColors.textPrimary,
+      badge: AppColors.textSecondary,
       badgeFill: false,
-      shadows:   const [],
-      trailing:  null,
+      shadows: const [],
+      trailing: null,
     );
   }
 }
@@ -325,13 +324,13 @@ class _OptionTileWidgetState extends State<OptionTileWidget> {
 // ── Data class: resolved tile colours + decorations ───────────────────────
 
 class _TileColors {
-  final Color          border;
-  final Color          bg;
-  final Color          text;
-  final Color          badge;
-  final bool           badgeFill;
+  final Color border;
+  final Color bg;
+  final Color text;
+  final Color badge;
+  final bool badgeFill;
   final List<BoxShadow> shadows;
-  final Widget?        trailing;
+  final Widget? trailing;
 
   const _TileColors({
     required this.border,
@@ -348,9 +347,9 @@ class _TileColors {
 
 class _TileContent extends StatelessWidget {
   final _TileColors colors;
-  final String      label;
-  final String      text;
-  final bool        strikethrough;
+  final String label;
+  final String text;
+  final bool strikethrough;
 
   const _TileContent({
     required this.colors,
@@ -363,12 +362,12 @@ class _TileContent extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
-      curve:    Curves.easeOut,
+      curve: Curves.easeOut,
       decoration: BoxDecoration(
-        color:        colors.bg,
+        color: colors.bg,
         borderRadius: BorderRadius.circular(AppRadii.xl),
-        border:       Border.all(color: colors.border, width: 1.5),
-        boxShadow:    colors.shadows,
+        border: Border.all(color: colors.border, width: 1.5),
+        boxShadow: colors.shadows,
       ),
       child: Material(
         color: Colors.transparent,
@@ -379,7 +378,7 @@ class _TileContent extends StatelessWidget {
               // Letter badge
               AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
-                width:  34,
+                width: 34,
                 height: 34,
                 decoration: BoxDecoration(
                   color: colors.badgeFill
@@ -399,9 +398,9 @@ class _TileContent extends StatelessWidget {
                     child: Text(
                       label,
                       style: TextStyle(
-                        color:         colors.badge,
-                        fontWeight:    FontWeight.w900,
-                        fontSize:      13.sp,
+                        color: colors.badge,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13.sp,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -413,11 +412,11 @@ class _TileContent extends StatelessWidget {
                 child: Text(
                   text,
                   style: TextStyle(
-                    color:           colors.text,
-                    fontSize:        15.sp,
-                    fontWeight:      FontWeight.w600,
-                    height:          1.35,
-                    decoration:      strikethrough
+                    color: colors.text,
+                    fontSize: 15.sp,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                    decoration: strikethrough
                         ? TextDecoration.lineThrough
                         : TextDecoration.none,
                     decorationColor: colors.text,

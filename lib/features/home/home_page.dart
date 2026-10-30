@@ -129,8 +129,8 @@ class _AppBottomNav extends StatelessWidget {
                   children: [
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
-                      padding: EdgeInsets.symmetric(
-                          horizontal: 14.w, vertical: 5.h),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 14.w, vertical: 5.h),
                       decoration: BoxDecoration(
                         color: active
                             ? AppColors.primary.withValues(alpha: 0.14)
@@ -361,8 +361,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
         // Never fail silently — the user just confirmed + may have paid.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text(
-                "Couldn't load Gauntlet Blitz — please try again."),
+            content:
+                const Text("Couldn't load Gauntlet Blitz — please try again."),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppColors.wrong,
           ),
@@ -553,10 +553,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || !mounted) return;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
+      final snap =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final activeRunId =
           (snap.data()?['activeRunId'] as String?)?.trim() ?? '';
       if (!mounted) return;
@@ -582,7 +580,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Couldn't clear the run — check connection, try again."),
+          content:
+              Text("Couldn't clear the run — check connection, try again."),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -697,8 +696,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       // The server picks the 30 questions and mints the run BEFORE charging,
       // so a content failure still never burns coins. It returns the runId;
       // the quiz page resolves the sanitized questions from it.
-      final entryResult =
-          await FirestoreService.instance.enterDailyGauntlet();
+      final entryResult = await FirestoreService.instance.enterDailyGauntlet();
       final String? ticketId = entryResult['ticketId'] as String?;
       final String? runId = entryResult['runId'] as String?;
 
@@ -766,8 +764,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
             'functions:enterDailyGauntlet,functions:submitDailyGauntlet');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text(
-                'Gauntlet Blitz is updating on the server — '
+            content: const Text('Gauntlet Blitz is updating on the server — '
                 'please try again in a minute.'),
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppColors.wrong,
@@ -777,8 +774,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text(
-              "Couldn't start Gauntlet Blitz — please try again."),
+          content:
+              const Text("Couldn't start Gauntlet Blitz — please try again."),
           behavior: SnackBarBehavior.floating,
           backgroundColor: AppColors.wrong,
         ),
@@ -890,12 +887,11 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                     width: 52.r,
                     height: 52.r,
                     decoration: BoxDecoration(
-                      color: amber
-                          .withValues(alpha: isFreeEntry ? 0.16 : 0.07),
+                      color: amber.withValues(alpha: isFreeEntry ? 0.16 : 0.07),
                       borderRadius: BorderRadius.circular(14.r),
                       border: Border.all(
-                        color: amber.withValues(
-                            alpha: isFreeEntry ? 0.34 : 0.16),
+                        color:
+                            amber.withValues(alpha: isFreeEntry ? 0.34 : 0.16),
                       ),
                     ),
                     child: Column(
@@ -909,8 +905,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                         Text(
                           '90s',
                           style: AppTypography.titleLarge.copyWith(
-                            color:
-                                isFreeEntry ? amber : AppColors.textMuted,
+                            color: isFreeEntry ? amber : AppColors.textMuted,
                             fontWeight: FontWeight.w900,
                             height: 1.0,
                           ),
@@ -941,8 +936,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                             color: isFreeEntry
                                 ? amber.withValues(alpha: 0.16)
                                 : AppColors.surface,
-                            borderRadius:
-                                BorderRadius.circular(AppRadii.full),
+                            borderRadius: BorderRadius.circular(AppRadii.full),
                             border: Border.all(
                               color: isFreeEntry
                                   ? amber.withValues(alpha: 0.4)
@@ -950,13 +944,10 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                             ),
                           ),
                           child: Text(
-                            isFreeEntry
-                                ? 'FREE ENTRY'
-                                : '$retryCost AC ENTRY',
+                            isFreeEntry ? 'FREE ENTRY' : '$retryCost AC ENTRY',
                             style: AppTypography.labelSmall.copyWith(
-                              color: isFreeEntry
-                                  ? amber
-                                  : AppColors.textSecondary,
+                              color:
+                                  isFreeEntry ? amber : AppColors.textSecondary,
                             ),
                           ),
                         ),
@@ -987,8 +978,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                                   EdgeInsets.only(right: col < 2 ? 6.w : 0),
                               child: _BlitzPayoutChip(
                                 tier: kBlitzAcTiers[row * 3 + col],
-                                breakEven: covered ==
-                                    kBlitzAcTiers[row * 3 + col],
+                                breakEven:
+                                    covered == kBlitzAcTiers[row * 3 + col],
                               ),
                             ),
                           ),
@@ -1144,8 +1135,7 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       if (e.code == 'unauthenticated' && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('Your session expired — sign in again, then retry.'),
+            content: Text('Your session expired — sign in again, then retry.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1369,7 +1359,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                             color: AppColors.secondary.withValues(alpha: 0.14),
                             borderRadius: BorderRadius.circular(20.r),
                             border: Border.all(
-                                color: AppColors.secondary.withValues(alpha: 0.4)),
+                                color:
+                                    AppColors.secondary.withValues(alpha: 0.4)),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -1472,7 +1463,8 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 opacity: hasSelection ? 1 : 0,
                 child: _LineupTray(
                   selected: _selected.toList(),
-                  difficulty: context.watch<SoloDifficultyProvider>().difficulty,
+                  difficulty:
+                      context.watch<SoloDifficultyProvider>().difficulty,
                   starting: _startingSolo,
                   onStart: () => _startQuiz(),
                   onClearAll: () => setState(() => _selected.clear()),
@@ -1518,18 +1510,16 @@ class _BlitzPayoutChip extends StatelessWidget {
           Text(
             '${tier.minCorrect}+',
             style: AppTypography.labelMedium.copyWith(
-              color: breakEven
-                  ? AppColors.readable(amber)
-                  : AppColors.textMuted,
+              color:
+                  breakEven ? AppColors.readable(amber) : AppColors.textMuted,
             ),
           ),
           SizedBox(height: 2.h),
           Text(
             '+${tier.ac}',
             style: AppTypography.labelLarge.copyWith(
-              color: breakEven
-                  ? AppColors.readable(amber)
-                  : AppColors.textPrimary,
+              color:
+                  breakEven ? AppColors.readable(amber) : AppColors.textPrimary,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -1610,8 +1600,9 @@ class _TodayGauntletCard extends StatelessWidget {
                     Text(
                       '90s',
                       style: TextStyle(
-                        color:
-                            usedToday ? AppColors.textMuted : AppColors.readable(AppColors.amber),
+                        color: usedToday
+                            ? AppColors.textMuted
+                            : AppColors.readable(AppColors.amber),
                         fontSize: 22.sp,
                         fontWeight: FontWeight.w900,
                         height: 1.0,
@@ -1639,8 +1630,9 @@ class _TodayGauntletCard extends StatelessWidget {
                       Text(
                         'GAUNTLET BLITZ',
                         style: TextStyle(
-                          color:
-                              usedToday ? AppColors.textMuted : AppColors.readable(AppColors.amber),
+                          color: usedToday
+                              ? AppColors.textMuted
+                              : AppColors.readable(AppColors.amber),
                           fontSize: 8.sp,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.7,
@@ -1690,8 +1682,6 @@ class _TodayPrizeCard extends StatefulWidget {
 class _TodayPrizeCardState extends State<_TodayPrizeCard> {
   late final Stream<Map<String, dynamic>> _stream;
 
-  double _guaranteedFloor = 0;
-
   @override
   void initState() {
     super.initState();
@@ -1701,13 +1691,6 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
     // different times: this card streams live while the leaderboard re-reads on
     // open / pull-to-refresh / a stale resume, so for a few minutes after a
     // sale the card can lead the board. The rule is shared; the cadence is not.
-    _loadFloor();
-  }
-
-  Future<void> _loadFloor() async {
-    final floor = await FirestoreService.instance.guaranteedFloor();
-    if (!mounted) return;
-    setState(() => _guaranteedFloor = floor);
   }
 
   @override
@@ -1722,7 +1705,6 @@ class _TodayPrizeCardState extends State<_TodayPrizeCard> {
         final projection = PrizePoolService.projectPrizePool(
           entryCodeRevenue: pool['entryCodeRevenue'] as num?,
           adminPoolNaira: pool['adminPoolNaira'] as num?,
-          guaranteedFloor: _guaranteedFloor,
         );
 
         return Container(
@@ -1824,7 +1806,8 @@ class _PremiumBanner extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppColors.accent.withValues(alpha: 0.20),
                   borderRadius: BorderRadius.circular(14.r),
-                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.40)),
+                  border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.40)),
                 ),
                 child: Center(
                     child: Text('👑', style: TextStyle(fontSize: 24.sp))),
@@ -1875,7 +1858,8 @@ class _PremiumBanner extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: AppColors.accent.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12.r),
-                  border: Border.all(color: AppColors.accent.withValues(alpha: 0.3)),
+                  border: Border.all(
+                      color: AppColors.accent.withValues(alpha: 0.3)),
                 ),
                 child: Icon(
                   Icons.arrow_forward_ios_rounded,
@@ -1990,7 +1974,10 @@ class _AnimeCardState extends State<_AnimeCard>
       "assets/jojo's bizarre adventure.jpg",
       "assets/jojo's bizarre adventure1.jpg"
     ],
-    'jujutsu kaisen': ['assets/jujutsu kaisen.jpg', 'assets/jujutsu kaisen1.jpg'],
+    'jujutsu kaisen': [
+      'assets/jujutsu kaisen.jpg',
+      'assets/jujutsu kaisen1.jpg'
+    ],
     "kuroko's basketball": [
       "assets/kuroko's basketball.jpg",
       "assets/kuroko's basketball1.jpg"
@@ -2079,12 +2066,12 @@ class _AnimeCardState extends State<_AnimeCard>
     [Color(0xFF22D3EE), Color(0xFF155E75)],
   ];
 
-  String get _emoji =>
-      _emojiMap[widget.title.toLowerCase().trim()] ?? '✨';
+  String get _emoji => _emojiMap[widget.title.toLowerCase().trim()] ?? '✨';
 
   List<Color> get _palette {
-    final index = widget.title.codeUnits.fold<int>(0, (total, value) => total + value) %
-        _palettes.length;
+    final index =
+        widget.title.codeUnits.fold<int>(0, (total, value) => total + value) %
+            _palettes.length;
     return _palettes[index];
   }
 
@@ -2217,7 +2204,8 @@ class _AnimeCardState extends State<_AnimeCard>
                               padding: EdgeInsets.symmetric(
                                   horizontal: 8.w, vertical: 4.h),
                               decoration: BoxDecoration(
-                                color: AppColors.secondary.withValues(alpha: 0.9),
+                                color:
+                                    AppColors.secondary.withValues(alpha: 0.9),
                                 borderRadius: BorderRadius.circular(8.r),
                               ),
                               child: Text(
@@ -2340,8 +2328,8 @@ class _SelectedCheck extends StatelessWidget {
     return Container(
       width: 22.r,
       height: 22.r,
-      decoration: const BoxDecoration(
-          color: AppColors.primary, shape: BoxShape.circle),
+      decoration:
+          const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
       child: Icon(Icons.check, color: Colors.white, size: 14.r),
     );
   }
@@ -2365,7 +2353,7 @@ class _FilterChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chips = <({ _AnimeFilter value, String label })>[
+    final chips = <({_AnimeFilter value, String label})>[
       (value: _AnimeFilter.all, label: 'All ($totalCount)'),
       (value: _AnimeFilter.ready, label: 'Ready ($readyCount)'),
       (value: _AnimeFilter.cooldown, label: 'Cooldown ($cooldownCount)'),

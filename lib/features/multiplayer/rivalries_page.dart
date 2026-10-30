@@ -163,8 +163,7 @@ class _RivalriesPageState extends State<RivalriesPage>
       if (rivals.length < target && !exhausted) {
         var firstScan = rivals.isEmpty;
         while (true) {
-          window =
-              firstScan ? window : min(window * 2, kRivalriesMaxWindow);
+          window = firstScan ? window : min(window * 2, kRivalriesMaxWindow);
           firstScan = false;
           final page = await FirestoreService.instance
               .recentRivalsWindow(window: window);
@@ -501,9 +500,7 @@ class _SummaryCard extends StatelessWidget {
                 child: _SummaryStat(
                   value: '$wins–$losses',
                   label: draws > 0 ? 'W–L · ${draws}D' : 'W–L',
-                  color: wins >= losses
-                      ? AppColors.correct
-                      : AppColors.lose,
+                  color: wins >= losses ? AppColors.correct : AppColors.lose,
                 ),
               ),
             ],
@@ -802,10 +799,8 @@ class _CampusSuggestions extends StatelessWidget {
   Future<List<RivalCandidate>?> _load() async {
     final me = FirestoreService.instance.currentUid;
     if (me == null) return [];
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(me)
-        .get();
+    final doc =
+        await FirebaseFirestore.instance.collection('users').doc(me).get();
     final data = doc.data() ?? {};
     final uni = (data['university'] as String?) ?? '';
     final week = (data['leaderboardEntryWeekId'] as String?) ?? '';

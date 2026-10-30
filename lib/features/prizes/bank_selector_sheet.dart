@@ -217,7 +217,8 @@ class _BankError extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.wrong.withValues(alpha: 0.10),
               shape: BoxShape.circle,
-              border: Border.all(color: AppColors.wrong.withValues(alpha: 0.28)),
+              border:
+                  Border.all(color: AppColors.wrong.withValues(alpha: 0.28)),
             ),
             alignment: Alignment.center,
             child: Icon(
@@ -270,8 +271,7 @@ class _BankList extends StatelessWidget {
         ? banks
         : banks
             .where((b) =>
-                b.name.toLowerCase().contains(query) ||
-                b.code.contains(query))
+                b.name.toLowerCase().contains(query) || b.code.contains(query))
             .toList();
 
     return Column(
@@ -288,8 +288,7 @@ class _BankList extends StatelessWidget {
           decoration: InputDecoration(
             hintText: 'Search banks…',
             hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13.sp),
-            prefixIcon:
-                Icon(Icons.search_rounded, color: AppColors.textMuted),
+            prefixIcon: Icon(Icons.search_rounded, color: AppColors.textMuted),
             filled: true,
             fillColor: AppColors.surfaceAlt,
             contentPadding:
@@ -352,7 +351,8 @@ class _BankList extends StatelessWidget {
                               width: 38.r,
                               height: 38.r,
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.10),
+                                color:
+                                    AppColors.primary.withValues(alpha: 0.10),
                                 borderRadius: BorderRadius.circular(10.r),
                               ),
                               alignment: Alignment.center,
@@ -383,7 +383,8 @@ class _BankList extends StatelessWidget {
                             ),
                             if (isSelected)
                               Icon(Icons.check_circle_rounded,
-                                  color: AppColors.readable(AppColors.primary), size: 20.r),
+                                  color: AppColors.readable(AppColors.primary),
+                                  size: 20.r),
                           ],
                         ),
                       ),

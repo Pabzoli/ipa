@@ -371,12 +371,13 @@ void main() {
   });
 
   group('PrizePoolCard', () {
-    testWidgets('labels a revenue projection as provisional, never a promise',
+    testWidgets('labels an unset pool as not set, never a promise',
         (tester) async {
       final projection = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 50000,
       );
-      expect(projection.amount, 35000);
+      expect(projection.amount, 0);
+      expect(projection.source, PoolSource.unset);
 
       await tester.pumpWidget(wrap(PrizePoolCard(
         projection: projection,
@@ -386,21 +387,19 @@ void main() {
         isBoardEmpty: false,
       )));
 
-      expect(find.text('₦35K'), findsOneWidget);
-      expect(find.text('Projected · finalised Monday'), findsOneWidget);
+      expect(find.text('₦0'), findsOneWidget);
+      expect(find.text('Not set yet'), findsOneWidget);
     });
 
     testWidgets(
         'an empty board invites the first entry instead of promising '
         'a payout', (tester) async {
-      // The CF allocates the floor to a cycle whose `ranked` array is empty, so
-      // an empty week pays nobody. "Guaranteed minimum" next to a naira figure
-      // would read as money already committed.
+      // No amount is set yet, so there is nothing to quote — just the invite.
       final projection = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 0,
         guaranteedFloor: 20000,
       );
-      expect(projection.source, PoolSource.floor);
+      expect(projection.source, PoolSource.unset);
 
       await tester.pumpWidget(wrap(PrizePoolCard(
         projection: projection,
@@ -411,10 +410,10 @@ void main() {
       )));
 
       expect(
-        find.text('Be the first to enter. Prize pool starts at ₦20K'),
+        find.text('Be the first to enter.'),
         findsOneWidget,
       );
-      expect(find.text('Guaranteed minimum · projected'), findsNothing);
+      expect(find.text('Not set yet'), findsNothing);
     });
 
     testWidgets('an empty board with no floor avoids quoting ₦0',
@@ -436,10 +435,9 @@ void main() {
       expect(find.textContaining('Prize pool starts at ₦0'), findsNothing);
     });
 
-    testWidgets('the floor label still applies once people have entered',
+    testWidgets('an unset pool says so once people have entered',
         (tester) async {
-      // The floor is still worth naming once there are entrants: it means the
-      // figure is a subsidy rather than sales.
+      // Entries accrue, but nothing sizes the pool until it is set.
       final projection = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 1000,
         guaranteedFloor: 20000,
@@ -453,10 +451,10 @@ void main() {
         isBoardEmpty: false,
       )));
 
-      expect(find.text('Guaranteed minimum · projected'), findsOneWidget);
+      expect(find.text('Not set yet'), findsOneWidget);
     });
 
-    testWidgets('does not claim "projected" for an admin-fixed pool',
+    testWidgets('does not claim "not set" for an admin-fixed pool',
         (tester) async {
       final projection = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 100,
@@ -471,10 +469,10 @@ void main() {
       )));
 
       expect(find.text('Fixed for this week'), findsOneWidget);
-      expect(find.text('Projected · finalised Monday'), findsNothing);
+      expect(find.text('Not set yet'), findsNothing);
     });
 
-    testWidgets('says so when the pool is riding the guaranteed floor',
+    testWidgets('a retired floor input does not surface a figure',
         (tester) async {
       final projection = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 1000,
@@ -488,7 +486,7 @@ void main() {
         isBoardEmpty: false,
       )));
 
-      expect(find.text('Guaranteed minimum · projected'), findsOneWidget);
+      expect(find.text('Not set yet'), findsOneWidget);
     });
 
     testWidgets('shows last week\'s actuals as the trust anchor',
@@ -508,9 +506,9 @@ void main() {
     });
 
     test('last week is never added to this week', () {
-      // NO ROLLOVER. Each week's pool is funded only by its own entries (or the
-      // admin's fixed figure). The displayed figure must be exactly the
-      // projection, whatever last week paid.
+      // NO ROLLOVER, and no automatic funding at all. The displayed figure
+      // must be exactly the set pool — or nothing when unset — whatever last
+      // week paid.
       final withNothingLastWeek = PrizePoolService.projectPrizePool(
         entryCodeRevenue: 50000,
       );
@@ -518,17 +516,17 @@ void main() {
         entryCodeRevenue: 50000,
       );
 
-      // 70% of 50000, not 7000 plus any of last week's 2M.
-      expect(withNothingLastWeek.amount, 35000);
-      expect(afterAFortnightOfRichWeeks.amount, 35000);
+      // Unset: sales accrue, but the pool stays at 0 until it is set.
+      expect(withNothingLastWeek.amount, 0);
+      expect(afterAFortnightOfRichWeeks.amount, 0);
 
-      // And the floor is a floor, not a carryover target.
+      // And a legacy floor input is ignored, not a carryover target.
       expect(
         PrizePoolService.projectPrizePool(
           entryCodeRevenue: 0,
           guaranteedFloor: 20000,
         ).amount,
-        20000,
+        0,
       );
     });
 
@@ -545,7 +543,7 @@ void main() {
       )));
 
       // This week's figure is unchanged by a ₦2M last week...
-      expect(find.text('₦35K'), findsOneWidget);
+      expect(find.text('₦0'), findsOneWidget);
       // ...and the reference line is phrased as a completed payment, not as
       // money still in the pot.
       expect(find.text('Last week paid ₦2.0M'), findsOneWidget);

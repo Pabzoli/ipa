@@ -226,17 +226,20 @@ class AnimatedHeroBackground extends StatelessWidget {
           Positioned(
             top: -80.h,
             right: -60.w,
-            child: _Orb(size: 280.r, color: AppColors.primary.withValues(alpha: 0.15)),
+            child: _Orb(
+                size: 280.r, color: AppColors.primary.withValues(alpha: 0.15)),
           ),
           Positioned(
             bottom: 100.h,
             left: -80.w,
-            child: _Orb(size: 220.r, color: AppColors.secondary.withValues(alpha: 0.1)),
+            child: _Orb(
+                size: 220.r, color: AppColors.secondary.withValues(alpha: 0.1)),
           ),
           Positioned(
             top: 200.h,
             left: 60.w,
-            child: _Orb(size: 100.r, color: AppColors.accent.withValues(alpha: 0.08)),
+            child: _Orb(
+                size: 100.r, color: AppColors.accent.withValues(alpha: 0.08)),
           ),
           child,
         ],

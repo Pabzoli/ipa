@@ -181,9 +181,7 @@ class _StakeScreenState extends State<StakeScreen> {
 
     final todayWAT = _watDateString();
 
-    final usedToday = wpStakedDate == todayWAT
-        ? wpStakedToday
-        : 0;
+    final usedToday = wpStakedDate == todayWAT ? wpStakedToday : 0;
 
     final dailyCap = premiumActive ? kWpDailyCapPremium : kWpDailyCapFree;
 
@@ -217,9 +215,7 @@ class _StakeScreenState extends State<StakeScreen> {
         premiumActive ? kDailyCreatePremium : kDailyCreateFree;
     final activeLimit =
         premiumActive ? kActiveChallengesPremium : kActiveChallengesFree;
-    final error = raw
-        .replaceFirst('Exception: ', '')
-        .trim();
+    final error = raw.replaceFirst('Exception: ', '').trim();
 
     if (code == 'unauthenticated') {
       return 'Please sign in again and try again';
@@ -238,84 +234,46 @@ class _StakeScreenState extends State<StakeScreen> {
     }
 
     if (error.startsWith('wp_cooldown_active_')) {
-      final time = error
-          .replaceFirst('wp_cooldown_active_', '')
-          .replaceAll('_', ' ');
+      final time =
+          error.replaceFirst('wp_cooldown_active_', '').replaceAll('_', ' ');
 
       return 'You can challenge this rival again in $time';
     }
 
     return switch (error) {
-      'insufficient_coins' =>
-        'Not enough AC for this stake',
-
-      'insufficient_wp' =>
-        'Not enough weekly points for this stake',
-
-      'wp_daily_cap_exceeded' =>
-        'Your daily WP staking limit has been reached',
-
+      'insufficient_coins' => 'Not enough AC for this stake',
+      'insufficient_wp' => 'Not enough weekly points for this stake',
+      'wp_daily_cap_exceeded' => 'Your daily WP staking limit has been reached',
       'wp_stake_exceeds_limit' =>
         'This WP stake exceeds your maximum allowed amount',
-
-      'wp_stake_below_minimum' =>
-        'Minimum WP stake is $kWpMinStake WP',
-
-      'wp_stake_invalid_step' =>
-        'WP stake must be a multiple of 5',
-
-      'invalid_wp_stake' =>
-        'Enter a valid WP stake amount',
-
+      'wp_stake_below_minimum' => 'Minimum WP stake is $kWpMinStake WP',
+      'wp_stake_invalid_step' => 'WP stake must be a multiple of 5',
+      'invalid_wp_stake' => 'Enter a valid WP stake amount',
       'wp_stake_requires_opponent' =>
         'WP staking is only available for rival challenges',
-
       'invalid_opponent' =>
         'Your opponent could not be identified. Please select them again.',
-
-      'cannot_challenge_yourself' =>
-        'You cannot challenge yourself',
-
+      'cannot_challenge_yourself' => 'You cannot challenge yourself',
       'daily_challenge_limit_reached' =>
         'Daily limit reached — maximum $dailyCreateLimit challenges per day',
-
       'daily_spar_limit_reached' =>
         'Daily spar limit reached — come back tomorrow for friendlies',
-
       'too_many_active_challenges' =>
         'You already have $activeLimit active challenges',
-      'stake_below_minimum' =>
-        'Minimum stake is $kAcMinStake AC',
-
-      'stake_exceeds_limit' =>
-        'This stake exceeds your maximum allowed amount',
-
-      'stake_invalid_step' =>
-        'AC stake must be a multiple of $kAcStakeStep',
-
-      'invalid_stake_amount' =>
-        'Enter a valid AC stake amount',
-
-      'invalid_anime_title' =>
-        'Invalid anime selected',
-
+      'stake_below_minimum' => 'Minimum stake is $kAcMinStake AC',
+      'stake_exceeds_limit' => 'This stake exceeds your maximum allowed amount',
+      'stake_invalid_step' => 'AC stake must be a multiple of $kAcStakeStep',
+      'invalid_stake_amount' => 'Enter a valid AC stake amount',
+      'invalid_anime_title' => 'Invalid anime selected',
       'no_questions_for_anime' =>
         'No questions are available for this anime yet',
-
       'not_enough_questions_for_anime' =>
         'Not enough questions are available for this anime yet',
-
-      'user_not_found' =>
-        'Your account data could not be found',
-
+      'user_not_found' => 'Your account data could not be found',
       'challenge_creation_failed' =>
         'Unable to create the challenge right now. Please try again.',
-
-      '' =>
-        'Something went wrong. Please try again.',
-
-      _ =>
-        error,
+      '' => 'Something went wrong. Please try again.',
+      _ => error,
     };
   }
 
@@ -356,15 +314,11 @@ class _StakeScreenState extends State<StakeScreen> {
       return;
     }
 
-    final opponentUid =
-        widget.opponentUid?.trim() ?? '';
+    final opponentUid = widget.opponentUid?.trim() ?? '';
 
-    final opponentUsername =
-        widget.opponentUsername?.trim() ?? '';
+    final opponentUsername = widget.opponentUsername?.trim() ?? '';
 
-    if (isRivalChallenge &&
-        (opponentUid.isEmpty ||
-            opponentUsername.isEmpty)) {
+    if (isRivalChallenge && (opponentUid.isEmpty || opponentUsername.isEmpty)) {
       HapticFeedback.lightImpact();
 
       setState(() {
@@ -436,8 +390,7 @@ class _StakeScreenState extends State<StakeScreen> {
         '══════════════════════════════════════',
       );
 
-      final functions =
-          FirebaseFunctions.instanceFor(
+      final functions = FirebaseFunctions.instanceFor(
         region: 'us-central1',
       );
 
@@ -451,14 +404,11 @@ class _StakeScreenState extends State<StakeScreen> {
 
       final data = result.data;
 
-      final challengeId =
-          data['challengeId'] as String?;
+      final challengeId = data['challengeId'] as String?;
 
-      final rawQuestionIds =
-          data['questionIds'];
+      final rawQuestionIds = data['questionIds'];
 
-      if (challengeId == null ||
-          challengeId.trim().isEmpty) {
+      if (challengeId == null || challengeId.trim().isEmpty) {
         throw Exception(
           'challenge_creation_failed',
         );
@@ -494,8 +444,7 @@ class _StakeScreenState extends State<StakeScreen> {
               ),
             );
           },
-          transitionDuration:
-              const Duration(milliseconds: 400),
+          transitionDuration: const Duration(milliseconds: 400),
         ),
       );
     } on FirebaseFunctionsException catch (e) {
@@ -563,15 +512,11 @@ ${e.details}
   // ─────────────────────────────────────────────────────────────────────────
 
   static String _watDateString() {
-    final wat = DateTime.now()
-        .toUtc()
-        .add(const Duration(hours: 1));
+    final wat = DateTime.now().toUtc().add(const Duration(hours: 1));
 
-    final month =
-        wat.month.toString().padLeft(2, '0');
+    final month = wat.month.toString().padLeft(2, '0');
 
-    final day =
-        wat.day.toString().padLeft(2, '0');
+    final day = wat.day.toString().padLeft(2, '0');
 
     return '${wat.year}-$month-$day';
   }
@@ -594,7 +539,8 @@ ${e.details}
     final maxACStake = premiumActive ? kAcMaxStakePremium : kAcMaxStakeFree;
     final maxWPStake = premiumActive ? kWpMaxStakePremium : kWpMaxStakeFree;
 
-    final dailyCreateLimit = premiumActive ? kDailyCreatePremium : kDailyCreateFree;
+    final dailyCreateLimit =
+        premiumActive ? kDailyCreatePremium : kDailyCreateFree;
     final dailyLimitReached = createdToday >= dailyCreateLimit;
 
     final acError = _validateAC(
@@ -612,8 +558,8 @@ ${e.details}
         : null;
 
     final canAffordAC = _acStake > 0 && _acStake <= animeCoins;
-    final canAffordWP = !isRivalChallenge ||
-        (_wpStake > 0 && _wpStake <= weeklyPoints);
+    final canAffordWP =
+        !isRivalChallenge || (_wpStake > 0 && _wpStake <= weeklyPoints);
 
     final validStake = acError == null && wpError == null;
 
@@ -727,8 +673,7 @@ ${e.details}
                 stakeValue: _acStake,
                 wpStake: _wpStake,
                 loading: _creating,
-                canAfford:
-                    canAffordAC && canAffordWP && validStake,
+                canAfford: canAffordAC && canAffordWP && validStake,
                 dailyLimitReached: dailyLimitReached,
                 isRivalChallenge: isRivalChallenge,
                 onTap: canCreate
@@ -756,7 +701,6 @@ ${e.details}
   }
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPACT APP HEADER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -774,8 +718,8 @@ class _StakeAppBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasRival = opponentUsername != null &&
-        opponentUsername!.trim().isNotEmpty;
+    final hasRival =
+        opponentUsername != null && opponentUsername!.trim().isNotEmpty;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(6.r, 10.r, 16.r, 8.r),
@@ -1421,8 +1365,8 @@ class _CreatingOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasRival = opponentUsername != null &&
-        opponentUsername!.trim().isNotEmpty;
+    final hasRival =
+        opponentUsername != null && opponentUsername!.trim().isNotEmpty;
 
     final heading = hasRival
         ? 'Challenging $opponentUsername…'

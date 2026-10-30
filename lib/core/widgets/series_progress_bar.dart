@@ -103,7 +103,10 @@ class _Pips extends StatelessWidget {
             shape: BoxShape.circle,
             color: i < active ? color : AppColors.divider,
             boxShadow: i < active
-                ? [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 6)]
+                ? [
+                    BoxShadow(
+                        color: color.withValues(alpha: 0.45), blurRadius: 6)
+                  ]
                 : null,
           ),
         ),

@@ -102,7 +102,13 @@ void main() {
   // wrap and overflow in ways a phone never does. Load the app's real font.
   setUpAll(() async {
     final loader = FontLoader(AppTypography.fontFamily);
-    for (final weight in ['Regular', 'SemiBold', 'Bold', 'ExtraBold', 'Black']) {
+    for (final weight in [
+      'Regular',
+      'SemiBold',
+      'Bold',
+      'ExtraBold',
+      'Black'
+    ]) {
       loader.addFont(rootBundle.load('assets/fonts/Nunito-$weight.ttf'));
     }
     await loader.load();
@@ -139,8 +145,8 @@ void main() {
       weeklyPoints: 1000,
     );
 
-    expect(find.text('You need 50 AC to accept this challenge.'),
-        findsOneWidget);
+    expect(
+        find.text('You need 50 AC to accept this challenge.'), findsOneWidget);
 
     await tester.tap(find.text('⚔️ Accept & Play'));
     await tester.pump();

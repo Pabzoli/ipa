@@ -179,7 +179,8 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
                 borderRadius: BorderRadius.circular(AppRadii.md),
               ),
               child: Icon(Icons.emoji_events_rounded,
-                  color: AppColors.readable(LeaderboardPalette.gold), size: 22.r),
+                  color: AppColors.readable(LeaderboardPalette.gold),
+                  size: 22.r),
             ),
             SizedBox(width: 12.w),
             Expanded(
@@ -212,11 +213,10 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
           ],
         ),
         SizedBox(height: 18.h),
-
         Text(
           "A leaderboard entry activates your already-earned points for this "
-          "week's paid rank & prize pool (top ranks split 70% of this week's "
-          "entry revenue). One entry covers this week only.",
+          "week's paid rank & prize pool (top ranks split this week's prize "
+          'pool). One entry covers this week only.',
           style: TextStyle(
             color: AppColors.textSecondary,
             fontSize: 13.sp,
@@ -224,7 +224,6 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
           ),
         ),
         SizedBox(height: 14.h),
-
         Container(
           width: double.infinity,
           padding: EdgeInsets.all(12.r),
@@ -257,7 +256,6 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
           ),
         ),
         SizedBox(height: 20.h),
-
         SizedBox(
           width: double.infinity,
           height: 50,
@@ -292,7 +290,6 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
           ),
         ),
         SizedBox(height: 6.h),
-
         Center(
           child: TextButton(
             onPressed: () => Navigator.of(context).pop(),

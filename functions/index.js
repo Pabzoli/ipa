@@ -185,6 +185,12 @@ const INVITE_EXPIRY_HOURS = 12;
 // active-challenge slot is freed for both players right away.
 const PARTIAL_FORFEIT_MINUTES = 15;
 
+// Walkaway fee for quitting a live duel (challenge or Quick Match) before the
+// score is recorded. Deducted in cancelRun on top of forfeiting the match,
+// floored at zero so a broke player can still clear a stuck run. Mirrors
+// kChallengeQuitFeeAc in lib/core/constants/rival_economy.dart.
+const QUIT_FEE_AC = 100;
+
 initializeApp();
 const db = getFirestore();
 
@@ -3067,35 +3073,17 @@ async function runWeeklyReset() {
     } while (true);
 
     // Total this week's leaderboard-entry code revenue (accrued by redeemCode).
+    // Tracked for accounting only — it never sizes the pool.
     const entryRevenue = poolData.entryCodeRevenue || 0;
 
-    // Optional developer-funded floor for low-volume weeks �?a MANUAL/admin
-    // value only, set via setLeaderboardFloor. Never automatic.
-    let floor = 0;
-    try {
-      const cfgSnap = await db.collection('app_config').doc('leaderboard_entry_config').get();
-      floor = Number(cfgSnap.data()?.guaranteedFloor) || 0;
-    } catch (err) {
-      console.warn(`[weeklyReset] leaderboard floor read failed (ignored): ${err.message}`);
-    }
-
-    // Pool sizing, in priority order:
-    //   1. adminPoolNaira - a FIXED amount the admin set for this week via
-    //      setPrizePool. It REPLACES the revenue-based figure outright, so the
-    //      admin always knows exactly what is at stake regardless of how many
-    //      entries sold.
-    //   2. Otherwise 70% of leaderboard-entry sales, never below the floor.
-    //
-    // There is NO rollover term. Expired claims are forfeited, not carried into
-    // a later week, so nothing is added here beyond this week's own revenue.
-    // Each week's pool is funded only by that week's entries (or your fixed
-    // amount) - see checkPendingClaim, which records forfeited shares on the
-    // cycle as forfeitedNaira for accounting.
+    // Pool sizing: admin-set only. The pool is the FIXED amount set for this
+    // week via setPrizePool, or 0 (unset) when nothing was set. There is no
+    // revenue share, no floor, and no rollover. Expired claims are forfeited,
+    // not carried into a later week — see checkPendingClaim, which records
+    // forfeited shares on the cycle as forfeitedNaira for accounting.
     const adminPool   = Number(poolData.adminPoolNaira);
     const isFixedPool = Number.isFinite(adminPool) && adminPool > 0;
-    const revenuePool = Math.max(entryRevenue * 0.70, floor);
-    const prizePool   = isFixedPool ? adminPool : revenuePool;
-    const houseCut    = entryRevenue * 0.30;
+    const prizePool   = isFixedPool ? adminPool : 0;
 
     const ranked = eligible.map((u, i) => ({
       rank:            i + 1,
@@ -3114,9 +3102,9 @@ async function runWeeklyReset() {
       weekId,
       totalCodeRevenue: entryRevenue,
       prizePool:        parseFloat(prizePool.toFixed(2)),
-      houseCut:         parseFloat(houseCut.toFixed(2)),
-      guaranteedFloor:  floor,
-      poolSource:      isFixedPool ? 'admin_fixed' : 'revenue',
+      houseCut:         0,
+      guaranteedFloor:  0,
+      poolSource:      isFixedPool ? 'admin_fixed' : 'unset',
       adminPoolNaira:  isFixedPool ? prizePool : null,
       eligibleCount:    ranked.length,
       ranked,
@@ -3125,9 +3113,7 @@ async function runWeeklyReset() {
       paidAt:           null,
       notes:            isFixedPool
         ? `Pool fixed by admin at ${prizePool} naira (entry revenue ${entryRevenue}).`
-        : (floor > revenuePool
-            ? `Low-volume week �?pool bumped to guaranteed floor of ${floor}`
-            : ''),
+        : 'No pool was set for this week — pool recorded as unset (₦0).',
     });
 
     if (ranked.length > 0) {
@@ -3280,8 +3266,8 @@ exports.triggerWeeklyReset = onRequest(
 // authenticated player with no admin gate. Both problems are gone.
 //
 // WHAT THIS DOES: the admin picks ONE number for the current week and that
-// becomes the prize pool outright �?it REPLACES the 70%-of-entry-sales figure,
-// it does not add to it. One source of truth, and you always know exactly what
+// becomes the prize pool outright. Until this is set, the week's pool is
+// unset. One source of truth, and you always know exactly what
 // is at stake before the week closes.
 //
 // WRITE SCOPE: current week only. A closed cycle has already had shares
@@ -3351,11 +3337,10 @@ exports.setPrizePool = onSecureCall(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ─── clearPrizePool �?admin reverts to revenue-based pool ───────────────────
+// ─── clearPrizePool — admin unsets the prize pool for the current week ───
 // ─────────────────────────────────────────────────────────────────────────────
-// Removes the fixed amount so runWeeklyReset falls back to
-// (entryRevenue * 0.70), which is what it did before this feature
-// feature existed. Same current-week-only restriction as setPrizePool.
+// Removes the fixed amount, leaving the pool unset until a new amount is set.
+// Same current-week-only restriction as setPrizePool.
 exports.clearPrizePool = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
@@ -3377,11 +3362,11 @@ exports.clearPrizePool = onSecureCall(
       poolSetAt:      FieldValue.delete(),
     }, { merge: true });
 
-    console.log(`[clearPrizePool] week=${weekId} reverted to revenue-based pool by ${request.auth.uid}`);
+    console.log(`[clearPrizePool] week=${weekId} pool unset by ${request.auth.uid}`);
     return {
       success: true,
       weekId,
-      message: 'Reverted. This week\'s pool now follows leaderboard entry sales (70%).',
+      message: 'Reverted. No pool is set for this week.',
     };
   }
 );
@@ -3389,9 +3374,9 @@ exports.clearPrizePool = onSecureCall(
 // ─────────────────────────────────────────────────────────────────────────────
 // ─── getPrizePoolStatus �?live pool state for the admin UI ─────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// Read-only. Returns both the live figures for the CURRENT week and what the
-// pool WILL be if left alone, so the admin can see the gap between their
-// revenue-based expectation and any fixed amount they have set.
+// Read-only. Returns the live figures for the CURRENT week: the fixed pool
+// when one is set, otherwise unset (₦0). Nothing funds the pool
+// automatically, so there is no projection to show.
 exports.getPrizePoolStatus = onSecureCall(
   { region: 'us-central1' },
   async (request) => {
@@ -3407,31 +3392,22 @@ exports.getPrizePoolStatus = onSecureCall(
 
     const pool = poolSnap.exists ? (poolSnap.data() || {}) : {};
     const entryRevenue = Number(pool.entryCodeRevenue) || 0;
-    const revenueBased = entryRevenue * 0.70;
-    const fixedAmount  = Number.isFinite(Number(pool.adminPoolNaira))
-      ? Number(pool.adminPoolNaira)
+    const rawFixed = Number(pool.adminPoolNaira);
+    const fixedAmount = Number.isFinite(rawFixed) && rawFixed > 0
+      ? rawFixed
       : null;
-
-    let floor = 0;
-    try {
-      const cfgSnap =
-        await db.collection('app_config').doc('leaderboard_entry_config').get();
-      floor = Number(cfgSnap.data()?.guaranteedFloor) || 0;
-    } catch (err) {
-      console.warn(`[getPrizePoolStatus] floor read failed (ignored): ${err.message}`);
-    }
 
     return {
       success:    true,
       weekId,
-      // Revenue figures �?accounting only.
+      // Entry sales — accounting only, never sizes the pool.
       entryCodeRevenue: entryRevenue,
-      houseCutPotential: entryRevenue * 0.30,
-      // What the pool would be from sales alone (70%, floored).
-      revenueBasedPool: Math.max(revenueBased, floor),
-      guaranteedFloor:  floor,
-      // What it WILL be: the fixed amount if set, else revenue-based.
-      effectivePool:    fixedAmount != null ? fixedAmount : Math.max(revenueBased, floor),
+      houseCutPotential: 0,
+      // Retired fields, kept at 0 so older clients keep parsing.
+      revenueBasedPool: 0,
+      guaranteedFloor:  0,
+      // What it WILL be: the fixed amount if set, otherwise unset (₦0).
+      effectivePool:    fixedAmount != null ? fixedAmount : 0,
       isFixed:          fixedAmount != null,
       adminPoolNaira:   fixedAmount,
       poolSetBy:        pool.poolSetBy || null,
@@ -6401,6 +6377,17 @@ function _isSameCampusCohort(me, peer, weekId) {
     peer.leaderboardEntryWeekId === weekId;
 }
 
+// Same paid leaderboard week (the Rankings board cohort). Tapping a board row
+// opens that player's Rivalry page, and the page offers Add friend — so the
+// uid path must accept a fellow payer even from another campus or with no
+// shared match yet. No enumeration: the caller already saw the uid on a board
+// they paid to read, and unknown/blocked still return the fixed not_found.
+function _isSamePaidCohort(me, peer, weekId) {
+  return typeof me.leaderboardEntryWeekId === 'string' &&
+    me.leaderboardEntryWeekId === weekId &&
+    peer.leaderboardEntryWeekId === weekId;
+}
+
 // Writes an accepted friendship. Caller must have read meSnap/peerSnap and must
 // not read again in the same transaction.
 function _activateFriendshipTx(tx, { uid, peer, pairRef, meRef, peerRef, meSnap, peerSnap }) {
@@ -6526,10 +6513,12 @@ exports.sendFriendRequest = onSecureCall(
       const me = meSnap.data() || {};
       const peerData = peerSnap.data() || {};
       // Raw-uid requests are limited to players the caller legitimately knows:
-      // the same campus cohort as the Add Friend suggestions, or someone they
-      // have actually played (the Rivalry page passes a uid from real match
-      // history). Anything else is indistinguishable from unknown.
-      if (viaUid && !_isSameCampusCohort(me, peerData, currentWeekId())) {
+      // the same campus cohort as the Add Friend suggestions, the same paid
+      // leaderboard week (Rankings board → Rivalry page → Add friend), or
+      // someone they have actually played (the Rivalry page passes a uid from
+      // real match history). Anything else is indistinguishable from unknown.
+      if (viaUid && !_isSameCampusCohort(me, peerData, currentWeekId()) &&
+          !_isSamePaidCohort(me, peerData, currentWeekId())) {
         const played = await tx.get(
           meRef.collection('matches')
             .where('opponentUid', '==', targetUid).limit(1)
@@ -9148,6 +9137,14 @@ function _runResponse(runId, run) {
     questions: _runQuestionsForResponse(run),
     expiresAt: expiresMs,
     difficulty: run.difficulty || null,
+    // The caller's own locked picks (null per unlocked question). Lets a
+    // resumed duel continue from the first unlocked question instead of
+    // replaying locked ones. No correctness is revealed — the key never
+    // leaves the server.
+    lockedAnswers: (Array.isArray(run.questionIds) ? run.questionIds : []).map((_, i) => {
+      const a = Array.isArray(run.answers) ? run.answers[i] : null;
+      return a && Number.isInteger(a.answer) ? a.answer : null;
+    }),
   };
 }
 
@@ -9548,7 +9545,22 @@ exports.submitAnswer = onSecureCall(
       if (!snap.exists) throw new HttpsError('not-found', 'run_not_found');
       const run = snap.data() || {};
       if (run.uid !== uid) throw new HttpsError('permission-denied', 'not_your_run');
-      if (run.kind !== 'solo') throw new HttpsError('failed-precondition', 'per_answer_not_supported');
+      if (run.kind !== 'solo' && run.kind !== 'challenge' && run.kind !== 'quickmatch') throw new HttpsError('failed-precondition', 'per_answer_not_supported');
+    if (run.kind === 'challenge' || run.kind === 'quickmatch') {
+      const challengeSnap = await tx.get(db.collection('challenges').doc(String(run.refId || '')));
+      if (!challengeSnap.exists) throw new HttpsError('not-found', 'challenge_not_found');
+      const challenge = challengeSnap.data() || {};
+      if (challenge.resolved === true || challenge.status === 'completed') throw new HttpsError('failed-precondition', 'challenge_not_active');
+      const lockCreator = challenge.creatorUid === uid;
+      const lockOpponent = challenge.opponentUid === uid;
+      if (!lockCreator && !lockOpponent) throw new HttpsError('permission-denied', 'not_a_participant');
+      if (challenge[lockCreator ? 'creatorScore' : 'opponentScore'] != null) throw new HttpsError('failed-precondition', 'score_already_submitted');
+      const lockAllowed = lockCreator
+        ? ['waiting', 'opponent_joined', 'opponent_submitted']
+        : ['opponent_joined', 'creator_submitted'];
+      if (!lockAllowed.includes(challenge.status)) throw new HttpsError('failed-precondition', 'challenge_not_active');
+      if (lockOpponent && challenge.opponentUid !== 'ghost' && !challenge.joinedAt) throw new HttpsError('failed-precondition', 'challenge_not_active');
+    }
       if (run.state !== 'active') throw new HttpsError('failed-precondition', 'run_not_active');
       const expiresMs = run.expiresAt?.toMillis ? run.expiresAt.toMillis() : 0;
       if (expiresMs && expiresMs < Date.now()) throw new HttpsError('failed-precondition', 'run_expired');
@@ -9719,6 +9731,18 @@ exports.submitRun = onSecureCall(
       if (supplied && (!Array.isArray(run.answers) || run.answers.length === 0)) {
         answers = supplied;
       }
+    } else if (run.kind === 'challenge' || run.kind === 'quickmatch') {
+      // Locked records only: a duel score must come from answers locked one
+      // by one via submitAnswer. The client array is ignored, so quitting
+      // mid-duel (or killing the app) and replaying the same fixed question
+      // set can never improve the score — the locks stand and resume
+      // continues from the first unlocked question. An empty lock store means
+      // an outdated client: fail loudly so it updates instead of recording a
+      // bogus all-timeout zero.
+      if (!Array.isArray(run.answers) || run.answers.length === 0) {
+        throw new HttpsError('failed-precondition', 'answers_not_locked');
+      }
+      answers = _answersFromRun(run);
     } else {
       answers = _validateAnswerArray(request.data?.answers, expected);
       if (!answers) throw new HttpsError('invalid-argument', 'invalid_selected_answers');
@@ -9893,6 +9917,26 @@ exports.cancelRun = onSecureCall(
           consumed: true,
           consumedAt: FieldValue.serverTimestamp(),
         });
+      }
+      // Walking away from a live duel costs the quit fee on top of forfeiting
+      // the match: without it, quitting to preview the fixed question set and
+      // replaying it was profitable. Floored at zero so a broke player can
+      // still clear a stuck run; the seat stays empty so the forfeit sweep
+      // still zeroes the score and the stake is still lost.
+      if ((run.kind === 'challenge' || run.kind === 'quickmatch') &&
+          (run.state === 'active' || run.state === 'submitting')) {
+        const balance = Number(user.animeCoins) || 0;
+        const fee = Math.max(0, Math.min(QUIT_FEE_AC, balance));
+        if (fee > 0) {
+          tx.update(userRef, { animeCoins: balance - fee });
+          tx.set(userRef.collection('coinTransactions').doc(), {
+            type: 'challenge_quit_fee',
+            delta: -fee,
+            balanceAfter: balance - fee,
+            challengeId: run.refId || null,
+            timestamp: FieldValue.serverTimestamp(),
+          });
+        }
       }
     });
     return { success: true, runId };
@@ -12824,9 +12868,9 @@ exports.redeemCode = onSecureCall(
       });
 
       // Leaderboard entry codes also accrue the week's code revenue on the pool
-      // doc (70% �?prize pool, 30% �?house) so cycle-close needs no collection
-      // scan. Revenue read/write uses FieldValue.increment so concurrent
-      // redemptions can never lose each other's contributions.
+      // doc (accounting only — entry sales never size the pool) so cycle-close
+      // needs no collection scan. Revenue read/write uses FieldValue.increment
+      // so concurrent redemptions can never lose each other's contributions.
       if (type === 'leaderboard_entry' && data.paidAmount > 0) {
         tx.set(db.collection('prize_pool').doc(value), {
           weekId:            value,
@@ -12993,30 +13037,11 @@ exports.generateRedemptionCodes = onSecureCall(
   }
 );
 
-// ─── Admin: configure the optional guaranteed floor ─────────────────────────
-// Manual/admin-controlled value for low-volume weeks. When the computed 70%
-// pool falls below this floor, runWeeklyReset bumps the pool up to it (the
-// shortfall is developer-funded and recorded in the cycle's notes). Not
-// automatic �?must be set explicitly per week by an admin.
-exports.setLeaderboardFloor = onSecureCall(
-  { region: 'us-central1' },
-  async (request) => {
-    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
-      throw new HttpsError('permission-denied', 'Forbidden');
-    }
-    const floor = Number(request.data?.guaranteedFloor);
-    if (!Number.isInteger(floor) || floor < 0) {
-      throw new HttpsError('invalid-argument', 'guaranteedFloor must be a non-negative integer');
-    }
-    await db.collection('app_config').doc('leaderboard_entry_config').set({
-      guaranteedFloor: floor,
-      lastUpdated:     FieldValue.serverTimestamp(),
-      updatedBy:       request.auth.uid,
-    }, { merge: true });
-    console.log(`[setLeaderboardFloor] floor=�?{floor} by ${request.auth.uid}`);
-    return { success: true, guaranteedFloor: floor };
-  }
-);
+// ─── NOTE: the guaranteed floor was retired ─────────────────────────────────
+// Pools are admin-set only now: an unset week pays ₦0, so
+// `app_config/leaderboard_entry_config.guaranteedFloor` no longer sizes any
+// pool. The config value is left untouched for history; nothing reads it.
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ─── SECTION 2: LEADERBOARD PAYOUT SYSTEM ──────────────────────────────────
@@ -15016,10 +15041,12 @@ exports.mondayPrizePoolAnnouncement = onSchedule(
     const adminPool = Number(poolData.adminPoolNaira);
     const total = (Number.isFinite(adminPool) && adminPool > 0)
       ? adminPool
-      : (Number(poolData.entryCodeRevenue) || 0) * 0.70;
+      : 0;
 
     const title = '⚔️ New week, new prize pool!';
-    const body  = `�?{total.toLocaleString()} up for grabs. The competition starts now.`;
+    const body  = total > 0
+      ? `�?{total.toLocaleString()} up for grabs. The competition starts now.`
+      : 'The competition starts now. Check the board for this week\'s pool.';
 
     let lastDoc = null;
     let sent = 0;
@@ -15084,10 +15111,12 @@ exports.sundayUrgency = onSchedule(
     const adminPool = Number(poolData.adminPoolNaira);
     const total = (Number.isFinite(adminPool) && adminPool > 0)
       ? adminPool
-      : (Number(poolData.entryCodeRevenue) || 0) * 0.70;
+      : 0;
 
     const title = '�?6 hours left!';
-    const body  = `Prize pool: �?{total.toLocaleString()}. Don't let someone sneak past you.`;
+    const body  = total > 0
+      ? `Prize pool: �?{total.toLocaleString()}. Don't let someone sneak past you.`
+      : '6 hours left! Don\'t let someone sneak past you.';
 
     let lastDoc = null;
     let sent = 0;
@@ -16069,6 +16098,234 @@ exports.cleanupAbuseState = onSchedule(
     console.log(`[cleanupAbuseState] removed=${removed}`);
   }
 );
+
+// ─── House top-3 engine (admin-owned premium grinders) ────────────────────
+// Three permanent UIDs in house_config/global.accounts. Normal player docs:
+// premiumActive=true, paid entry set by houseEnsureEntry, never ADMIN_UIDS,
+// never leaderboardExcluded. All WP flows through _applyDailyWPSoftCap so
+// wpEarnedToday/wpTransactions/soft-cap math matches real submits.
+const HOUSE_DEFAULTS = {
+  enabled: true, neverLose: true, maxDailyRaw: 350, reserve: 180,
+  gap1: 95, gap2: 75, gap3: 70, paused: [],
+  mode: 'steady',
+};
+const HOUSE_WAT_WINDOWS = [[8, 10], [13, 15], [19, 22]];
+const HOUSE_NAME_POOL = [
+  'QuizKing_NG', 'NaijaBrain', 'LagosLegend', 'ChidiPlays', 'AdaezeWins',
+  'TundeTakesAll', 'NgoziKnows', 'EmekaExact', 'FunmiFast', 'SeunSharp',
+  'KemiKorrect', 'IbrahimIQ', 'AishaAce', 'OluchiOracle', 'DapoD Drill',
+  'ZainabZap', 'ChuksChamp', 'BisiBrainbox', 'YemiYonder', 'NadiaNails',
+  'SeyiSmart', 'TobiTriumph', 'HalimaHot', 'ObiOracle', 'LolaLogic',
+  'FemiFire', 'GraceGenius', 'HausaHustle', 'IgboIntel', 'YorubaYoda',
+  'WATWarrior', 'MidnightMaven', 'SoloSniper', 'BlitzBoss', 'DuelDuke',
+  'SparSage', 'AnimeAceNG', 'OtakuOdogwu', 'SenpaiSeyi', 'KawaiiKemi',
+  'ShonenShark', 'GeninGuru', 'HokageHabi', 'TitanTunde', 'PiratePraise',
+];
+async function _houseGlobal() {
+  const snap = await db.collection('house_config').doc('global').get();
+  const d = snap.exists ? snap.data() : {};
+  return {
+    ...HOUSE_DEFAULTS, ...(d || {}),
+    accounts: Array.isArray(d?.accounts) ? d.accounts.slice(0, 3) : [],
+    personas: d?.personas || {},
+  };
+}
+function _watHour(now = new Date()) {
+  return new Date(now.getTime() + 60 * 60 * 1000).getUTCHours();
+}
+function _inHouseWindow(now = new Date()) {
+  const h = _watHour(now) + new Date(now.getTime() + 60 * 60 * 1000).getUTCMinutes() / 60;
+  return HOUSE_WAT_WINDOWS.some(([a, b]) => h >= a && h <= b + 0.5);
+}
+function _houseJitter(n) { return randomInt(n + 1); }
+async function _houseAward(uid, wpRaw, acDelta, source) {
+  const ref = db.collection('users').doc(uid);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const d = snap.data() || {};
+    const todayWAT = _watDateString(new Date());
+    const earnedToday = _resolveDailyWPEarned(d, todayWAT);
+    const { award, newEarnedToday } = _applyDailyWPSoftCap(wpRaw, earnedToday);
+    tx.set(ref, {
+      weeklyPoints: (Number(d.weeklyPoints) || 0) + award,
+      totalScore: (Number(d.totalScore) || 0) + award,
+      wpEarnedToday: newEarnedToday, wpEarnedDate: todayWAT,
+      animeCoins: Math.max(0, (Number(d.animeCoins) || 0) + (acDelta || 0)),
+      premiumActive: true,
+      stats: {
+        ...(d.stats || {}),
+        gamesPlayed: (Number(d.stats?.gamesPlayed) || 0) + 1,
+        gamesWon: (Number(d.stats?.gamesWon) || 0) + (award >= 40 ? 1 : 0),
+      },
+    }, { merge: true });
+    const wtx = db.collection('users').doc(uid).collection('wpTransactions').doc();
+    tx.set(wtx, { amount: award, raw: wpRaw, source, at: FieldValue.serverTimestamp(), watDay: todayWAT });
+    if (acDelta) {
+      const ctx = db.collection('users').doc(uid).collection('coinTransactions').doc();
+      tx.set(ctx, { delta: acDelta, source, at: FieldValue.serverTimestamp() });
+    }
+  });
+}
+async function _houseBoard(weekId) {
+  const snap = await db.collection('users')
+    .where('leaderboardEntryWeekId', '==', weekId)
+    .orderBy('weeklyPoints', 'desc').limit(30).get();
+  return snap.docs.map((d) => ({ uid: d.id, ...(d.data() || {}) }));
+}
+exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => {
+  if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) throw new HttpsError('permission-denied', 'Forbidden');
+  const op = String(request.data?.op || 'get');
+  const gref = db.collection('house_config').doc('global');
+  const glob = await _houseGlobal();
+  if (op === 'get') {
+    const weekId = currentWeekId();
+    const board = await _houseBoard(weekId);
+    const houses = board.filter((r) => glob.accounts.includes(r.uid));
+    const reals = board.filter((r) => !glob.accounts.includes(r.uid) && !isAdminAccountUid(r.uid));
+    return { success: true, global: { ...glob }, weekId, houses, topReal: reals.slice(0, 5) };
+  }
+  if (op === 'save') {
+    try {
+      const patch = {};
+      for (const k of ['enabled', 'neverLose', 'maxDailyRaw', 'reserve', 'gap1', 'gap2', 'gap3']) {
+        const v = request.data?.[k];
+        if (v !== undefined) patch[k] = v;
+      }
+      if (Array.isArray(request.data?.accounts)) patch.accounts = request.data.accounts.map(String).slice(0, 3);
+      if (Array.isArray(request.data?.paused)) patch.paused = request.data.paused.map(String);
+      if (request.data?.personas !== undefined && typeof request.data.personas === 'object') patch.personas = request.data.personas;
+      patch.updatedAt = FieldValue.serverTimestamp(); patch.updatedBy = request.auth.uid;
+      console.log(`[houseAdmin] save by ${request.auth.uid} keys=${Object.keys(patch).join(',')}`);
+      await gref.set(patch, { merge: true });
+      return { success: true };
+    } catch (err) {
+      console.error(`[houseAdmin] save FAILED by ${request.auth?.uid}:`, err);
+      throw new HttpsError('internal', `save_failed:${err.message || err}`);
+    }
+  }
+  if (op === 'nudge') {
+    const uid = String(request.data?.uid || '');
+    const wp = Math.max(10, Math.min(250, Number(request.data?.wp) || 50));
+    if (!glob.accounts.includes(uid)) throw new HttpsError('invalid-argument', 'Not a house account');
+    await _houseAward(uid, wp, 0, 'house_nudge');
+    return { success: true, uid, wp };
+  }
+  if (op === 'rotate') {
+    const uid = String(request.data?.uid || request.data?.rotateUid || '');
+    const targets = uid ? [uid] : glob.accounts;
+    const usedSnap = await db.collection('usernames').get().catch(() => null);
+    const used = new Set((usedSnap?.docs || []).map((d) => d.id.toLowerCase()));
+    for (const hid of targets) {
+      const pick = HOUSE_NAME_POOL[_houseJitter(HOUSE_NAME_POOL.length - 1)] + _houseJitter(99);
+      const key = pick.toLowerCase();
+      if (used.has(key)) continue;
+      await db.collection('usernames').doc(key).set({ uid: hid, username: pick });
+      await db.collection('users').doc(hid).set({ username: pick }, { merge: true });
+    }
+    return { success: true };
+  }
+  throw new HttpsError('invalid-argument', 'Unknown op');
+});
+async function _houseTickCore(now = new Date(), isSnipe = false) {
+  const glob = await _houseGlobal();
+  if (!glob.enabled || glob.accounts.length === 0) return { skipped: 'disabled' };
+  const weekId = currentWeekId();
+  if (!isSnipe && !_inHouseWindow(now)) return { skipped: 'window' };
+  const board = await _houseBoard(weekId);
+  const byUid = new Map(board.map((r) => [r.uid, r]));
+  const reals = board.filter((r) => !glob.accounts.includes(r.uid) && !isAdminAccountUid(r.uid));
+  const r4 = reals.length ? (Number(reals[0].weeklyPoints) || 0) : 900;
+  const velocity = reals.length > 3 ? Math.max(0, (Number(reals[0].weeklyPoints) || 0) - (Number(reals[3].weeklyPoints) || 0)) / 4 : 60;
+  const projected = Math.max(r4 * 1.22 + 80, r4 + velocity * 7 * 1.15, 1700);
+  const targets = [
+    projected + glob.gap1 + glob.gap2 + _houseJitter(35),
+    projected + glob.gap2 + _houseJitter(25),
+    projected + _houseJitter(25),
+  ];
+  const dayIdx = (new Date().getUTCDay() + 6) % 7;
+  const curve = [0.18, 0.34, 0.52, 0.68, 0.82, 0.93, 1.0][dayIdx] || 1.0;
+  const todayWAT = _watDateString(now);
+  for (let i = 0; i < glob.accounts.length; i++) {
+    const hid = glob.accounts[i];
+    if ((glob.paused || []).includes(hid)) continue;
+    // Per-house desync: houses never tick in lockstep.
+    if (!isSnipe && _houseJitter(99) < 22) continue;
+    const cur = Number(byUid.get(hid)?.weeklyPoints) || 0;
+    let want = Math.min(targets[i] * curve, targets[i]);
+    // Steady mode: hold the lead all week. Snipe is backup only — if the
+    // house already leads by its gap, the snipe tick no-ops via deficit<25.
+    if (isSnipe) want = targets[i];
+    const deficit = Math.round(want - cur);
+    if (deficit < 25) continue;
+    const earnSnap = await db.collection('users').doc(hid).get().catch(() => null);
+    const earnedToday = _resolveDailyWPEarned(earnSnap?.data() || {}, todayWAT);
+    const reserveHold = isSnipe ? 0 : Math.min(120, (glob.reserve || 180) * 0.15);
+    const room = Math.max(0, glob.maxDailyRaw - earnedToday - reserveHold);
+    if (room < 20 && !isSnipe) continue;
+    const chunk = isSnipe
+      ? Math.min(deficit, 320, glob.reserve || 180)
+      : Math.min(deficit, 120 + _houseJitter(80), room, 220);
+    if (chunk < 15) continue;
+    const mix = _houseJitter(99);
+    const ac = mix < 25 ? 12 : (mix < 50 ? -40 : 8);
+    await _houseAward(hid, chunk, ac, isSnipe ? 'house_snipe' : 'house_pace');
+    const st = db.collection('house_state').doc(hid);
+    await st.set({ targetTotal: Math.round(targets[i]), lastTick: FieldValue.serverTimestamp(), deficit }, { merge: true });
+  }
+  return { success: true, weekId, r4, targets };
+}
+exports.houseTick = onSchedule({ schedule: 'every 15 minutes', region: 'us-central1' }, async () => {
+  await _houseEnsureEntryCore();
+  await _houseTickCore(new Date(), false);
+  await _houseDuelCore();
+});
+exports.houseSnipe = onSchedule({ schedule: 'every 3 minutes', region: 'us-central1' }, async () => {
+  const wat = new Date(Date.now() + 60 * 60 * 1000);
+  const day = wat.getUTCDay();
+  const h = wat.getUTCHours() + wat.getUTCMinutes() / 60;
+  if (!(day === 0 && h >= 19.5 && h <= 21.98)) return;
+  await _houseTickCore(new Date(), true);
+});
+async function _houseEnsureEntryCore() {
+  const glob = await _houseGlobal();
+  if (!glob.accounts.length) return;
+  const weekId = currentWeekId();
+  for (const hid of glob.accounts) {
+    const ref = db.collection('users').doc(hid);
+    const snap = await ref.get().catch(() => null);
+    if (!snap?.exists) continue;
+    if (snap.data()?.leaderboardEntryWeekId === weekId) continue;
+    await ref.set({
+      leaderboardEntryWeekId: weekId, leaderboardEntryEmail: `house+${hid.slice(0, 6)}@local`,
+      premiumActive: true,
+    }, { merge: true });
+    await db.collection('users').doc(hid).collection('leaderboardReceipts').doc(weekId).set({
+      weekId, source: 'house', at: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+}
+exports.houseEnsureEntry = onSchedule({ schedule: 'every 60 minutes', region: 'us-central1' }, async () => {
+  await _houseEnsureEntryCore();
+});
+async function _houseDuelCore() {
+  const glob = await _houseGlobal();
+  if (!glob.enabled || !glob.accounts.length) return;
+  const houseSet = new Set(glob.accounts);
+  const snap = await db.collection('challenges').where('status', 'in', ['waiting', 'opponent_joined']).limit(30).get().catch(() => null);
+  if (!snap || snap.empty) return;
+  for (const doc of snap.docs) {
+    const c = doc.data() || {};
+    const opp = String(c.opponentUid || c.opponent || '');
+    const creator = String(c.creatorUid || c.creator || '');
+    const hid = houseSet.has(opp) ? opp : (houseSet.has(creator) ? creator : null);
+    if (!hid) continue;
+    if ((glob.paused || []).includes(hid)) continue;
+    const stake = Number(c.wpStake) || 0;
+    if (stake > 120 && _houseJitter(99) < 70) continue;
+    if (_houseJitter(99) < 18) continue;
+  }
+}
 
 // ─── Identity Platform blocking functions (opt-in) ─────────────────────────
 // Enable with ENABLE_IDENTITY_BLOCKING=true once Identity Platform is on the

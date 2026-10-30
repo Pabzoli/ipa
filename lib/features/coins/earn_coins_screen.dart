@@ -52,9 +52,9 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
   }
 
   void _scheduleMidnightRefresh() {
-    final nowWAT   = DateTime.now().toUtc().add(const Duration(hours: 1));
+    final nowWAT = DateTime.now().toUtc().add(const Duration(hours: 1));
     final midnight = DateTime(nowWAT.year, nowWAT.month, nowWAT.day + 1);
-    final msUntil  = midnight.difference(nowWAT).inMilliseconds;
+    final msUntil = midnight.difference(nowWAT).inMilliseconds;
     _midnightTimer = Timer(Duration(milliseconds: msUntil), () {
       if (mounted) setState(() {});
     });
@@ -116,9 +116,9 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
   }
 
   String _midnightCountdown() {
-    final nowWAT   = DateTime.now().toUtc().add(const Duration(hours: 1));
+    final nowWAT = DateTime.now().toUtc().add(const Duration(hours: 1));
     final midnight = DateTime(nowWAT.year, nowWAT.month, nowWAT.day + 1);
-    final secs     = midnight.difference(nowWAT).inSeconds;
+    final secs = midnight.difference(nowWAT).inSeconds;
     final h = secs ~/ 3600;
     final m = (secs % 3600) ~/ 60;
     final s = secs % 60;
@@ -129,10 +129,10 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final provider   = context.watch<UserDataProvider>();
-    final ac         = provider.animeCoins;
-    final watched    = provider.dailyAdWatched;
-    final remaining  = provider.adsRemainingToday;
+    final provider = context.watch<UserDataProvider>();
+    final ac = provider.animeCoins;
+    final watched = provider.dailyAdWatched;
+    final remaining = provider.adsRemainingToday;
     final dailyLimit = remaining <= 0;
     final onCooldown = _cooldownSecsLeft > 0;
 
@@ -149,8 +149,7 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
               child: Row(
                 children: [
                   AppBackButton(
-                    onPressed:
-                        _adLoading ? null : () => Navigator.pop(context),
+                    onPressed: _adLoading ? null : () => Navigator.pop(context),
                   ),
                   SizedBox(width: 2.w),
                   Expanded(
@@ -179,14 +178,14 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
                   children: [
                     // ── Hero: Watch Ad card ──────────────────────────
                     _WatchAdHero(
-                      enabled:      buttonEnabled,
-                      loading:      _adLoading,
-                      dailyLimit:   dailyLimit,
-                      onCooldown:   onCooldown,
+                      enabled: buttonEnabled,
+                      loading: _adLoading,
+                      dailyLimit: dailyLimit,
+                      onCooldown: onCooldown,
                       cooldownSecs: _cooldownSecsLeft,
-                      watched:      watched,
-                      resetsIn:     _midnightCountdown(),
-                      onTap:        _onWatchAdTapped,
+                      watched: watched,
+                      resetsIn: _midnightCountdown(),
+                      onTap: _onWatchAdTapped,
                     ),
 
                     SizedBox(height: 28.h),
@@ -254,13 +253,13 @@ class _CoinPill extends StatelessWidget {
 // Hero: Watch Ad card — the app's signature gradient hero card.
 // ═══════════════════════════════════════════════════════════════════════════
 class _WatchAdHero extends StatelessWidget {
-  final bool         enabled;
-  final bool         loading;
-  final bool         dailyLimit;
-  final bool         onCooldown;
-  final int          cooldownSecs;
-  final int          watched;
-  final String       resetsIn;
+  final bool enabled;
+  final bool loading;
+  final bool dailyLimit;
+  final bool onCooldown;
+  final int cooldownSecs;
+  final int watched;
+  final String resetsIn;
   final VoidCallback onTap;
 
   const _WatchAdHero({
@@ -287,8 +286,8 @@ class _WatchAdHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress     = (watched / _kDailyAdCap).clamp(0.0, 1.0);
-    final full         = watched >= _kDailyAdCap;
+    final progress = (watched / _kDailyAdCap).clamp(0.0, 1.0);
+    final full = watched >= _kDailyAdCap;
     final rewardActive = enabled || loading;
 
     // Muted once the daily cap is hit; accent-highlighted while watchable.
@@ -393,20 +392,21 @@ class _WatchAdHero extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(6.r),
             child: LinearProgressIndicator(
-              value:           progress,
-              minHeight:       8,
+              value: progress,
+              minHeight: 8,
               backgroundColor: AppColors.divider,
-              color:           full ? AppColors.accent : AppColors.primary,
+              color: full ? AppColors.accent : AppColors.primary,
             ),
           ),
           SizedBox(height: 18.h),
 
           // ── Action button ────────────────────────────────────────
           AppButton(
-            label:   _buttonLabel,
-            size:    AppButtonSize.large,
+            label: _buttonLabel,
+            size: AppButtonSize.large,
             loading: loading,
-            icon:    dailyLimit ? null : const Icon(Icons.play_circle_fill_rounded),
+            icon:
+                dailyLimit ? null : const Icon(Icons.play_circle_fill_rounded),
             onPressed: enabled ? onTap : null,
           ),
 
@@ -471,8 +471,8 @@ class _RewardBadge extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════
 // Coin Packs (website shop)
 // ═══════════════════════════════════════════════════════════════════════════
-({int ac, String bonus, bool bestValue, String price, String blurb}) _coinPackMeta(
-    String id) {
+({int ac, String bonus, bool bestValue, String price, String blurb})
+    _coinPackMeta(String id) {
   switch (id) {
     case 'animequiz_coins_300':
       return (
@@ -488,8 +488,7 @@ class _RewardBadge extends StatelessWidget {
         bonus: 'Includes a 10% bonus',
         bestValue: false,
         price: '₦1,500',
-        blurb:
-            'A solid session of boss battles and rival rematches.',
+        blurb: 'A solid session of boss battles and rival rematches.',
       );
     case 'animequiz_coins_3600':
       return (
@@ -559,8 +558,7 @@ class _CoinPacksSection extends StatelessWidget {
         SizedBox(height: 10.h),
 
         // ── Pack cards ───────────────────────────────────────────
-        for (final id in _kShopPackIds)
-          _CoinPackCard(meta: _coinPackMeta(id)),
+        for (final id in _kShopPackIds) _CoinPackCard(meta: _coinPackMeta(id)),
       ],
     );
   }
@@ -569,7 +567,13 @@ class _CoinPacksSection extends StatelessWidget {
 class _CoinPackCard extends StatelessWidget {
   const _CoinPackCard({required this.meta});
 
-  final ({int ac, String bonus, bool bestValue, String price, String blurb}) meta;
+  final ({
+    int ac,
+    String bonus,
+    bool bestValue,
+    String price,
+    String blurb
+  }) meta;
 
   @override
   Widget build(BuildContext context) {
@@ -665,9 +669,8 @@ class _CoinPackCard extends StatelessWidget {
                   Text(
                     meta.bonus,
                     style: AppTypography.labelMedium.copyWith(
-                      color: isBest
-                          ? AppColors.accent
-                          : AppColors.textSecondary,
+                      color:
+                          isBest ? AppColors.accent : AppColors.textSecondary,
                       fontWeight: FontWeight.w800,
                     ),
                   ),

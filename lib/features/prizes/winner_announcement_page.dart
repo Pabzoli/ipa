@@ -12,7 +12,11 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_page_route.dart';
 import 'payout_claim_page.dart';
 
-const List<Color> _rankColors = [AppColors.gold, AppColors.silver, AppColors.bronze];
+const List<Color> _rankColors = [
+  AppColors.gold,
+  AppColors.silver,
+  AppColors.bronze
+];
 const List<String> _medals = ['🥇', '🥈', '🥉'];
 
 String _fmtNaira(double amount) {
@@ -49,19 +53,19 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
     super.initState();
 
     _entranceCtrl = AnimationController(
-      vsync:    this,
+      vsync: this,
       duration: const Duration(milliseconds: 900),
     );
     _fadeIn = CurvedAnimation(
       parent: _entranceCtrl,
-      curve:  const Interval(0.0, 0.45, curve: Curves.easeOut),
+      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
     );
     _slideUp = Tween<Offset>(
       begin: const Offset(0, 0.04),
-      end:   Offset.zero,
+      end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _entranceCtrl,
-      curve:  const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
+      curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
     ));
 
     _entranceCtrl.forward();
@@ -72,7 +76,7 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
     final e = (s + 0.3).clamp(0.2, 1.0);
     return CurvedAnimation(
       parent: _entranceCtrl,
-      curve:  Interval(s, e, curve: Curves.easeOutCubic),
+      curve: Interval(s, e, curve: Curves.easeOutCubic),
     );
   }
 
@@ -86,12 +90,24 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
     final parts = widget.result.weekId.split('-');
     if (parts.length < 3) return widget.result.weekId;
     final mon = DateTime(
-      int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]),
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
     );
     final sun = mon.add(const Duration(days: 6));
     const mo = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final s = '${mo[mon.month - 1]} ${mon.day}';
     final e = mon.month == sun.month
@@ -156,7 +172,10 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                   alignment: Alignment.centerRight,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0,
+                      AppSpacing.lg,
+                      AppSpacing.sm,
+                      AppSpacing.lg,
+                      0,
                     ),
                     child: _CloseButton(
                       onPressed: () {
@@ -176,15 +195,15 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _Header(
-                          weekRange:    _weekRange(),
-                          totalNaira:   widget.result.totalNaira,
+                          weekRange: _weekRange(),
+                          totalNaira: widget.result.totalNaira,
                         ),
                         const SizedBox(height: AppSpacing.xl),
                         if (myWin != null) ...[
                           _YourResultCard(
-                            rank:      myWin.rank,
+                            rank: myWin.rank,
                             formatted: _fmtNaira(myWin.prizeAmount),
-                            onClaim:   () {
+                            onClaim: () {
                               HapticFeedback.mediumImpact();
                               Navigator.of(context).push(
                                 AppPageRoute(
@@ -203,17 +222,18 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                         ),
                         const SizedBox(height: AppSpacing.sm),
                         ...winners.asMap().entries.map(
-                          (e) => Padding(
-                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                            child: _WinnerRow(
-                              key:       ValueKey(e.value.uid),
-                              winner:    e.value,
-                              isMe:      myUid != null && e.value.uid == myUid,
-                              formatted: _fmtNaira(e.value.prizeAmount),
-                              animation: _rowAnim(e.key),
+                              (e) => Padding(
+                                padding: const EdgeInsets.only(
+                                    bottom: AppSpacing.sm),
+                                child: _WinnerRow(
+                                  key: ValueKey(e.value.uid),
+                                  winner: e.value,
+                                  isMe: myUid != null && e.value.uid == myUid,
+                                  formatted: _fmtNaira(e.value.prizeAmount),
+                                  animation: _rowAnim(e.key),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
                         const SizedBox(height: AppSpacing.lg),
                       ],
                     ),
@@ -221,16 +241,19 @@ class _WinnerAnnouncementPageState extends State<WinnerAnnouncementPage>
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.page, AppSpacing.sm, AppSpacing.page, AppSpacing.lg,
+                    AppSpacing.page,
+                    AppSpacing.sm,
+                    AppSpacing.page,
+                    AppSpacing.lg,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       AppButton(
-                        label:     'Share results',
-                        variant:   AppButtonVariant.text,
-                        color:     AppColors.textSecondary,
-                        icon:      const Icon(Icons.share_rounded),
+                        label: 'Share results',
+                        variant: AppButtonVariant.text,
+                        color: AppColors.textSecondary,
+                        icon: const Icon(Icons.share_rounded),
                         onPressed: _share,
                       ),
                     ],
@@ -265,11 +288,11 @@ class _CloseButton extends StatelessWidget {
           onTap: onPressed,
           customBorder: const CircleBorder(),
           child: SizedBox(
-            width:  36.r,
+            width: 36.r,
             height: 36.r,
             child: Icon(
               Icons.close_rounded,
-              size:  19.r,
+              size: 19.r,
               color: AppColors.textSecondary,
             ),
           ),
@@ -291,11 +314,11 @@ class _Header extends StatelessWidget {
     return Column(
       children: [
         Container(
-          width:  72.r,
+          width: 72.r,
           height: 72.r,
           decoration: BoxDecoration(
-            shape:  BoxShape.circle,
-            color:  AppColors.gold.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+            color: AppColors.gold.withValues(alpha: 0.12),
             border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
           ),
           child: Icon(Icons.emoji_events_rounded,
@@ -314,22 +337,22 @@ class _Header extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
-              vertical:   AppSpacing.sm,
+              vertical: AppSpacing.sm,
             ),
             decoration: BoxDecoration(
-              color:        AppColors.surface,
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(AppRadii.full),
-              border:       Border.all(color: AppColors.divider),
+              border: Border.all(color: AppColors.divider),
             ),
             child: Text.rich(
               TextSpan(
                 children: [
                   TextSpan(
-                    text:  'Prize pool  ',
+                    text: 'Prize pool  ',
                     style: AppTypography.bodySmall,
                   ),
                   TextSpan(
-                    text:  '₦${_fmtNaira(totalNaira)}',
+                    text: '₦${_fmtNaira(totalNaira)}',
                     style: AppTypography.labelLarge
                         .copyWith(color: AppColors.readable(AppColors.gold)),
                   ),
@@ -351,32 +374,34 @@ class _YourResultCard extends StatelessWidget {
     required this.onClaim,
   });
 
-  final int          rank;
-  final String       formatted;
+  final int rank;
+  final String formatted;
   final VoidCallback onClaim;
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding:     const EdgeInsets.all(AppSpacing.lg),
-      color:       AppColors.gold.withValues(alpha: 0.08),
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      color: AppColors.gold.withValues(alpha: 0.08),
       borderColor: AppColors.gold.withValues(alpha: 0.4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             'YOU PLACED #$rank',
-            style: AppTypography.labelSmall.copyWith(color: AppColors.readable(AppColors.gold)),
+            style: AppTypography.labelSmall
+                .copyWith(color: AppColors.readable(AppColors.gold)),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
             '₦$formatted',
-            style: AppTypography.heading1.copyWith(color: AppColors.readable(AppColors.gold)),
+            style: AppTypography.heading1
+                .copyWith(color: AppColors.readable(AppColors.gold)),
           ),
           const SizedBox(height: AppSpacing.lg),
           AppButton(
-            label:     'Claim prize',
-            size:      AppButtonSize.large,
+            label: 'Claim prize',
+            size: AppButtonSize.large,
             onPressed: onClaim,
           ),
         ],
@@ -395,20 +420,21 @@ class _WinnerRow extends StatelessWidget {
     required this.animation,
   });
 
-  final PrizeWinner       winner;
-  final bool              isMe;
-  final String            formatted;
+  final PrizeWinner winner;
+  final bool isMe;
+  final String formatted;
   final Animation<double> animation;
 
   @override
   Widget build(BuildContext context) {
-    final isTop3    = winner.rank >= 1 && winner.rank <= 3;
-    final rankColor = isTop3 ? _rankColors[winner.rank - 1] : AppColors.textMuted;
+    final isTop3 = winner.rank >= 1 && winner.rank <= 3;
+    final rankColor =
+        isTop3 ? _rankColors[winner.rank - 1] : AppColors.textMuted;
 
     final row = AppCard(
-      padding:     EdgeInsets.symmetric(
+      padding: EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
-        vertical:   AppSpacing.md,
+        vertical: AppSpacing.md,
       ),
       accentColor: isTop3 ? rankColor : null,
       borderColor: isMe ? AppColors.gold.withValues(alpha: 0.4) : null,
@@ -463,7 +489,7 @@ class _WinnerRow extends StatelessWidget {
       child: SlideTransition(
         position: Tween<Offset>(
           begin: const Offset(0, 0.12),
-          end:   Offset.zero,
+          end: Offset.zero,
         ).animate(animation),
         child: row,
       ),
@@ -474,18 +500,18 @@ class _WinnerRow extends StatelessWidget {
 class _RankBadge extends StatelessWidget {
   const _RankBadge({required this.rank, required this.color});
 
-  final int   rank;
+  final int rank;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width:  32.r,
+      width: 32.r,
       height: 32.r,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        shape:  BoxShape.circle,
-        color:  color.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+        color: color.withValues(alpha: 0.12),
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
@@ -507,12 +533,13 @@ class _YouTag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color:        AppColors.primarySoft,
+        color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(AppRadii.xs),
       ),
       child: Text(
         'YOU',
-        style: AppTypography.labelSmall.copyWith(color: AppColors.readable(AppColors.primary)),
+        style: AppTypography.labelSmall
+            .copyWith(color: AppColors.readable(AppColors.primary)),
       ),
     );
   }

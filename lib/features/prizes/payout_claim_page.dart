@@ -431,7 +431,8 @@ class _PayoutClaimPageState extends State<PayoutClaimPage> {
                     icon: Icons.hourglass_top_rounded,
                     color: AppColors.readable(AppColors.accent),
                     title: 'Awaiting payment',
-                    body: 'Your details have been received and are under review. '
+                    body:
+                        'Your details have been received and are under review. '
                         'Submitting does NOT mean you have been paid — check '
                         'your status after review.',
                     maskedAccount: _maskedAccount,
@@ -631,8 +632,7 @@ class _ClaimForm extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Icon(Icons.expand_more_rounded,
-                      color: AppColors.textMuted),
+                  Icon(Icons.expand_more_rounded, color: AppColors.textMuted),
                 ],
               ),
             ),
@@ -846,8 +846,7 @@ class _StatusCard extends StatelessWidget {
               border: Border.all(color: color.withValues(alpha: 0.35)),
             ),
             alignment: Alignment.center,
-            child: Icon(icon,
-                color: AppColors.readable(color), size: 28.r),
+            child: Icon(icon, color: AppColors.readable(color), size: 28.r),
           ),
           SizedBox(height: 12.h),
           Text(

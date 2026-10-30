@@ -153,8 +153,7 @@ class _SectionHeader extends StatelessWidget {
                 color: color.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(9.r),
               ),
-              child: Icon(icon,
-                  color: AppColors.readable(color), size: 15.r),
+              child: Icon(icon, color: AppColors.readable(color), size: 15.r),
             ),
             SizedBox(width: 10.w),
             Expanded(
@@ -228,7 +227,9 @@ class _PremiumHero extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      premium ? '28 days from activation' : '28 days · one-time',
+                      premium
+                          ? '28 days from activation'
+                          : '28 days · one-time',
                       style: AppTypography.bodySmall,
                     ),
                   ],
@@ -473,7 +474,8 @@ class _PerkRow extends StatelessWidget {
                 color: AppColors.accent.withValues(alpha: 0.22),
               ),
             ),
-            child: Icon(perk.icon, color: AppColors.readable(AppColors.accent), size: 19.r),
+            child: Icon(perk.icon,
+                color: AppColors.readable(AppColors.accent), size: 19.r),
           ),
           SizedBox(width: 12.w),
           Expanded(
@@ -523,12 +525,10 @@ class _ShopPremiumCard extends StatelessWidget {
             title: 'How to get it',
           ),
           SizedBox(height: AppSpacing.lg),
-
           for (final (index, step) in _steps.indexed) ...[
             if (index > 0) SizedBox(height: AppSpacing.md),
             _NumberedStep(index: index, text: step),
           ],
-
           SizedBox(height: AppSpacing.lg),
           Container(height: 1, color: AppColors.divider),
           SizedBox(height: AppSpacing.md),
@@ -557,7 +557,8 @@ class _CardTitle extends StatelessWidget {
             color: AppColors.accent.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(9.r),
           ),
-          child: Icon(icon, color: AppColors.readable(AppColors.accent), size: 15.r),
+          child: Icon(icon,
+              color: AppColors.readable(AppColors.accent), size: 15.r),
         ),
         SizedBox(width: 10.w),
         Expanded(
@@ -613,4 +614,3 @@ class _NumberedStep extends StatelessWidget {
     );
   }
 }
-

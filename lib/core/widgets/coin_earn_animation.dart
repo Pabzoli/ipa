@@ -247,8 +247,7 @@ class _CoinEarnOverlayState extends State<_CoinEarnOverlay>
           ];
 
     return List.generate(22, (index) {
-      final angle = (pi * 2 * index / 22) +
-          (random.nextDouble() - 0.5) * 0.18;
+      final angle = (pi * 2 * index / 22) + (random.nextDouble() - 0.5) * 0.18;
 
       return _CoinParticle(
         angle: angle,
@@ -427,8 +426,7 @@ class _ParticleWidget extends StatelessWidget {
         final dx = cos(particle.angle) * particle.distance * t;
 
         // Slightly curved trajectory.
-        final dy = sin(particle.angle) * particle.distance * t -
-            (18 * t * t);
+        final dy = sin(particle.angle) * particle.distance * t - (18 * t * t);
 
         final scale = 1.0 - (0.55 * fade.value);
         final opacity = (1.0 - fade.value).clamp(0.0, 1.0);
@@ -583,9 +581,8 @@ class _RewardBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAchievement = source == CoinEarnSource.achievement;
-    final glow = isAchievement
-        ? const Color(0xFF8B5CF6)
-        : const Color(0xFFFFB300);
+    final glow =
+        isAchievement ? const Color(0xFF8B5CF6) : const Color(0xFFFFB300);
     return Center(
       child: Container(
         padding: EdgeInsets.fromLTRB(9.r, 8.r, 18.r, 8.r),
@@ -630,7 +627,6 @@ class _RewardBadge extends StatelessWidget {
             width: 1.2,
           ),
         ),
-
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

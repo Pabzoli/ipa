@@ -40,31 +40,31 @@ class UserDataProvider extends ChangeNotifier {
   // ── Defaults are 0 / false, NOT fake values.
   // The streams replace these with real Firestore values as soon as
   // the user is authenticated and online.
-  int  _score                   = 0;
-  int  _animeCoins              = 0;
-  int  _weeklyPoints            = 0;
-  int  _dailyAdWatched          = 0;
-  bool _loading                 = true;
-  bool _isOnline                = false;
-  bool _connectivityChecked     = false;
+  int _score = 0;
+  int _animeCoins = 0;
+  int _weeklyPoints = 0;
+  int _dailyAdWatched = 0;
+  bool _loading = true;
+  bool _isOnline = false;
+  bool _connectivityChecked = false;
 
   // ── P-05: Premium status ──────────────────────────────────────────────────
-  bool _premiumActive           = false;
+  bool _premiumActive = false;
 
   // ── Challenge daily counter ───────────────────────────────────────────────
-  int  _challengesCreatedToday  = 0;
+  int _challengesCreatedToday = 0;
 
   // ── Quick Match token state ───────────────────────────────────────────────
-  int  _qmTokens                = 0;
-  bool _qmAdTokenUsed           = false;
+  int _qmTokens = 0;
+  bool _qmAdTokenUsed = false;
 
   // ── Coin reservation system ──────────────────────────────────────────────
   final Map<int, int> _pendingCoinReservations = <int, int>{};
   int _nextCoinReservationId = 0;
 
   // ── WP (WeebPoints) Fields ──────────────────────────────────────────────────
-  int  _wpStakedToday           = 0;
-  String _wpStakedDate          = '';
+  int _wpStakedToday = 0;
+  String _wpStakedDate = '';
   DateTime? _lastRivalChallenge;
   String? _lastRivalUid;
 
@@ -72,11 +72,11 @@ class UserDataProvider extends ChangeNotifier {
   String? _leaderboardEntryWeekId;
 
   // ── Initialization Guard ─────────────────────────────────────────────────
-  bool _isInitialized           = false;
+  bool _isInitialized = false;
 
   // ── Getters ──────────────────────────────────────────────────────────────────
 
-  int  get score                    => _score;
+  int get score => _score;
   // Anime Coins getters with reservation awareness
   int get animeCoins => spendableAnimeCoins;
   int get committedAnimeCoins => _animeCoins;
@@ -86,18 +86,19 @@ class UserDataProvider extends ChangeNotifier {
     final value = _animeCoins - pendingAnimeCoins;
     return value < 0 ? 0 : value;
   }
+
   bool canAffordCoins(int amount) => spendableAnimeCoins >= amount;
 
-  int  get weeklyPoints             => _weeklyPoints;
-  int  get dailyAdWatched           => _dailyAdWatched;
-  int  get adsRemainingToday        => (10 - _dailyAdWatched).clamp(0, 10);
-  bool get loading                  => _loading;
-  bool get isOnline                 => _isOnline;
-  bool get connectivityChecked      => _connectivityChecked;
-  bool get premiumActive            => _premiumActive;
-  int  get challengesCreatedToday   => _challengesCreatedToday;
-  int  get qmTokens                 => _qmTokens;
-  bool get qmAdTokenUsed            => _qmAdTokenUsed;
+  int get weeklyPoints => _weeklyPoints;
+  int get dailyAdWatched => _dailyAdWatched;
+  int get adsRemainingToday => (10 - _dailyAdWatched).clamp(0, 10);
+  bool get loading => _loading;
+  bool get isOnline => _isOnline;
+  bool get connectivityChecked => _connectivityChecked;
+  bool get premiumActive => _premiumActive;
+  int get challengesCreatedToday => _challengesCreatedToday;
+  int get qmTokens => _qmTokens;
+  bool get qmAdTokenUsed => _qmAdTokenUsed;
 
   // ── WP Getters ───────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ class UserDataProvider extends ChangeNotifier {
       _leaderboardEntryWeekId == FirestoreService.currentWeekId();
 
   /// Checks if the current user can challenge a specific rival.
-  /// 
+  ///
   /// Cooldown rules:
   /// - Different rival: always allowed (no cooldown)
   /// - Same rival: 12-hour cooldown (6 hours for premium users)
@@ -141,22 +142,22 @@ class UserDataProvider extends ChangeNotifier {
   // ── Stream Subscriptions ────────────────────────────────────────────────────
 
   StreamSubscription<List<ConnectivityResult>>? _connectSub;
-  StreamSubscription<User?>?                    _authSub;
-  StreamSubscription<int>?                      _scoreSub;
-  StreamSubscription<int>?                      _animeCoinsSub;
-  StreamSubscription<int>?                      _weeklyPointsSub;
-  StreamSubscription<int>?                      _dailyAdWatchedSub;
-  StreamSubscription<bool>?                     _premiumActiveSub;
-  StreamSubscription<int>?                      _challengesCreatedTodaySub;
-  StreamSubscription<int>?                      _qmTokensSub;
-  StreamSubscription<bool>?                     _qmAdTokenUsedSub;
+  StreamSubscription<User?>? _authSub;
+  StreamSubscription<int>? _scoreSub;
+  StreamSubscription<int>? _animeCoinsSub;
+  StreamSubscription<int>? _weeklyPointsSub;
+  StreamSubscription<int>? _dailyAdWatchedSub;
+  StreamSubscription<bool>? _premiumActiveSub;
+  StreamSubscription<int>? _challengesCreatedTodaySub;
+  StreamSubscription<int>? _qmTokensSub;
+  StreamSubscription<bool>? _qmAdTokenUsedSub;
 
   // ── WP Stream Subscriptions ─────────────────────────────────────────────────
-  StreamSubscription<int>?                      _wpStakedTodaySub;
-  StreamSubscription<String>?                   _wpStakedDateSub;
-  StreamSubscription<Timestamp?>?               _lastRivalChallengeSub;
-  StreamSubscription<String?>?                  _lastRivalUidSub;
-  StreamSubscription<String?>?                  _leaderboardEntrySub;
+  StreamSubscription<int>? _wpStakedTodaySub;
+  StreamSubscription<String>? _wpStakedDateSub;
+  StreamSubscription<Timestamp?>? _lastRivalChallengeSub;
+  StreamSubscription<String?>? _lastRivalUidSub;
+  StreamSubscription<String?>? _leaderboardEntrySub;
 
   /// Constructor triggers self-initialization instantly when created
   UserDataProvider() {
@@ -176,17 +177,15 @@ class UserDataProvider extends ChangeNotifier {
             onTimeout: () => [ConnectivityResult.wifi],
           )
           .then((results) {
-            _isOnline = _hasConnection(results);
-          })
-          .catchError((_) {
-            _isOnline = true;
-          })
-          .whenComplete(() {
-            _connectivityChecked = true;
-            notifyListeners();
-          });
+        _isOnline = _hasConnection(results);
+      }).catchError((_) {
+        _isOnline = true;
+      }).whenComplete(() {
+        _connectivityChecked = true;
+        notifyListeners();
+      });
     } catch (e) {
-      _isOnline            = true;
+      _isOnline = true;
       _connectivityChecked = true;
       notifyListeners();
     }
@@ -241,45 +240,58 @@ class UserDataProvider extends ChangeNotifier {
       results.any((r) => r != ConnectivityResult.none);
 
   void _resetLocalState() {
-    _score                   = 0;
-    _animeCoins              = 0;
-    _weeklyPoints            = 0;
-    _dailyAdWatched          = 0;
-    _premiumActive           = false;
-    _challengesCreatedToday  = 0;
-    _qmTokens                = 0;
-    _qmAdTokenUsed           = false;
-    
+    _score = 0;
+    _animeCoins = 0;
+    _weeklyPoints = 0;
+    _dailyAdWatched = 0;
+    _premiumActive = false;
+    _challengesCreatedToday = 0;
+    _qmTokens = 0;
+    _qmAdTokenUsed = false;
+
     // Reset WP fields
-    _wpStakedToday           = 0;
-    _wpStakedDate            = '';
-    _lastRivalChallenge      = null;
-    _lastRivalUid            = null;
-    _leaderboardEntryWeekId  = null;
-    
+    _wpStakedToday = 0;
+    _wpStakedDate = '';
+    _lastRivalChallenge = null;
+    _lastRivalUid = null;
+    _leaderboardEntryWeekId = null;
+
     // Reset coin reservations
     _pendingCoinReservations.clear();
     _nextCoinReservationId = 0;
 
-    _loading                 = true;
+    _loading = true;
   }
 
   void _cancelFirestoreStreams() {
-    _scoreSub?.cancel();                   _scoreSub                   = null;
-    _animeCoinsSub?.cancel();              _animeCoinsSub              = null;
-    _weeklyPointsSub?.cancel();            _weeklyPointsSub            = null;
-    _dailyAdWatchedSub?.cancel();          _dailyAdWatchedSub          = null;
-    _premiumActiveSub?.cancel();           _premiumActiveSub           = null;
-    _challengesCreatedTodaySub?.cancel();  _challengesCreatedTodaySub  = null;
-    _qmTokensSub?.cancel();                _qmTokensSub                = null;
-    _qmAdTokenUsedSub?.cancel();           _qmAdTokenUsedSub           = null;
-    
+    _scoreSub?.cancel();
+    _scoreSub = null;
+    _animeCoinsSub?.cancel();
+    _animeCoinsSub = null;
+    _weeklyPointsSub?.cancel();
+    _weeklyPointsSub = null;
+    _dailyAdWatchedSub?.cancel();
+    _dailyAdWatchedSub = null;
+    _premiumActiveSub?.cancel();
+    _premiumActiveSub = null;
+    _challengesCreatedTodaySub?.cancel();
+    _challengesCreatedTodaySub = null;
+    _qmTokensSub?.cancel();
+    _qmTokensSub = null;
+    _qmAdTokenUsedSub?.cancel();
+    _qmAdTokenUsedSub = null;
+
     // Cancel WP subscriptions
-    _wpStakedTodaySub?.cancel();           _wpStakedTodaySub           = null;
-    _wpStakedDateSub?.cancel();            _wpStakedDateSub            = null;
-    _lastRivalChallengeSub?.cancel();      _lastRivalChallengeSub      = null;
-    _lastRivalUidSub?.cancel();            _lastRivalUidSub            = null;
-    _leaderboardEntrySub?.cancel();        _leaderboardEntrySub        = null;
+    _wpStakedTodaySub?.cancel();
+    _wpStakedTodaySub = null;
+    _wpStakedDateSub?.cancel();
+    _wpStakedDateSub = null;
+    _lastRivalChallengeSub?.cancel();
+    _lastRivalChallengeSub = null;
+    _lastRivalUidSub?.cancel();
+    _lastRivalUidSub = null;
+    _leaderboardEntrySub?.cancel();
+    _leaderboardEntrySub = null;
   }
 
   void _startFirestoreStreams() {
@@ -293,16 +305,20 @@ class UserDataProvider extends ChangeNotifier {
       debugPrint('[UserDataProvider] ensureAnimeCoinField error (ignored): $e');
     });
     FirestoreService.instance.ensureDailyAdWatchedFields().catchError((e) {
-      debugPrint('[UserDataProvider] ensureDailyAdWatchedFields error (ignored): $e');
+      debugPrint(
+          '[UserDataProvider] ensureDailyAdWatchedFields error (ignored): $e');
     });
-    FirestoreService.instance.ensureChallengesCreatedTodayField().catchError((e) {
-      debugPrint('[UserDataProvider] ensureChallengesCreatedTodayField error (ignored): $e');
+    FirestoreService.instance
+        .ensureChallengesCreatedTodayField()
+        .catchError((e) {
+      debugPrint(
+          '[UserDataProvider] ensureChallengesCreatedTodayField error (ignored): $e');
     });
 
     // ── Score ────────────────────────────────────────────────────────────────
     _scoreSub = FirestoreService.instance.scoreStream().listen(
       (s) {
-        _score   = s;
+        _score = s;
         _loading = false;
         notifyListeners();
       },
@@ -334,13 +350,15 @@ class UserDataProvider extends ChangeNotifier {
     );
 
     // ── Daily Ad Watched (P-04) ───────────────────────────────────────────────
-    _dailyAdWatchedSub = FirestoreService.instance.dailyAdWatchedStream().listen(
+    _dailyAdWatchedSub =
+        FirestoreService.instance.dailyAdWatchedStream().listen(
       (watched) {
         _dailyAdWatched = watched;
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] dailyAdWatched stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] dailyAdWatched stream error (ignored): $e');
       },
     );
 
@@ -351,7 +369,8 @@ class UserDataProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] premiumActive stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] premiumActive stream error (ignored): $e');
       },
     );
 
@@ -387,7 +406,8 @@ class UserDataProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] qmAdTokenUsed stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] qmAdTokenUsed stream error (ignored): $e');
       },
     );
 
@@ -398,7 +418,8 @@ class UserDataProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] wpStakedToday stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] wpStakedToday stream error (ignored): $e');
       },
     );
 
@@ -409,19 +430,21 @@ class UserDataProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] wpStakedDate stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] wpStakedDate stream error (ignored): $e');
       },
     );
 
     // ── Last Rival Challenge ──────────────────────────────────────────────────
-    _lastRivalChallengeSub = 
+    _lastRivalChallengeSub =
         FirestoreService.instance.lastRivalChallengeStream().listen(
       (ts) {
         _lastRivalChallenge = ts?.toDate();
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] lastRivalChallenge stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] lastRivalChallenge stream error (ignored): $e');
       },
     );
 
@@ -432,7 +455,8 @@ class UserDataProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] lastRivalUid stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] lastRivalUid stream error (ignored): $e');
       },
     );
 
@@ -444,7 +468,8 @@ class UserDataProvider extends ChangeNotifier {
         notifyListeners();
       },
       onError: (e) {
-        debugPrint('[UserDataProvider] leaderboardEntry stream error (ignored): $e');
+        debugPrint(
+            '[UserDataProvider] leaderboardEntry stream error (ignored): $e');
       },
     );
   }
@@ -550,7 +575,8 @@ class UserDataProvider extends ChangeNotifier {
         if (data['error'] == 'insufficient_coins') {
           throw InsufficientCoinsException(
             required: amount,
-            available: (data['balance'] as num?)?.toInt() ?? spendableAnimeCoins,
+            available:
+                (data['balance'] as num?)?.toInt() ?? spendableAnimeCoins,
           );
         }
 
@@ -616,32 +642,36 @@ class UserDataProvider extends ChangeNotifier {
   Future<DailyLoginResult> checkAndAwardDailyLogin() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      return const DailyLoginResult(coinsAwarded: 0, wpAwarded: 0, wpMilestone: 0);
+      return const DailyLoginResult(
+          coinsAwarded: 0, wpAwarded: 0, wpMilestone: 0);
     }
 
     try {
-      final loginResult = await FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('recordDailyLogin')
-          .call<Map<Object?, Object?>>({});
+      final loginResult =
+          await FirebaseFunctions.instanceFor(region: 'us-central1')
+              .httpsCallable('recordDailyLogin')
+              .call<Map<Object?, Object?>>({});
 
-      final loginData    = Map<String, dynamic>.from(loginResult.data);
+      final loginData = Map<String, dynamic>.from(loginResult.data);
       final coinsAwarded = (loginData['coinsAwarded'] as num).toInt();
 
       if (coinsAwarded == 0) {
-        return const DailyLoginResult(coinsAwarded: 0, wpAwarded: 0, wpMilestone: 0);
+        return const DailyLoginResult(
+            coinsAwarded: 0, wpAwarded: 0, wpMilestone: 0);
       }
 
-      int wpAwarded   = 0;
+      int wpAwarded = 0;
       int wpMilestone = 0;
       try {
-        final cfResult = await FirebaseFunctions.instanceFor(region: 'us-central1')
-            .httpsCallable('awardLoginStreakWP')
-            .call<Map<Object?, Object?>>({});
+        final cfResult =
+            await FirebaseFunctions.instanceFor(region: 'us-central1')
+                .httpsCallable('awardLoginStreakWP')
+                .call<Map<Object?, Object?>>({});
 
         final data = Map<String, dynamic>.from(cfResult.data);
         if (data['awarded'] == true) {
-          wpAwarded   = (data['wpAwarded']  as num).toInt();
-          wpMilestone = (data['milestone']  as num).toInt();
+          wpAwarded = (data['wpAwarded'] as num).toInt();
+          wpMilestone = (data['milestone'] as num).toInt();
           debugPrint(
             '[UserDataProvider] awardLoginStreakWP: '
             '+$wpAwarded WP (milestone $wpMilestone)',
@@ -655,12 +685,14 @@ class UserDataProvider extends ChangeNotifier {
 
       return DailyLoginResult(
         coinsAwarded: coinsAwarded,
-        wpAwarded:    wpAwarded,
-        wpMilestone:  wpMilestone,
+        wpAwarded: wpAwarded,
+        wpMilestone: wpMilestone,
       );
     } catch (e) {
-      debugPrint('[UserDataProvider] checkAndAwardDailyLogin error (ignored): $e');
-      return const DailyLoginResult(coinsAwarded: 0, wpAwarded: 0, wpMilestone: 0);
+      debugPrint(
+          '[UserDataProvider] checkAndAwardDailyLogin error (ignored): $e');
+      return const DailyLoginResult(
+          coinsAwarded: 0, wpAwarded: 0, wpMilestone: 0);
     }
   }
 
@@ -671,12 +703,12 @@ class UserDataProvider extends ChangeNotifier {
 
     try {
       final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
-      final snap    = await userRef.get();
-      final data    = snap.data() ?? {};
+      final snap = await userRef.get();
+      final data = snap.data() ?? {};
 
       final alreadyClaimed = data['referralBonusClaimed'] as bool? ?? false;
-      final firstQuizDone  = data['firstQuizCompleted']   as bool? ?? false;
-      final referredBy     = data['referredBy']            as String?;
+      final firstQuizDone = data['firstQuizCompleted'] as bool? ?? false;
+      final referredBy = data['referredBy'] as String?;
 
       if (alreadyClaimed || firstQuizDone || referredBy == null) return;
 
@@ -684,9 +716,11 @@ class UserDataProvider extends ChangeNotifier {
           .httpsCallable('claimReferralBonus')
           .call<void>({'referredBy': referredBy});
 
-      debugPrint('[UserDataProvider] claimReferralBonus callable succeeded for referrer $referredBy');
+      debugPrint(
+          '[UserDataProvider] claimReferralBonus callable succeeded for referrer $referredBy');
     } catch (e) {
-      debugPrint('[UserDataProvider] claimReferralBonusIfEligible error (ignored): $e');
+      debugPrint(
+          '[UserDataProvider] claimReferralBonusIfEligible error (ignored): $e');
     }
   }
 }

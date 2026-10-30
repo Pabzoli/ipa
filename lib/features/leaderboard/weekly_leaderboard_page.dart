@@ -320,7 +320,6 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
       service
           .fetchPrizePool()
           .catchError((Object _) => const <String, dynamic>{}),
-      service.guaranteedFloor().catchError((Object _) => 0.0),
       service.lastFinalisedPool().catchError((Object _) => null),
     ]);
 
@@ -329,8 +328,11 @@ class _WeeklyLeaderboardPageState extends State<WeeklyLeaderboardPage>
     return LeaderboardSnapshot(
       global: board,
       pool: results[1]! as Map<String, dynamic>,
-      guaranteedFloor: (results[2]! as num).toDouble(),
-      lastWeekPool: (results[3] as num?)?.toDouble(),
+      // Retired floor input: the fixed-pool model has no floor, so this is
+      // always 0. The field stays on the snapshot because pinned tests
+      // construct it explicitly.
+      guaranteedFloor: 0,
+      lastWeekPool: (results[2] as num?)?.toDouble(),
       fetchedAt: DateTime.now(),
     );
   }
@@ -624,7 +626,6 @@ class _GlobalLeaderboardTab extends StatelessWidget {
     final projection = PrizePoolService.projectPrizePool(
       entryCodeRevenue: snapshot.pool['entryCodeRevenue'] as num?,
       adminPoolNaira: snapshot.pool['adminPoolNaira'] as num?,
-      guaranteedFloor: snapshot.guaranteedFloor,
     );
     final prizes = PrizePoolService.calculatePrizes(projection.amount);
 
@@ -861,6 +862,7 @@ class _GlobalLeaderboardTab extends StatelessWidget {
         builder: (_) => RivalryPage(
           rivalUid: entry.uid,
           rivalUsername: entry.username,
+          allowFriendRequest: true,
         ),
       ),
     );

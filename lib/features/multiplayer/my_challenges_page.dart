@@ -74,8 +74,8 @@ class _MyChallengesPageState extends State<MyChallengesPage>
           labelColor: AppColors.textPrimary,
           unselectedLabelColor: AppColors.textMuted,
           labelStyle: AppTypography.labelLarge,
-          unselectedLabelStyle: AppTypography.labelLarge
-              .copyWith(color: AppColors.textMuted, fontWeight: FontWeight.w600),
+          unselectedLabelStyle: AppTypography.labelLarge.copyWith(
+              color: AppColors.textMuted, fontWeight: FontWeight.w600),
           tabs: const [
             Tab(text: 'Active'),
             Tab(text: 'Pending'),
@@ -262,8 +262,7 @@ class _InviteTicketState extends State<_InviteTicket> {
       final raw = e is FirebaseFunctionsException
           ? (e.message ?? e.code)
           : e.toString();
-      final premiumActive =
-          context.read<UserDataProvider>().premiumActive;
+      final premiumActive = context.read<UserDataProvider>().premiumActive;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -882,4 +881,3 @@ String _formatTimeLeft(Duration d) {
   final m = d.inMinutes.remainder(60);
   return h > 0 ? '${h}h ${m}m' : '${m}m';
 }
-

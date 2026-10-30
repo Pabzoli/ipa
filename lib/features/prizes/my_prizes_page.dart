@@ -46,8 +46,18 @@ Color _rankColor(int rank) => switch (rank) {
 /// the month and day only — the year is noise in a history that spans weeks,
 /// and the raw ISO string reads like a database key.
 const List<String> _months = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 String _weekLabel(String weekId) {
@@ -666,8 +676,8 @@ class _IconTile extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       alignment: Alignment.center,
-      child: Icon(icon,
-          color: AppColors.readable(color), size: (size * 0.52).r),
+      child:
+          Icon(icon, color: AppColors.readable(color), size: (size * 0.52).r),
     );
   }
 }

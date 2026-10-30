@@ -138,9 +138,9 @@ class PrizePoolCard extends StatelessWidget {
 
   /// Whether anyone has entered this week's board yet.
   ///
-  /// Changes the copy entirely. With no entrants, "Guaranteed minimum" reads as
+  /// Changes the copy entirely. With no entrants, naming a figure reads as
   /// a promise that somebody will be paid — but an empty week pays nobody,
-  /// because the reset allocates the floor to a cycle whose `ranked` array is
+  /// because the reset allocates the pool to a cycle whose `ranked` array is
   /// empty, and an empty share list means no transfers and no carryover. The
   /// honest framing is an opening price, not a payout.
   final bool isBoardEmpty;
@@ -168,11 +168,10 @@ class PrizePoolCard extends StatelessWidget {
       return 'Be the first to enter.';
     }
     return switch (projection.source) {
-      // A fixed pool is a hard number the admin committed to.
+      // A fixed pool is the amount set for the week.
       PoolSource.adminFixed => 'Fixed for this week',
-      // On the floor means the figure is a developer subsidy, not sales.
-      PoolSource.floor => 'Guaranteed minimum · projected',
-      PoolSource.revenue => 'Projected · finalised Monday',
+      // Nothing set yet — announced once it is set.
+      PoolSource.unset => 'Not set yet',
     };
   }
 
@@ -225,9 +224,7 @@ class PrizePoolCard extends StatelessWidget {
             )
           else
             Text(
-              hasPool
-                  ? PrizePoolService.formatNaira(projection.amount)
-                  : '₦0',
+              hasPool ? PrizePoolService.formatNaira(projection.amount) : '₦0',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 34.sp,
@@ -366,7 +363,9 @@ class _PrizeSlot extends StatelessWidget {
                   PrizePoolService.formatExact(amount),
                   maxLines: 1,
                   style: TextStyle(
-                    color: podium ? AppColors.readable(color) : AppColors.textSecondary,
+                    color: podium
+                        ? AppColors.readable(color)
+                        : AppColors.textSecondary,
                     fontSize: 10.sp,
                     fontWeight: FontWeight.w900,
                   ),
