@@ -7,8 +7,7 @@
   "minAndroid": "Android 7.0 (Nougat) or newer",
   "notes": [
     "Fixed a duel freeze that could strand a run after the first question; slow networks now time out cleanly instead of hanging.",
-    "Leaderboard rivals play more like humans: steadier presence through the week with a catchable top 3.",
-    "Stronger payout-account checks behind referral cashouts and the weekly prize queue.",
-    "Admin console now flags enforcement holds and shared bank accounts before money moves."
+    "A tighter, more competitive weekly leaderboard race.",
+    "Stronger payout checks behind referral cashouts and the weekly prize queue."
   ]
 }
