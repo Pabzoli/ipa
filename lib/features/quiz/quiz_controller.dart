@@ -574,7 +574,15 @@ class QuizController extends ChangeNotifier {
   void _startTimer() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_disposed || _isNavigating || _submittingAnswer) return;
+      if (_disposed || _isNavigating) return;
+      // Solo answer lock in flight: freeze the countdown (don't decrement)
+      // so a slow lock never steals answer time. Duel never sets this flag
+      // (optimistic lock), so quick-match keeps ticking normally.
+      if (_submittingAnswer) return;
+      // Timer Pause freezes the countdown until the player answers. The pause
+      // path cancels the timer, but guard here too so a restarted timer can
+      // never tick through a pause.
+      if (_timerPaused) return;
       // Blitz global clock ticks alongside the per-question countdown and
       // wins every race: at zero the run submits immediately.
       if (isGauntlet) {
@@ -639,6 +647,23 @@ class QuizController extends ChangeNotifier {
         : DateTime.now().difference(_questionStartTime!).inMilliseconds;
     if (elapsed < 1500) return;
 
+    // Duel (challenge / quick-match) takes the optimistic path and never
+    // waits: _submittingAnswer stays false so the timer and tiles stay live
+    // for the next question. Solo sets it below and clears it on every exit.
+    // (Previously this flag was set before the duel branch and never cleared,
+    // which froze the timer at Q2+ and disabled all option tiles — the
+    // "have to quit after question 1" freeze.)
+    if (mode == QuizMode.asyncChallenge && _runId != null) {
+      // Optimistic duel lock: highlight now, lock in the background, advance
+      // on the normal dwell. The player never waits for the network — the
+      // lock lands while they read the next question. Correctness stays
+      // hidden until the result; the lock is an acknowledgement only, but it
+      // is a REAL lock: quitting leaves it standing, which is what kills the
+      // preview-then-replay exploit without slowing the duel down.
+      _fireDuelLock(index);
+      return;
+    }
+
     _submittingAnswer = true;
     bool? correct;
 
@@ -657,26 +682,21 @@ class QuizController extends ChangeNotifier {
     // On a wrong solo answer the server also reveals the correct option for
     // that locked question only (no probing: the answer can no longer change).
     int? revealedCorrect;
-    if (mode == QuizMode.asyncChallenge && _runId != null) {
-      // Optimistic duel lock: highlight now, lock in the background, advance
-      // on the normal dwell. The player never waits for the network — the
-      // lock lands while they read the next question. Correctness stays
-      // hidden until the result; the lock is an acknowledgement only, but it
-      // is a REAL lock: quitting leaves it standing, which is what kills the
-      // preview-then-replay exploit without slowing the duel down.
-      _fireDuelLock(index);
-      return;
-    }
     if (mode == QuizMode.solo && _runId != null) {
       _selectedOption = index;
       _notify();
       try {
+        // Bounded so a stalled network can never leave the timer frozen and
+        // the tiles showing a spinner forever (the old hang required a quit).
         final data = await _invokeSubmitCallable('submitAnswer', {
           'runId': _runId,
           'questionIndex': _qIndex,
           'selectedAnswer': index,
           ...AppUpdateService.instance.clientBuildStamp,
-        });
+        }).timeout(
+          const Duration(seconds: 12),
+          onTimeout: () => throw TimeoutException('submitAnswer timed out'),
+        );
         correct = data['correct'] == true;
         if (correct != true) {
           final ci = (data['correctIndex'] as num?)?.toInt();
@@ -789,7 +809,21 @@ class QuizController extends ChangeNotifier {
   void _fireDuelLock(int index) {
     final lockIndex = _qIndex;
     final lockRunId = _runId;
-    if (lockRunId == null) return;
+    // Defensive: never leave the answer lock flag set — it freezes the timer
+    // tick and disables every option tile on the next question.
+    _submittingAnswer = false;
+    if (lockRunId == null || lockRunId.isEmpty) {
+      // No server run (offline resume edge): still advance locally so the
+      // player is never stranded on a dead question.
+      _selectedOption = index;
+      _showResult = true;
+      _notify();
+      _timer?.cancel();
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (!_disposed) _advance();
+      });
+      return;
+    }
     _selectedOption = index;
     _showResult = true;
     _notify();
@@ -884,6 +918,11 @@ class QuizController extends ChangeNotifier {
 
   void _advance() {
     if (_isNavigating) return;
+    // Self-heal: no question transition may ever leave the answer lock set.
+    // A stuck flag freezes the timer tick and disables every option tile on
+    // the next question (the Q1 freeze). Reset here as well as on every lock
+    // exit so one bad path can never strand the run.
+    _submittingAnswer = false;
     // Blitz clock ran out while a dwell was pending: finish instead of
     // advancing onto another question.
     if (_blitzTimeUp) {
@@ -1385,13 +1424,18 @@ class QuizController extends ChangeNotifier {
     }
 
     try {
+      // Bounded so a stalled network clears the spinner instead of leaving
+      // the hint button stuck in "Finding a wrong option…" forever.
       final result = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('useQuizHint')
           .call<Map<Object?, Object?>>({
         'runId': rid,
         'questionIndex': questionIndex,
         ...AppUpdateService.instance.clientBuildStamp,
-      });
+      }).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => throw TimeoutException('useQuizHint timed out'),
+      );
       final data = Map<String, dynamic>.from(result.data);
       final newBalance = (data['newBalance'] as num?)?.toInt();
       // Server already charged: consume the local reservation against the

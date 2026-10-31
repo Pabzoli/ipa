@@ -18,7 +18,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
 const List<String> kAdminUids = <String>[
-  'owMNkXmb6QSzO0xfHkSgMlx0zSJ3',
+  'pu4QTjHTijer7DLlqLU3w0npUUL2',
 ];
 
 /// True when [uid] (or the current signed-in user) is an admin account.

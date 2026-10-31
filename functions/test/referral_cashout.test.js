@@ -19,7 +19,7 @@ const fns = require('../index.js');
 const { db } = ctx;
 const H = require('./helpers');
 
-const ADMIN = 'owMNkXmb6QSzO0xfHkSgMlx0zSJ3';
+const ADMIN = 'pu4QTjHTijer7DLlqLU3w0npUUL2';
 const WEEK = '2026-10-26';
 const PAYOUT = {
   accountNumber: '0123456789',

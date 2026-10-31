@@ -197,6 +197,7 @@ class _OverviewTabState extends State<_OverviewTab> {
   AdminReferralCashoutSnapshot? _referrals;
   PrizePoolStatus? _pool;
   HouseSnapshot? _house;
+  bool _partialData = false;
 
   @override
   void initState() {
@@ -208,6 +209,7 @@ class _OverviewTabState extends State<_OverviewTab> {
     setState(() {
       _state = _OverviewState.loading;
       _message = '';
+      _partialData = false;
     });
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -233,21 +235,29 @@ class _OverviewTabState extends State<_OverviewTab> {
       AdminReferralCashoutSnapshot? refs;
       PrizePoolStatus? pool;
       HouseSnapshot? house;
+      var partial = false;
       try {
         refs = await AdminPayoutService.instance.listReferralCashouts();
-      } catch (_) {}
+      } catch (_) {
+        partial = true;
+      }
       try {
         pool = await AdminPayoutService.instance.getPrizePoolStatus();
-      } catch (_) {}
+      } catch (_) {
+        partial = true;
+      }
       try {
         house = await AdminHouseService.instance.fetch();
-      } catch (_) {}
+      } catch (_) {
+        partial = true;
+      }
       if (!mounted) return;
       setState(() {
         _cycles = cycles;
         _referrals = refs;
         _pool = pool;
         _house = house;
+        _partialData = partial;
         _state = _OverviewState.ready;
       });
     } on AdminPayoutException catch (e) {
@@ -348,6 +358,29 @@ class _OverviewTabState extends State<_OverviewTab> {
             ),
           ),
           SizedBox(height: AppSpacing.md.h),
+          if (_partialData)
+            Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm.h),
+              child: AppCard(
+                accentColor: AppColors.amber,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.cloud_off_outlined,
+                      color: AppColors.readable(AppColors.amber),
+                      size: 18.r,
+                    ),
+                    SizedBox(width: AppSpacing.sm.w),
+                    Expanded(
+                      child: Text(
+                        'Some sections failed to load — figures may be incomplete. Pull to refresh.',
+                        style: AppTypography.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           GridView.count(
             crossAxisCount: 2,
             shrinkWrap: true,

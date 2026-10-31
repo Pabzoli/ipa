@@ -203,6 +203,39 @@ class _AdminHousePageState extends State<AdminHousePage> {
                 ),
                 SizedBox(height: AppSpacing.sm.h),
               ],
+              if (data.chasers.isNotEmpty) ...[
+                Text('Chasers (mid-board)', style: AppTypography.titleMedium),
+                SizedBox(height: AppSpacing.xs.h),
+                for (var i = 0; i < data.chasers.length; i++) ...[
+                  _HouseCard(
+                    rank: i + 1,
+                    entry: data.chasers[i],
+                    paused: paused.contains(data.chasers[i].uid),
+                    busy: _busy,
+                    onTogglePause: () => _run(() async {
+                      final next = Set<String>.from(paused);
+                      if (next.contains(data.chasers[i].uid)) {
+                        next.remove(data.chasers[i].uid);
+                      } else {
+                        next.add(data.chasers[i].uid);
+                      }
+                      await AdminHouseService.instance
+                          .save({'paused': next.toList()});
+                    }, 'Updated.'),
+                    onNudge: (wp) => _run(
+                      () => AdminHouseService.instance
+                          .nudge(uid: data.chasers[i].uid, wp: wp),
+                      'Nudged +$wp WP.',
+                    ),
+                    onRotate: () => _run(
+                      () => AdminHouseService.instance
+                          .rotate(uid: data.chasers[i].uid),
+                      'Name rotated.',
+                    ),
+                  ),
+                  SizedBox(height: AppSpacing.sm.h),
+                ],
+              ],
               AppCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -210,7 +243,7 @@ class _AdminHousePageState extends State<AdminHousePage> {
                     Text('Catch-up gap', style: AppTypography.titleMedium),
                     SizedBox(height: AppSpacing.xs.h),
                     Text(
-                      'H3 leads real #4 by gap3, H2 leads H3 by gap2, H1 leads H2 by gap1. 45-120 feels catchable.',
+                      'H3 leads real #4 inside gapMin-gapMax (30-200 catchable, upset day can flip). Roles shuffle daily so H1/H2/H3 swap; chasers stay 60+ below H3.',
                       style: AppTypography.bodySmall
                           .copyWith(color: AppColors.textSecondary),
                     ),
@@ -259,6 +292,110 @@ class _AdminHousePageState extends State<AdminHousePage> {
                                     'Sunday reserve set to 620.')),
                       ],
                     ),
+                  ],
+                ),
+              ),
+              SizedBox(height: AppSpacing.sm.h),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Social humanizer', style: AppTypography.titleMedium),
+                    SizedBox(height: AppSpacing.xs.h),
+                    Text(
+                      'Bots accept/decline friends, spars and duels like premium humans. ~60% duel wins with streaks, varied stakes, 6-min play floor, 5k unlocks.',
+                      style: AppTypography.bodySmall
+                          .copyWith(color: AppColors.textSecondary),
+                    ),
+                    SizedBox(height: AppSpacing.sm.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            (g['socialEnabled'] ?? true) == true
+                                ? 'Social ON'
+                                : 'Social OFF',
+                            style: AppTypography.labelLarge.copyWith(
+                              color: (g['socialEnabled'] ?? true) == true
+                                  ? AppColors.correct
+                                  : AppColors.wrong,
+                            ),
+                          ),
+                        ),
+                        AppButton(
+                          label: (g['socialEnabled'] ?? true) == true
+                              ? 'Disable'
+                              : 'Enable',
+                          variant: AppButtonVariant.outline,
+                          size: AppButtonSize.small,
+                          loading: _busy,
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                    () => AdminHouseService.instance.save({
+                                      'socialEnabled':
+                                          !((g['socialEnabled'] ?? true) ==
+                                              true),
+                                    }),
+                                    'Social updated.',
+                                  ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: AppSpacing.sm.h),
+                    Wrap(
+                      spacing: AppSpacing.sm.r,
+                      runSpacing: AppSpacing.sm.r,
+                      children: [
+                        _GapChip(
+                            label:
+                                'duel ${g['duelAcceptRate'] ?? 70}% / win ${g['winRate'] ?? 80}%',
+                            onTap: null),
+                        _GapChip(
+                            label: 'spar ${g['sparAcceptRate'] ?? 80}%',
+                            onTap: null),
+                        _GapChip(
+                            label:
+                                'high-stake ${g['highStakeAcceptRate'] ?? 40}%',
+                            onTap: null),
+                        _GapChip(
+                            label:
+                                'outgoing ${(g['outgoingEnabled'] ?? true) == true ? 'on' : 'off'}',
+                            onTap: _busy
+                                ? null
+                                : () => _run(
+                                      () => AdminHouseService.instance.save({
+                                        'outgoingEnabled':
+                                            !((g['outgoingEnabled'] ?? true) ==
+                                                true),
+                                      }),
+                                      'Outgoing updated.',
+                                    )),
+                        _GapChip(
+                            label:
+                                'unlocks ${(g['unlockAnimeEnabled'] ?? true) == true ? 'on' : 'off'}',
+                            onTap: _busy
+                                ? null
+                                : () => _run(
+                                      () => AdminHouseService.instance.save({
+                                        'unlockAnimeEnabled':
+                                            !((g['unlockAnimeEnabled'] ??
+                                                    true) ==
+                                                true),
+                                      }),
+                                      'Unlocks updated.',
+                                    )),
+                      ],
+                    ),
+                    if (data.social.isNotEmpty) ...[
+                      SizedBox(height: AppSpacing.sm.h),
+                      for (final s in data.social)
+                        Text(
+                          '${(s['uid'] as String? ?? '').length > 6 ? (s['uid'] as String).substring(0, 6) : s['uid']}: ${s['friendCount'] ?? 0} friends · ${s['incomingFriends'] ?? 0} in · ${s['outgoingFriends'] ?? 0} out · ${s['waitingDuels'] ?? 0} duels · ${s['pendingPlays'] ?? 0} queued · ${s['socialActionsToday'] ?? 0} today',
+                          style: AppTypography.bodySmall
+                              .copyWith(color: AppColors.textMuted),
+                        ),
+                    ],
                   ],
                 ),
               ),

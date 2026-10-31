@@ -21,7 +21,7 @@ const { db } = ctx;
 const H = require('./helpers');
 
 // The real admin UID from functions/index.js ADMIN_UIDS.
-const ADMIN = 'owMNkXmb6QSzO0xfHkSgMlx0zSJ3';
+const ADMIN = 'pu4QTjHTijer7DLlqLU3w0npUUL2';
 const STAMP = { platform: 'android', appBuild: 999 };
 
 async function user(uid) {

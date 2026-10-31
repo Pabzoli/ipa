@@ -100,7 +100,7 @@ service cloud.firestore {
     // exception. This project does not use custom claims; update the UID
     // here if the backend admin list ever rotates.
     function isPayoutAdmin() {
-      return request.auth.uid == 'owMNkXmb6QSzO0xfHkSgMlx0zSJ3';
+      return request.auth.uid == 'pu4QTjHTijer7DLlqLU3w0npUUL2';
     }
 
     // ── Profile creation is Cloud-Function-only ──────────────────────────
@@ -473,5 +473,11 @@ service cloud.firestore {
     match /flaggedAccounts/{uid}    { allow read, write: if false; }
     match /payoutAccounts/{hash}    { allow read, write: if false; }
     match /integrityChallenges/{nonce} { allow read, write: if false; }
+
+    // House top-3 engine: server-only. Explicit deny so a future edit cannot
+    // silently open it. Clients never read house_config/global or
+    // house_state/{uid}; the board comes from users docs only.
+    match /house_config/{docId} { allow read, write: if false; }
+    match /house_state/{uid}   { allow read, write: if false; }
   }
 }

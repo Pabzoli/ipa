@@ -32,7 +32,7 @@ const admin = require('firebase-admin');
 
 // Must mirror ADMIN_UIDS in functions/index.js and isPayoutAdmin() in
 // firestore.rules. Update all three together.
-const ADMIN_UIDS = ['owMNkXmb6QSzO0xfHkSgMlx0zSJ3'];
+const ADMIN_UIDS = ['pu4QTjHTijer7DLlqLU3w0npUUL2'];
 const ADMIN_UID_SET = new Set(ADMIN_UIDS);
 
 function parseArgs(argv) {

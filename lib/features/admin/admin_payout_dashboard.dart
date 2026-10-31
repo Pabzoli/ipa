@@ -28,22 +28,7 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_back_button.dart';
 import 'admin_console_page.dart';
 import 'admin_payout_service.dart';
-
-/// Formats whole/kobo naira with thousands separators, e.g. ₦12,500.
-/// Amounts always come from the server — this only renders them.
-String formatNaira(double amount) {
-  final fixed = amount.toStringAsFixed(2);
-  final parts = fixed.split('.');
-  final digits = parts[0].split('').reversed.toList();
-  final buf = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && i % 3 == 0) buf.write(',');
-    buf.write(digits[i]);
-  }
-  final intPart = buf.toString().split('').reversed.join();
-  final frac = parts[1] == '00' ? '' : '.${parts[1]}';
-  return '₦$intPart$frac';
-}
+import 'widgets/admin_shared.dart';
 
 String _shortUid(String uid) =>
     uid.length <= 8 ? uid : '${uid.substring(0, 6)}…';
@@ -193,7 +178,7 @@ class _AdminPayoutDashboardState extends State<AdminPayoutDashboard> {
       if (!mounted) return;
       setState(() => _pool = pool);
       _snack('Prize pool for ${pool.weekId} fixed at '
-          '${formatNaira(amount.toDouble())}.');
+          '${adminNaira(amount.toDouble())}.');
     } on AdminPayoutException catch (e) {
       if (mounted) _snack(e.message);
     } catch (_) {
@@ -576,7 +561,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
     final pool = widget.pool;
     if (pool != null && value > pool.maxPoolNaira.toDouble()) {
       _snackPool('That is above the '
-          '${formatNaira(pool.maxPoolNaira.toDouble())} limit.');
+          '${adminNaira(pool.maxPoolNaira.toDouble())} limit.');
       return;
     }
 
@@ -588,7 +573,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           borderRadius: BorderRadius.circular(16.r),
         ),
         title: Text(
-          'Fix the pool at ${formatNaira(value)}?',
+          'Fix the pool at ${adminNaira(value)}?',
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 16.sp,
@@ -783,7 +768,7 @@ class _PrizePoolCardState extends State<_PrizePoolCard> {
           ),
           SizedBox(height: 10.h),
           Text(
-            pool.isFixed ? formatNaira(pool.effectivePool) : 'No pool set',
+            pool.isFixed ? adminNaira(pool.effectivePool) : 'No pool set',
             style: TextStyle(
               color: pool.isFixed
                   ? AppColors.readable(AppColors.correct)
@@ -1019,7 +1004,7 @@ class _CycleSummaryCard extends StatelessWidget {
           ),
           SizedBox(height: 4.h),
           Text(
-            'Prize pool ${formatNaira(cycle.prizePool)}',
+            'Prize pool ${adminNaira(cycle.prizePool)}',
             style: TextStyle(
               color: AppColors.readable(AppColors.correct),
               fontSize: 20.sp,
@@ -1082,12 +1067,12 @@ class _StatGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = <(String, String)>[
-      ('Revenue', formatNaira(cycle.totalCodeRevenue)),
+      ('Revenue', adminNaira(cycle.totalCodeRevenue)),
       ('Winners', '${cycle.eligibleCount}'),
       ('Submitted', '${cycle.claimsSubmitted}'),
       ('Paid', '${cycle.paidCount}'),
       ('Awaiting', '${cycle.pendingCount}'),
-      ('To send', formatNaira(cycle.pendingAmount)),
+      ('To send', adminNaira(cycle.pendingAmount)),
     ];
     return Wrap(
       spacing: 8.r,
@@ -1273,7 +1258,7 @@ class _ClaimCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  formatNaira(claim.share),
+                  adminNaira(claim.share),
                   style: TextStyle(
                     color: AppColors.readable(AppColors.correct),
                     fontSize: 15.sp,
@@ -1289,6 +1274,7 @@ class _ClaimCard extends StatelessWidget {
               children: [
                 _StateChip(state: state),
                 _FraudChip(claim: claim),
+                _EnforcementChip(claim: claim),
               ],
             ),
             SizedBox(height: 10.h),
@@ -1337,6 +1323,25 @@ class _ClaimCard extends StatelessWidget {
                     text: reason,
                   ),
                 ),
+            ],
+            // ── Enforcement hold (silent auto-ban ladder — review before paying)
+            if (claim.hasEnforcementHold) ...[
+              SizedBox(height: 8.h),
+              _ClaimLine(
+                icon: Icons.gavel_rounded,
+                text:
+                    '${claim.enforcementLabel}${claim.enforcementLevel != null ? ' · ${claim.enforcementLevel}' : ''} — check enforcement before sending money.',
+                color: AppColors.readable(AppColors.wrong),
+              ),
+            ],
+            if (claim.payoutAccountShared) ...[
+              SizedBox(height: 4.h),
+              _ClaimLine(
+                icon: Icons.account_balance_wallet_outlined,
+                text:
+                    'Payout account reused${claim.payoutAccountUidCount != null ? ' across ${claim.payoutAccountUidCount} account(s)' : ''} — confirm the owner before sending.',
+                color: AppColors.readable(AppColors.wrong),
+              ),
             ],
             if (state == AdminQueueState.expired) ...[
               SizedBox(height: 4.h),
@@ -1472,6 +1477,56 @@ class _FraudChip extends StatelessWidget {
   }
 }
 
+/// Enforcement chip — display-only. Renders the silent auto-ban ladder
+/// state next to each winner. No hold shows a muted placeholder.
+/// Never gates marking paid server-side; the admin must check before sending.
+class _EnforcementChip extends StatelessWidget {
+  final AdminClaimInfo claim;
+  const _EnforcementChip({required this.claim});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = claim.enforcementLabel;
+    if (label == null) {
+      return Container(
+        padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
+        decoration: BoxDecoration(
+          color: AppColors.textMuted.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(8.r),
+          border:
+              Border.all(color: AppColors.textMuted.withValues(alpha: 0.30)),
+        ),
+        child: Text(
+          'HOLD: NONE',
+          style: TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 10.sp,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.5,
+          ),
+        ),
+      );
+    }
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 9.r, vertical: 4.r),
+      decoration: BoxDecoration(
+        color: AppColors.wrong.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8.r),
+        border: Border.all(color: AppColors.wrong.withValues(alpha: 0.30)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: AppColors.wrong,
+          fontSize: 10.sp,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Payment dialog ─────────────────────────────────────────────────────────
 
 class _PaymentDialog extends StatefulWidget {
@@ -1522,6 +1577,12 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     // Explicit confirmation. "Paid" is a claim about what a human did that
     // the app cannot verify, and it also permanently protects the prize from
     // the 3-day expiry — so it must never be a single tap.
+    final hold = widget.claim.hasEnforcementHold
+        ? 'ENFORCEMENT ${widget.claim.enforcementLabel}'
+            '${widget.claim.enforcementLevel != null ? ' (${widget.claim.enforcementLevel})' : ''}: check the ladder before sending — '
+        : widget.claim.payoutAccountShared
+            ? 'SHARED PAYOUT ACCOUNT${widget.claim.payoutAccountUidCount != null ? ' (${widget.claim.payoutAccountUidCount} accounts)' : ''}: confirm the owner before sending — '
+            : '';
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1538,8 +1599,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
           ),
         ),
         content: Text(
-          'Only continue if you have ALREADY transferred '
-          '${formatNaira(widget.claim.share)} to ${widget.claim.beneficiaryName} '
+          '${hold}Only continue if you have ALREADY transferred '
+          '${adminNaira(widget.claim.share)} to ${widget.claim.beneficiaryName} '
           'at ${widget.bankDisplay}.\n\n'
           'This app cannot send or verify the money — it only records that you '
           'did. Marking paid is blocked once the 3-day claim window closes.',
@@ -1557,7 +1618,10 @@ class _PaymentDialogState extends State<_PaymentDialog> {
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(
-              'Yes, I sent it',
+              widget.claim.hasEnforcementHold ||
+                      widget.claim.payoutAccountShared
+                  ? 'Still record as sent'
+                  : 'Yes, I sent it',
               style: TextStyle(color: AppColors.readable(AppColors.correct)),
             ),
           ),
@@ -1743,7 +1807,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             _ReviewRow(label: 'Rank', value: '#${claim.rank}'),
             _ReviewRow(
               label: 'Prize',
-              value: formatNaira(claim.share),
+              value: adminNaira(claim.share),
               highlight: true,
             ),
             _ReviewRow(label: 'Winner', value: claim.username),
@@ -1759,6 +1823,14 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             _ReviewRow(
               label: 'Claim',
               value: (claim.claimStatus ?? 'none').toUpperCase(),
+            ),
+            _ReviewRow(
+              label: 'Hold',
+              value: claim.enforcementLabel ??
+                  (claim.payoutAccountShared
+                      ? 'SHARED ACCOUNT${claim.payoutAccountUidCount != null ? ' ×${claim.payoutAccountUidCount}' : ''}'
+                      : 'NONE'),
+              highlight: claim.hasEnforcementHold || claim.payoutAccountShared,
             ),
             if (claim.markedAt != null)
               _ReviewRow(
@@ -1854,7 +1926,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             // amount at all.
             label: _busy
                 ? 'Recording…'
-                : 'Mark as paid ${formatNaira(claim.share)}',
+                : 'Mark as paid ${adminNaira(claim.share)}',
             variant: AppButtonVariant.primary,
             size: AppButtonSize.small,
             loading: _busy,

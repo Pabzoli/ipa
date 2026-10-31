@@ -28,12 +28,16 @@ class HouseSnapshot {
   final String weekId;
   final Map<String, dynamic> global;
   final List<HouseEntry> houses;
+  final List<HouseEntry> chasers;
   final List<HouseEntry> topReal;
+  final List<Map<String, dynamic>> social;
   const HouseSnapshot({
     required this.weekId,
     required this.global,
     required this.houses,
+    this.chasers = const [],
     required this.topReal,
+    this.social = const [],
   });
 
   factory HouseSnapshot.fromMap(Map<String, dynamic> map) {
@@ -44,11 +48,21 @@ class HouseSnapshot {
           .toList();
     }
 
+    List<Map<String, dynamic>> socialList(Object? v) {
+      if (v is! List) return const [];
+      return v
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+
     return HouseSnapshot(
       weekId: (map['weekId'] as String?) ?? '',
       global: Map<String, dynamic>.from((map['global'] as Map?) ?? const {}),
       houses: list(map['houses']),
+      chasers: list(map['chasers']),
       topReal: list(map['topReal']),
+      social: socialList(map['social']),
     );
   }
 }

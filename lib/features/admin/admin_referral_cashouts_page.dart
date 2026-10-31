@@ -9,6 +9,7 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_form_field.dart';
 import 'admin_payout_service.dart';
+import 'widgets/admin_shared.dart';
 
 /// Referral cashout queue — manual NGN 5,000 payouts.
 ///
@@ -126,7 +127,7 @@ class _AdminReferralCashoutsPageState extends State<AdminReferralCashoutsPage> {
     try {
       await AdminPayoutService.instance.fundReferralCashoutReserve(amount);
       if (!mounted) return;
-      _snack('${_naira(amount)} added to the cashout budget.');
+      _snack('${adminNaira(amount)} added to the cashout budget.');
       await _refresh();
     } on AdminPayoutException catch (e) {
       if (mounted) _snack(e.message);
@@ -227,7 +228,7 @@ class _AdminReferralCashoutsPageState extends State<AdminReferralCashoutsPage> {
               const Spacer(),
               Text(
                 '${snapshot.pending.length} pending · '
-                '${_naira(snapshot.pendingAmount)}',
+                '${adminNaira(snapshot.pendingAmount)}',
                 style: AppTypography.bodySmall,
               ),
             ],
@@ -326,19 +327,19 @@ class _ReserveCard extends StatelessWidget {
             children: [
               _MoneyTile(
                 label: 'Available',
-                value: _naira(reserve.available),
+                value: adminNaira(reserve.available),
                 color: reserve.available < 0
                     ? AppColors.readable(AppColors.wrong)
                     : AppColors.textPrimary,
               ),
               _MoneyTile(
                 label: 'Earmarked',
-                value: _naira(reserve.encumbered),
+                value: adminNaira(reserve.encumbered),
                 color: AppColors.readable(AppColors.amber),
               ),
               _MoneyTile(
                 label: 'Paid',
-                value: _naira(reserve.paidTotal),
+                value: adminNaira(reserve.paidTotal),
                 color: AppColors.readable(AppColors.correct),
               ),
             ],
@@ -364,7 +365,7 @@ class _ReserveCard extends StatelessWidget {
                   SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
-                      'Top up ${_naira(shortfall)} so every earmarked claim is '
+                      'Top up ${adminNaira(shortfall)} so every earmarked claim is '
                       'covered. This never draws from the prize pool.',
                       style: AppTypography.bodySmall,
                     ),
@@ -463,7 +464,7 @@ class _ClaimCard extends StatelessWidget {
                 ),
               ),
               Text(
-                _naira(claim.amount),
+                adminNaira(claim.amount),
                 style: AppTypography.titleMedium.copyWith(
                   fontWeight: FontWeight.w900,
                 ),
@@ -507,6 +508,30 @@ class _ClaimCard extends StatelessWidget {
                   ],
                 ),
               ),
+          ],
+          if (claim.payoutAccountShared) ...[
+            SizedBox(height: 8.h),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.account_balance_wallet_outlined,
+                  size: 12.r,
+                  color: AppColors.readable(AppColors.wrong),
+                ),
+                SizedBox(width: 4.w),
+                Expanded(
+                  child: Text(
+                    'Shared payout account'
+                    '${claim.payoutAccountUidCount != null ? ' · ${claim.payoutAccountUidCount} account(s)' : ''} — confirm the owner before paying.',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.readable(AppColors.wrong),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         ],
       ),
@@ -637,7 +662,7 @@ class _ReviewDialogState extends State<_ReviewDialog> {
     final claim = widget.claim;
 
     return AppDialog(
-      title: '${claim.username ?? claim.uid} · ${_naira(claim.amount)}',
+      title: '${claim.username ?? claim.uid} · ${adminNaira(claim.amount)}',
       contentWidget: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -646,7 +671,7 @@ class _ReviewDialogState extends State<_ReviewDialog> {
           _Row('Account number', claim.accountNumber ?? '—'),
           _Row('Bank code', claim.bankCode ?? '—'),
           _Row('Beneficiary', claim.beneficiaryName ?? '—'),
-          _Row('Submitted', _date(claim.submittedAt)),
+          _Row('Submitted', adminTime(claim.submittedAt)),
           if (claim.payoutReference != null)
             _Row('Reference', claim.payoutReference!),
           if (claim.rejectionReason != null)
@@ -663,6 +688,22 @@ class _ReviewDialogState extends State<_ReviewDialog> {
             for (final f in claim.riskFlags)
               Text('• $f', style: AppTypography.bodySmall),
           ],
+          if (claim.payoutAccountShared) ...[
+            SizedBox(height: AppSpacing.sm),
+            Text(
+              'Shared payout account'
+              '${claim.payoutAccountUidCount != null ? ' · ${claim.payoutAccountUidCount} account(s)' : ''}',
+              style: AppTypography.labelMedium.copyWith(
+                color: AppColors.readable(AppColors.wrong),
+              ),
+            ),
+            SizedBox(height: 4.h),
+            Text(
+              'This bank account is used by more than one account. '
+              'Confirm the owner before sending money.',
+              style: AppTypography.bodySmall,
+            ),
+          ],
           if (claim.isPending) ...[
             SizedBox(height: AppSpacing.md),
             AppFormField(
@@ -674,7 +715,7 @@ class _ReviewDialogState extends State<_ReviewDialog> {
             ),
             SizedBox(height: AppSpacing.sm),
             AppButton(
-              label: 'Mark as paid ${_naira(claim.amount)}',
+              label: 'Mark as paid ${adminNaira(claim.amount)}',
               loading: _busy,
               onPressed: _busy ? null : () => _apply('paid'),
             ),
@@ -797,10 +838,10 @@ class _TopUpDialogState extends State<_TopUpDialog> {
       contentWidget: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Row('Available', _naira(widget.reserve.available)),
-          _Row('Earmarked', _naira(widget.reserve.encumbered)),
+          _Row('Available', adminNaira(widget.reserve.available)),
+          _Row('Earmarked', adminNaira(widget.reserve.encumbered)),
           if (widget.reserve.shortfall > 0)
-            _Row('Shortfall', _naira(widget.reserve.shortfall)),
+            _Row('Shortfall', adminNaira(widget.reserve.shortfall)),
           SizedBox(height: AppSpacing.md),
           AppFormField(
             controller: _amountCtrl,
@@ -879,27 +920,4 @@ class _CenteredMessage extends StatelessWidget {
       ),
     );
   }
-}
-
-String _naira(num amount) {
-  final fixed = amount.toStringAsFixed(2);
-  final parts = fixed.split('.');
-  final digits = parts[0].split('').reversed.toList();
-  final buf = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && i % 3 == 0) buf.write(',');
-    buf.write(digits[i]);
-  }
-  final intPart = buf.toString().split('').reversed.join();
-  final frac = parts[1] == '00' ? '' : '.${parts[1]}';
-  return '₦$intPart$frac';
-}
-
-String _date(DateTime? t) {
-  if (t == null) return '—';
-  final l = t.toLocal();
-  final d = l.day.toString().padLeft(2, '0');
-  final m = l.month.toString().padLeft(2, '0');
-  return '$d/$m/${l.year} ${l.hour.toString().padLeft(2, '0')}:'
-      '${l.minute.toString().padLeft(2, '0')}';
 }

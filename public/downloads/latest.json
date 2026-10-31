@@ -1,15 +1,14 @@
 {
   "version": "1.2.2",
-  "build": 9,
-  "file": "animequiz-9.apk",
-  "size": 68169247,
-  "released": "2026-10-30",
+  "build": 10,
+  "file": "animequiz-10.apk",
+  "size": 0,
+  "released": "2026-10-31",
   "minAndroid": "Android 7.0 (Nougat) or newer",
   "notes": [
-    "Appearance control: System, Light or Dark.",
-    "Email verification unlocks multiplayer, challenges, the leaderboard and payouts. Phone verification retired.",
-    "Weekly pool is now a fixed amount set in advance; unset weeks show as not set.",
-    "Quitting a live duel now costs a 100 AC walkaway fee and forfeits the match.",
-    "Referral rewards need a verified email and the 3-quiz / 2-day rule; money calls need a 7-day-old account."
+    "Fixed a duel freeze that could strand a run after the first question; slow networks now time out cleanly instead of hanging.",
+    "Leaderboard rivals play more like humans: steadier presence through the week with a catchable top 3.",
+    "Stronger payout-account checks behind referral cashouts and the weekly prize queue.",
+    "Admin console now flags enforcement holds and shared bank accounts before money moves."
   ]
 }

@@ -16,7 +16,7 @@ const RULES = fs.readFileSync(
 const ALICE = 'uid_alice';
 const BOB = 'uid_bob';
 const CAROL = 'uid_carol';
-const ADMIN = 'owMNkXmb6QSzO0xfHkSgMlx0zSJ3';
+const ADMIN = 'pu4QTjHTijer7DLlqLU3w0npUUL2';
 
 // ── Seeded fixtures ────────────────────────────────────────────────────────
 const WEEK = '2026-10-05';

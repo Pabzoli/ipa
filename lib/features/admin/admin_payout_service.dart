@@ -88,6 +88,15 @@ class AdminClaimInfo {
   final List<String> fraudReasons;
   final DateTime? fraudScoredAt;
 
+  /// Silent enforcement state (auto-ban ladder), read-only.
+  /// Review before paying — display only, the server does not block on it.
+  final String? enforcementLevel;
+  final bool payoutHold;
+  final bool suspended;
+  final bool leaderboardExcluded;
+  final bool payoutAccountShared;
+  final int? payoutAccountUidCount;
+
   const AdminClaimInfo({
     required this.uid,
     required this.rank,
@@ -106,6 +115,12 @@ class AdminClaimInfo {
     required this.fraudBand,
     required this.fraudReasons,
     required this.fraudScoredAt,
+    required this.enforcementLevel,
+    required this.payoutHold,
+    required this.suspended,
+    required this.leaderboardExcluded,
+    required this.payoutAccountShared,
+    required this.payoutAccountUidCount,
   });
 
   factory AdminClaimInfo.fromMap(Map<String, dynamic> map) {
@@ -138,6 +153,14 @@ class AdminClaimInfo {
           .map((e) => e.toString())
           .toList(),
       fraudScoredAt: parseTs(map['fraudScoredAt']),
+      enforcementLevel: map['enforcementLevel'] as String?,
+      payoutHold: map['payoutHold'] == true,
+      suspended: map['suspended'] == true,
+      leaderboardExcluded: map['leaderboardExcluded'] == true,
+      payoutAccountShared: map['payoutAccountShared'] == true,
+      payoutAccountUidCount: map['payoutAccountUidCount'] != null
+          ? ((map['payoutAccountUidCount'] as num?)?.toInt())
+          : null,
     );
   }
 
@@ -155,6 +178,18 @@ class AdminClaimInfo {
   /// True when the admin has a complete destination to transfer to.
   bool get hasBankDetails =>
       (accountNumber ?? '').isNotEmpty && (beneficiaryName ?? '').isNotEmpty;
+
+  /// Enforcement hold from the silent auto-ban ladder. Display-only —
+  /// the server does not block on it, so the admin must check before paying.
+  bool get hasEnforcementHold => payoutHold || suspended || leaderboardExcluded;
+
+  /// Short enforcement label for chips. Null when no hold is active.
+  String? get enforcementLabel {
+    if (payoutHold) return 'PAYOUT HOLD';
+    if (suspended) return 'SUSPENDED';
+    if (leaderboardExcluded) return 'EXCLUDED';
+    return null;
+  }
 
   /// Derived display state. Paid ONLY when the backend says paid == true.
   ///
@@ -734,6 +769,9 @@ class AdminReferralCashoutClaim {
   final String? bankCode;
   final String? bankName;
   final String? beneficiaryName;
+  final String? accountHash;
+  final bool payoutAccountShared;
+  final int? payoutAccountUidCount;
   final List<String> riskFlags;
   final DateTime? submittedAt;
   final DateTime? paidAt;
@@ -756,6 +794,9 @@ class AdminReferralCashoutClaim {
     required this.bankCode,
     required this.bankName,
     required this.beneficiaryName,
+    required this.accountHash,
+    required this.payoutAccountShared,
+    required this.payoutAccountUidCount,
     required this.riskFlags,
     required this.submittedAt,
     required this.paidAt,
@@ -781,6 +822,11 @@ class AdminReferralCashoutClaim {
       bankCode: map['bankCode'] as String?,
       bankName: map['bankName'] as String?,
       beneficiaryName: map['beneficiaryName'] as String?,
+      accountHash: map['accountHash'] as String?,
+      payoutAccountShared: map['payoutAccountShared'] == true,
+      payoutAccountUidCount: map['payoutAccountUidCount'] != null
+          ? ((map['payoutAccountUidCount'] as num?)?.toInt())
+          : null,
       riskFlags: ((map['riskFlags'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList(),

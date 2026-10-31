@@ -12229,7 +12229,7 @@ exports.verifyPremiumPurchase = onSecureCall(
 
 // Admin-only gate. FILL IN the real UID before deploying �?the placeholder is
 // intentionally left so it can't be missed.
-const ADMIN_UIDS = ['owMNkXmb6QSzO0xfHkSgMlx0zSJ3'];
+const ADMIN_UIDS = ['pu4QTjHTijer7DLlqLU3w0npUUL2'];
 
 // O(1) membership + one named predicate so every admin exclusion reads the
 // same way. Admin accounts are GHOSTS: never ranked, never paid, never
@@ -13815,18 +13815,27 @@ exports.exportPayoutLog = onSecureCall(
       const cycle   = cycleDoc.data() || {};
       const ranked  = Array.isArray(cycle.ranked) ? cycle.ranked : [];
 
+      // One claim doc per winner (absent = never submitted), one batch per
+      // cycle instead of one read per winner.
+      let claimByUid = {};
+      try {
+        const refs = ranked
+          .filter((w) => w && w.uid)
+          .map((w) => cycleDoc.ref.collection('pendingClaim').doc(w.uid));
+        if (refs.length > 0) {
+          const snaps = await db.getAll(...refs);
+          for (const s of snaps) {
+            if (s.exists) claimByUid[s.id] = s.data() || {};
+          }
+        }
+      } catch (err) {
+        console.warn(`[exportPayoutLog] claim batch read failed for ${weekId} (skipped): ${err.message}`);
+        continue;
+      }
+
       for (const winner of ranked) {
         if (!winner || !winner.uid) continue;
-
-        // One claim doc per winner. Absent doc = never submitted.
-        let claim = null;
-        try {
-          const snap = await cycleDoc.ref.collection('pendingClaim').doc(winner.uid).get();
-          if (snap.exists) claim = snap.data() || null;
-        } catch (err) {
-          console.warn(`[exportPayoutLog] claim read failed for ${weekId}/${winner.uid} (skipped): ${err.message}`);
-          continue;
-        }
+        const claim = claimByUid[winner.uid] || null;
 
         const paid = winner.paid === true;
         // Bookkeeping fields only �?never account numbers or beneficiary names.
@@ -13948,19 +13957,31 @@ exports.listPayoutClaims = onSecureCall(
         console.warn(`[listPayoutClaims] enforcement read failed for ${id} (ignored): ${err.message}`);
       }
 
+      // ── Claim docs (read-only, one batch per cycle) ─────────────────────
+      // pendingClaim/{uid} holds the bank destination; batched with getAll
+      // so a cycle with N winners costs 1 round-trip, not N.
+      let claimByUid = {};
+      try {
+        const claimRefs = ranked
+          .filter((r) => r && r.uid)
+          .map((r) => cycleDoc.ref.collection('pendingClaim').doc(r.uid));
+        if (claimRefs.length > 0) {
+          const claimSnaps = await db.getAll(...claimRefs);
+          for (const s of claimSnaps) {
+            if (s.exists) claimByUid[s.id] = s.data() || {};
+          }
+        }
+      } catch (err) {
+        console.warn(`[listPayoutClaims] claim read failed for ${id} (ignored): ${err.message}`);
+      }
+
       for (const r of ranked) {
         if (!r || !r.uid) continue;
         const uid = r.uid;
         const paid = r.paid === true;
         if (paid) paidCount++;
 
-        let claim = null;
-        try {
-          const claimSnap = await cycleDoc.ref.collection('pendingClaim').doc(uid).get();
-          if (claimSnap.exists) claim = claimSnap.data() || null;
-        } catch (err) {
-          console.warn(`[listPayoutClaims] claim read failed for ${id}/${uid} (ignored): ${err.message}`);
-        }
+        const claim = claimByUid[uid] || null;
 
         const claimStatus = claim ? (claim.status || null) : null;
         if (claimStatus === 'pending') claimsSubmitted++;
@@ -16105,28 +16126,185 @@ exports.cleanupAbuseState = onSchedule(
 // never leaderboardExcluded. All WP flows through _applyDailyWPSoftCap so
 // wpEarnedToday/wpTransactions/soft-cap math matches real submits.
 const HOUSE_DEFAULTS = {
-  enabled: true, neverLose: true, maxDailyRaw: 350, reserve: 180,
-  gap1: 95, gap2: 75, gap3: 70, paused: [],
+  enabled: true, neverLose: false, maxDailyRaw: 4000, reserve: 1200,
+  gap1: 110, gap2: 85, gap3: 95, gapMin: 60, gapMax: 280, paused: [],
   mode: 'steady',
+  // Unscripted-but-catchable podium: daily role shuffle + self-grind floor.
+  // Targets stay loosely coupled to real #4 (wide band so leads vary) yet
+  // progress on their own weekly goals even when reals are idle.
+  // House still wins: gapMin floor + Sunday snipe backup hold 1-2-3 most weeks.
+  shuffleEnabled: true,
+  chaserEnabled: true,
+  upsetEnabled: true,
+  offWindowTickRate: 2,
+  curveJitter: 15,
+  weeklyGoalMin: 1600, weeklyGoalMax: 2600,
+  // Chaser pack (mid-board liveliness, never threatens the paid top-3).
+  // Independent goals so they drift on their own curve, not glued to rMid.
+  chaserDailyMax: 550, chaserGap: 120, chaserMax: 1000,
+  chaserGoalMin: 300, chaserGoalMax: 1500,
+  // ── Social humanizer (friends / duels / spars) ──────────────────────
+  // All server-side, best-effort. Bots behave like premium humans: same
+  // caps, same cooldowns, delayed responses, winRate duel wins (default
+  // 60%), occasional high-stake risk takes, 6-min minimum between scored
+  // plays (solo floor), occasional 5k permanent anime unlocks.
+  socialEnabled: true,
+  outgoingEnabled: true,
+  unlockAnimeEnabled: true,
+  friendAcceptRate: 75,
+  sparAcceptRate: 75,
+  duelAcceptRate: 65,
+  highStakeAcceptRate: 35,
+  winRate: 60,
+  minRespondHours: 2,
+  maxRespondHours: 12,
+  maxSocialActionsPerDay: 20,
+  minPlayIntervalMins: 6,
 };
 const HOUSE_WAT_WINDOWS = [[8, 10], [13, 15], [19, 22]];
-const HOUSE_NAME_POOL = [
-  'QuizKing_NG', 'NaijaBrain', 'LagosLegend', 'ChidiPlays', 'AdaezeWins',
-  'TundeTakesAll', 'NgoziKnows', 'EmekaExact', 'FunmiFast', 'SeunSharp',
-  'KemiKorrect', 'IbrahimIQ', 'AishaAce', 'OluchiOracle', 'DapoD Drill',
-  'ZainabZap', 'ChuksChamp', 'BisiBrainbox', 'YemiYonder', 'NadiaNails',
-  'SeyiSmart', 'TobiTriumph', 'HalimaHot', 'ObiOracle', 'LolaLogic',
-  'FemiFire', 'GraceGenius', 'HausaHustle', 'IgboIntel', 'YorubaYoda',
-  'WATWarrior', 'MidnightMaven', 'SoloSniper', 'BlitzBoss', 'DuelDuke',
-  'SparSage', 'AnimeAceNG', 'OtakuOdogwu', 'SenpaiSeyi', 'KawaiiKemi',
-  'ShonenShark', 'GeninGuru', 'HokageHabi', 'TitanTunde', 'PiratePraise',
+// Hard overnight blackout: 00-07 WAT never scores (humans sleep).
+// Session model: each bot plays 2-3 burst windows/day, idle otherwise.
+// Day-off model: each bot sits out ~1 day/week (hash-driven, not all Monday).
+function _houseWatParts(now = new Date()) {
+  const wat = new Date(now.getTime() + 60 * 60 * 1000);
+  return {
+    hour: wat.getUTCHours() + wat.getUTCMinutes() / 60,
+    dayIdx: (wat.getUTCDay() + 6) % 7,
+  };
+}
+function _houseIsDayOff(hid, weekId, dayIdx) {
+  return (_houseHash(`${weekId}:${hid}:dayoff`) % 7) === dayIdx;
+}
+function _houseInSession(hid, todayWAT, watHour) {
+  const h = _houseHash(`${todayWAT}:${hid}:sess`);
+  const s1 = 8 + (h % 3);
+  const s2 = 13 + ((h >> 3) % 3);
+  const s3 = 19 + ((h >> 6) % 4);
+  return (watHour >= s1 && watHour < s1 + 1.2) ||
+    (watHour >= s2 && watHour < s2 + 1.2) ||
+    (watHour >= s3 && watHour < s3 + 1.2);
+}
+const HOUSE_NAME_POOL_BASE = [
+  // Short tags.
+  'Velo', 'Krypt', 'Sync', 'Aero', 'Xenon', 'Raze', 'Lethal', 'Apex', 'Void',
+  'Blitz', 'Nova', 'Zephyr', 'Onyx', 'Pixel', 'Turbo', 'Vex', 'Jolt', 'Fable',
+  'Drift', 'Havoc', 'Ozone', 'Flux', 'Nyx', 'Rogue', 'Sable', 'Talon',
+  // Esports / team prefixes.
+  'Nx_Clutch', 'Fz_Echo', 'Vn_Chrono', 'Op_Slayer', 'Rv_Ghost', 'Tx_Reaper',
+  'Alpha_1', 'Sc_Scope', 'Qz_Fury', 'Zx_Vandal', 'Ky_Strike', 'Wx_Havoc',
+  'Dx_Onyx', 'Jx_Mirage', 'Px_Nova', 'Vx_Pulse',
+  // Dark fantasy / tactical.
+  'Phantom', 'Specter', 'Viper', 'ShadowOps', 'DoomBringer', 'Grim',
+  'Nightmare', 'Shinigami', 'Wraith', 'Revenant', 'Oblivion', 'Dread',
+  'Hex', 'Noctis', 'Umbra', 'Vandal',
+  // Anime / minimalist.
+  'Kenji', 'Akira', 'Zenith', 'Ryu', 'Kage', 'Sora', 'Yami', 'Ronin',
+  'Gojo', 'Itachi', 'Eren', 'Mikasa', 'Tanjiro', 'Killua', 'Madara',
+  'Zoro', 'Levi', 'Nezuko', 'Sasuke', 'Obito',
+  // Naija campus gamer tags (single token, no First+Last tell).
+  'LagosKing', 'NaijaStar', 'UnilagBoy', 'IbadanFinest', 'AbujaPlug',
+  'PHCityBoy', 'BeninVibes', 'JosChill', 'KanoAce', 'EnuguFlame',
+  'OwerriHeat', 'AkureWolf', 'IlorinAce', 'CalabarRay', 'SokotoStorm',
+  // More grind variety.
+  'QuietStorm', 'Lowkey', 'NoCap', 'Steady', 'ClutchGod', 'OTG',
+  'DayOne', 'LastPick', 'FirstBlood', 'GGOnly', 'TryHard', 'CasualX',
+  'NightOwl', 'EarlyBird', 'LunchBreak', 'NightShift', 'WeekendWar',
+  'FormGuy', 'VibesOnly', 'OnGod', 'Sheesh', 'BabaGod', 'Alhaji',
+  'MamaPut', 'SuyaSpice', 'JollofKing', 'DanfoDrift', 'OkadaRun',
+  'TrophyHunt', 'PointChase', 'RankUp', 'EloHell', 'Smurf', 'MainChar',
+  'SideQuest', 'BossFight', 'Speedrun', 'NoScope', 'Headshot', 'FragOut',
 ];
+// Bump to force a one-time immediate rename of all house bots on next
+// rotate tick (see _houseRotateCore). Effective immediately, no Monday wait.
+const HOUSE_NAME_POOL_VERSION = 3;
+// Gamer-tag pool: used as-is, no First+Last recombination. Old Nigerian
+// First/Last combo generator removed — it was a top visual tell (every bot
+// looked like 'First Last' while reals use tags).
+const HOUSE_NAME_POOL = (() => {
+  const out = [];
+  const seen = new Set();
+  for (const n of HOUSE_NAME_POOL_BASE) {
+    const k = String(n).toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(n);
+  }
+  return out;
+})();
+const HOUSE_PERSONA_DEFAULTS = [
+  { dailyMaxFactor: 1.0, skip: 28, curveBoost: 0.03 },
+  { dailyMaxFactor: 0.92, skip: 35, curveBoost: 0.0 },
+  { dailyMaxFactor: 1.08, skip: 42, curveBoost: -0.03 },
+  // Chasers: small daily budgets, high skip so mid-board moves at human pace.
+  { dailyMaxFactor: 0.22, skip: 55, curveBoost: 0.01 },
+  { dailyMaxFactor: 0.20, skip: 60, curveBoost: 0.0 },
+  { dailyMaxFactor: 0.24, skip: 52, curveBoost: -0.01 },
+  { dailyMaxFactor: 0.18, skip: 62, curveBoost: 0.02 },
+  { dailyMaxFactor: 0.21, skip: 58, curveBoost: -0.02 },
+];
+// Deterministic 32-bit hash (FNV-1a) for daily shuffles/forms: same input
+// every tick within a day, different across days/bots. No Math.random drift,
+// so the board looks alive but stays reproducible in tests.
+function _houseHash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < String(str).length; i++) {
+    h ^= String(str).charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+// Daily podium role order: Fisher-Yates with seeded RNG so H1/H2/H3 swap
+// 1-2x/week instead of a fixed ladder. Seed = weekId+watDay.
+function _houseShuffleOrder(seedStr, ids) {
+  const arr = [...ids];
+  let s = _houseHash(seedStr) || 1;
+  const rnd = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+// Per-bot daily form 0.85-1.15: hot/cold streaks so the same bot doesn't
+// lead every day even after the shuffle.
+function _houseFormFor(hid, dayKey, idx) {
+  const h = _houseHash(`${dayKey}:${hid}:${idx}`);
+  return 0.85 + (h % 31) / 100;
+}
+// Stable weekly goal per bot (self-grind floor): bots progress on their own
+// even when reals idle. Derived from uid+week so it rotates weekly.
+function _houseWeeklyGoal(hid, weekId, glob) {
+  const saved = (glob.personas || {})[hid]?.weeklyGoal;
+  if (Number.isFinite(Number(saved)) && Number(saved) >= 1200 && Number(saved) <= 3000) {
+    return Math.round(Number(saved));
+  }
+  const lo = _houseSocialNum(glob, 'weeklyGoalMin', 1900, 1200, 3000);
+  const hi = Math.max(lo, _houseSocialNum(glob, 'weeklyGoalMax', 2300, 1200, 3000));
+  const span = Math.max(1, hi - lo);
+  return lo + (_houseHash(`${weekId}:${hid}`) % (span + 1));
+}
+function _housePersona(hid, idx, glob) {
+  const saved = (glob.personas || {})[hid] || {};
+  const base = HOUSE_PERSONA_DEFAULTS[idx % HOUSE_PERSONA_DEFAULTS.length] || HOUSE_PERSONA_DEFAULTS[0];
+  return {
+    dailyMaxFactor: Number(saved.dailyMaxFactor) || base.dailyMaxFactor,
+    skip: Number.isFinite(Number(saved.skip)) ? Number(saved.skip) : base.skip,
+    curveBoost: Number.isFinite(Number(saved.curveBoost)) ? Number(saved.curveBoost) : base.curveBoost,
+    gapBonus: Number(saved.gapBonus) || 0,
+  };
+}
 async function _houseGlobal() {
   const snap = await db.collection('house_config').doc('global').get();
   const d = snap.exists ? snap.data() : {};
   return {
     ...HOUSE_DEFAULTS, ...(d || {}),
     accounts: Array.isArray(d?.accounts) ? d.accounts.slice(0, 3) : [],
+    chasers: Array.isArray(d?.chasers) ? d.chasers.map(String).slice(0, 5) : [],
+    accountPool: Array.isArray(d?.accountPool) ? d.accountPool.map(String).slice(0, 15) : [],
+    chaserPool: Array.isArray(d?.chaserPool) ? d.chaserPool.map(String).slice(0, 15) : [],
     personas: d?.personas || {},
   };
 }
@@ -16138,15 +16316,59 @@ function _inHouseWindow(now = new Date()) {
   return HOUSE_WAT_WINDOWS.some(([a, b]) => h >= a && h <= b + 0.5);
 }
 function _houseJitter(n) { return randomInt(n + 1); }
-async function _houseAward(uid, wpRaw, acDelta, source) {
+// Visible-timestamp desync (fix 1): ledger/match timestamps are backdated
+// within the 15-min tick window so awards don't cluster on :00/:15/:30/:45.
+// Slot base is deterministic per bot+day+tick (hash), seconds add uniform
+// jitter for human minutes (:07, :23, ...).
+function _houseVisibleAtMs(hid, todayWAT, nowMs) {
+  const base = Number(nowMs) || Date.now();
+  const slot = _houseHash(`${todayWAT}:${hid}:${Math.floor(base / 900000)}:vis`) % (14 * 60 * 1000);
+  return base - slot - _houseJitter(59 * 1000);
+}
+function _houseVisibleTimestamp(hid, todayWAT, nowMs) {
+  try { return Timestamp.fromMillis(_houseVisibleAtMs(hid, todayWAT, nowMs)); }
+  catch (_) { return FieldValue.serverTimestamp(); }
+}
+// Active-set rotation (fix 3): when glob.accountPool / chaserPool are
+// configured, pick the week's 3 podium + up-to-5 chasers via a stable
+// week-hash shuffle. Falls back to accounts/chasers when pools are absent,
+// so existing deploys behave identically until pools are populated.
+function _houseActiveSet(glob, weekId) {
+  const pick = (pool, fallback, n, tag) => {
+    const src = Array.isArray(pool) && pool.length >= n
+      ? pool.map(String)
+      : (Array.isArray(fallback) ? fallback.map(String) : []);
+    if (!src.length) return [];
+    if (!Array.isArray(pool) || pool.length < n) return src.slice(0, n);
+    return _houseShuffleOrder(`${weekId}:${tag}`, src).slice(0, n);
+  };
+  return {
+    accounts: pick(glob.accountPool, glob.accounts, 3, 'pool'),
+    chasers: pick(glob.chaserPool, glob.chasers, 5, 'chaserpool'),
+  };
+}
+async function _houseAward(uid, wpRaw, acDelta, source, opts = {}) {
   const ref = db.collection('users').doc(uid);
+  let awarded = 0;
+  const nowMsOpt = Number(opts.nowMs) || 0;
+  const todayWATOpt = typeof opts.todayWAT === 'string' && opts.todayWAT ? opts.todayWAT : null;
+  // Ledger stealth (fix 5): store the same source strings real runs use so a
+  // wp/coin ledger read is indistinguishable. Internal pacing kind stays in
+  // logs only, never in the user-visible doc.
+  const ledgerSource = (typeof source === 'string' && source.startsWith('house_')) ? 'quiz_run' : source;
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return;
     const d = snap.data() || {};
-    const todayWAT = _watDateString(new Date());
+    const todayWAT = todayWATOpt || _watDateString(nowMsOpt ? new Date(nowMsOpt) : new Date());
     const earnedToday = _resolveDailyWPEarned(d, todayWAT);
     const { award, newEarnedToday } = _applyDailyWPSoftCap(wpRaw, earnedToday);
+    awarded = award;
+    // Human-like record: per-bot win bias 55-75% on scoring sessions, rest losses.
+    // Previously every award>=40 counted as a win (100% win rate in stats).
+    const _winBias = 55 + (_houseHash(`${uid}:winbias`) % 21);
+    const countsAsWin = award >= 40 ? _houseJitter(99) < _winBias : _houseJitter(99) < 30;
+    const visTs = nowMsOpt ? _houseVisibleTimestamp(uid, todayWAT, nowMsOpt) : FieldValue.serverTimestamp();
     tx.set(ref, {
       weeklyPoints: (Number(d.weeklyPoints) || 0) + award,
       totalScore: (Number(d.totalScore) || 0) + award,
@@ -16156,21 +16378,79 @@ async function _houseAward(uid, wpRaw, acDelta, source) {
       stats: {
         ...(d.stats || {}),
         gamesPlayed: (Number(d.stats?.gamesPlayed) || 0) + 1,
-        gamesWon: (Number(d.stats?.gamesWon) || 0) + (award >= 40 ? 1 : 0),
+        gamesWon: (Number(d.stats?.gamesWon) || 0) + (countsAsWin ? 1 : 0),
+        gamesLost: (Number(d.stats?.gamesLost) || 0) + (countsAsWin ? 0 : 1),
       },
     }, { merge: true });
     const wtx = db.collection('users').doc(uid).collection('wpTransactions').doc();
-    tx.set(wtx, { amount: award, raw: wpRaw, source, at: FieldValue.serverTimestamp(), watDay: todayWAT });
+    tx.set(wtx, { amount: award, raw: wpRaw, source: ledgerSource, at: visTs, watDay: todayWAT });
     if (acDelta) {
       const ctx = db.collection('users').doc(uid).collection('coinTransactions').doc();
-      tx.set(ctx, { delta: acDelta, source, at: FieldValue.serverTimestamp() });
+      tx.set(ctx, { delta: acDelta, source: ledgerSource, at: visTs });
     }
   });
+  // History cover (best-effort, outside the tx): bots previously had empty
+  // matches history despite top-3 WP. Write a lightweight solo-style log so
+  // profiles show plausible volume with mixed outcomes. Shaped like a real
+  // Quick Match doc (no opponentUid field, real animeTitle, varied ghost
+  // names) so it does not read as one repeated 'Recorded Opponent/ghost'.
+  // Fix 4: human score histogram (tilts + dominants), anime from the bot's
+  // own unlocks when available, backdated timestamp (fix 1) so entries don't
+  // cluster on tick boundaries. Mix QM + solo shapes so history isn't 100%
+  // quickmatch.
+  try {
+    if (awarded > 0) {
+      const winBias = 55 + (_houseHash(`${uid}:winbias`) % 21);
+      const wonRoll = _houseJitter(99);
+      const won = awarded >= 60 ? wonRoll < winBias : wonRoll < Math.max(25, winBias - 25);
+      const drawRoll = _houseJitter(99);
+      const isDraw = !won && drawRoll < 6;
+      const tiltRoll = _houseJitter(99);
+      let playerScore; let oppScore;
+      if (isDraw) {
+        playerScore = 6 + _houseJitter(3);
+        oppScore = playerScore;
+      } else if (won && tiltRoll < 8) {
+        // Dominant win: 10 vs 5-7.
+        playerScore = 10;
+        oppScore = 5 + _houseJitter(3);
+      } else if (!won && tiltRoll < 10) {
+        // Tilt loss: 0-3 vs 6-9.
+        playerScore = _houseJitter(4);
+        oppScore = Math.min(10, playerScore + 5 + _houseJitter(3));
+      } else if (won) {
+        playerScore = 5 + _houseJitter(6);
+        oppScore = Math.max(0, playerScore - 1 - _houseJitter(3));
+      } else {
+        playerScore = _houseJitter(8);
+        oppScore = Math.min(10, playerScore + _houseJitter(3));
+      }
+      const oppPick = HOUSE_NAME_POOL_BASE[_houseJitter(HOUSE_NAME_POOL_BASE.length - 1)] || 'Rival';
+      let animePick = ANIME_CATALOG_FALLBACK[_houseJitter(ANIME_CATALOG_FALLBACK.length - 1)] || 'naruto';
+      try {
+        const uSnap = await db.collection('users').doc(uid).get();
+        const unlocked = uSnap?.exists ? (uSnap.data()?.unlockedAnimes || []) : [];
+        if (Array.isArray(unlocked) && unlocked.length) animePick = unlocked[_houseJitter(unlocked.length - 1)] || animePick;
+      } catch (_) { /* keep catalog pick */ }
+      const todayForTs = todayWATOpt || _watDateString(nowMsOpt ? new Date(nowMsOpt) : new Date());
+      const ts = nowMsOpt ? _houseVisibleTimestamp(uid, todayForTs, nowMsOpt) : FieldValue.serverTimestamp();
+      const soloShape = _houseJitter(99) < 30;
+      await db.collection('users').doc(uid).collection('matches').doc().set({
+        opponent: oppPick,
+        playerScore, opponentScore: oppScore,
+        betScore: 0, stakeAmount: 0, wpStake: 0,
+        outcome: isDraw ? 'draw' : (won ? 'win' : 'lose'),
+        pointsChange: 0, wpChange: awarded, wpAwarded: awarded,
+        animeTitle: animePick, isQuickMatch: !soloShape,
+        timestamp: ts,
+      });
+    }
+  } catch (_) { /* best-effort */ }
 }
 async function _houseBoard(weekId) {
   const snap = await db.collection('users')
     .where('leaderboardEntryWeekId', '==', weekId)
-    .orderBy('weeklyPoints', 'desc').limit(30).get();
+    .orderBy('weeklyPoints', 'desc').limit(50).get();
   return snap.docs.map((d) => ({ uid: d.id, ...(d.data() || {}) }));
 }
 exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => {
@@ -16181,25 +16461,139 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
   if (op === 'get') {
     const weekId = currentWeekId();
     const board = await _houseBoard(weekId);
+    const allHouse = [...glob.accounts, ...(glob.chasers || []), ...((glob.accountPool || [])), ...((glob.chaserPool || []))];
     const houses = board.filter((r) => glob.accounts.includes(r.uid));
-    const reals = board.filter((r) => !glob.accounts.includes(r.uid) && !isAdminAccountUid(r.uid));
-    return { success: true, global: { ...glob }, weekId, houses, topReal: reals.slice(0, 5) };
+    const chasers = board.filter((r) => (glob.chasers || []).includes(r.uid));
+    const reals = board.filter((r) => !allHouse.includes(r.uid) && !isAdminAccountUid(r.uid));
+    let social = [];
+    try {
+      social = await Promise.all(allHouse.map(async (hid) => {
+        const [incoming, outgoing, friends, waiting, st, me] = await Promise.all([
+          db.collection('users').doc(hid).collection('friendLinks').where('status', '==', 'incoming').limit(20).get().catch(() => null),
+          db.collection('users').doc(hid).collection('friendLinks').where('status', '==', 'outgoing').limit(20).get().catch(() => null),
+          db.collection('users').doc(hid).collection('friendLinks').where('status', '==', 'friend').limit(5).get().catch(() => null),
+          db.collection('challenges').where('opponentUid', '==', hid).where('status', 'in', ['waiting', 'creator_submitted']).limit(20).get().catch(() => null),
+          db.collection('house_state').doc(hid).get().catch(() => null),
+          db.collection('users').doc(hid).get().catch(() => null),
+        ]);
+        return {
+          uid: hid,
+          incomingFriends: incoming ? incoming.size : 0,
+          outgoingFriends: outgoing ? outgoing.size : 0,
+          friendCount: me?.exists ? Number(me.data()?.friendCount || 0) : 0,
+          friendSample: friends ? friends.size : 0,
+          waitingDuels: waiting ? waiting.size : 0,
+          socialActionsToday: st?.exists ? Number(st.data()?.socialActionsToday || 0) : 0,
+          lastPlayAt: st?.exists ? (st.data()?.lastPlayAt?.toMillis?.() || 0) : 0,
+          pendingPlays: st?.exists ? Object.keys(st.data()?.pendingPlays || {}).length : 0,
+        };
+      }));
+    } catch (_) { social = []; }
+    return { success: true, global: { ...glob }, weekId, houses, chasers, topReal: reals.slice(0, 5), social };
   }
   if (op === 'save') {
     try {
+      const BOOL_KEYS = new Set(['enabled', 'neverLose',
+        'shuffleEnabled', 'chaserEnabled', 'upsetEnabled',
+        'socialEnabled', 'outgoingEnabled', 'unlockAnimeEnabled']);
+      // [min, max] clamps mirror _houseSocialNum fallbacks + HOUSE_DEFAULTS.
+      const NUM_SPECS = {
+        maxDailyRaw: [200, 10000], reserve: [0, 10000],
+        gap1: [20, 350], gap2: [20, 350], gap3: [20, 350],
+        gapMin: [20, 250], gapMax: [40, 350],
+        offWindowTickRate: [0, 50], curveJitter: [0, 30],
+        weeklyGoalMin: [100, 5000], weeklyGoalMax: [100, 5000],
+        chaserDailyMax: [200, 1500], chaserGap: [20, 200], chaserMax: [400, 2500],
+        chaserGoalMin: [100, 1000], chaserGoalMax: [400, 2500],
+        friendAcceptRate: [0, 100], sparAcceptRate: [0, 100],
+        duelAcceptRate: [0, 100], highStakeAcceptRate: [0, 100], winRate: [0, 100],
+        minRespondHours: [0, 48], maxRespondHours: [0, 72],
+        maxSocialActionsPerDay: [1, 50], minPlayIntervalMins: [1, 120],
+      };
+      const isUid = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v.trim());
       const patch = {};
-      for (const k of ['enabled', 'neverLose', 'maxDailyRaw', 'reserve', 'gap1', 'gap2', 'gap3']) {
+      for (const k of Object.keys(NUM_SPECS)) {
         const v = request.data?.[k];
-        if (v !== undefined) patch[k] = v;
+        if (v === undefined) continue;
+        const n = Number(v);
+        if (!Number.isFinite(n)) throw new HttpsError('invalid-argument', `${k} must be a number`);
+        const [lo, hi] = NUM_SPECS[k];
+        if (!Number.isInteger(Math.round(n)) || n < lo || n > hi) {
+          throw new HttpsError('invalid-argument', `${k} must be ${lo}-${hi}`);
+        }
+        patch[k] = Math.round(n);
       }
-      if (Array.isArray(request.data?.accounts)) patch.accounts = request.data.accounts.map(String).slice(0, 3);
-      if (Array.isArray(request.data?.paused)) patch.paused = request.data.paused.map(String);
-      if (request.data?.personas !== undefined && typeof request.data.personas === 'object') patch.personas = request.data.personas;
+      for (const k of BOOL_KEYS) {
+        const v = request.data?.[k];
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw new HttpsError('invalid-argument', `${k} must be a boolean`);
+        patch[k] = v;
+      }
+      const uidList = (v, max) => {
+        if (!Array.isArray(v)) return null;
+        const out = [];
+        for (const e of v) {
+          if (typeof e !== 'string' || !isUid(e)) {
+            throw new HttpsError('invalid-argument', 'house uid list contains an invalid uid');
+          }
+          if (!out.includes(e.trim())) out.push(e.trim());
+          if (out.length >= max) break;
+        }
+        return out;
+      };
+      const accounts = request.data?.accounts !== undefined ? uidList(request.data.accounts, 3) : null;
+      if (accounts !== null) patch.accounts = accounts;
+      const chasers = request.data?.chasers !== undefined ? uidList(request.data.chasers, 5) : null;
+      if (chasers !== null) patch.chasers = chasers;
+      const accountPool = request.data?.accountPool !== undefined ? uidList(request.data.accountPool, 15) : null;
+      if (accountPool !== null) patch.accountPool = accountPool;
+      const chaserPool = request.data?.chaserPool !== undefined ? uidList(request.data.chaserPool, 15) : null;
+      if (chaserPool !== null) patch.chaserPool = chaserPool;
+      if (request.data?.paused !== undefined) {
+        if (!Array.isArray(request.data.paused)) throw new HttpsError('invalid-argument', 'paused must be an array');
+        const out = [];
+        for (const e of request.data.paused) {
+          if (typeof e !== 'string' || !isUid(e)) {
+            throw new HttpsError('invalid-argument', 'paused contains an invalid uid');
+          }
+          if (!out.includes(e.trim())) out.push(e.trim());
+          if (out.length >= 30) break;
+        }
+        patch.paused = out;
+      }
+      if (request.data?.personas !== undefined) {
+        const p = request.data.personas;
+        if (p === null || typeof p !== 'object' || Array.isArray(p)) {
+          throw new HttpsError('invalid-argument', 'personas must be an object');
+        }
+        const keys = Object.keys(p);
+        if (keys.length > 30) throw new HttpsError('invalid-argument', 'personas too large');
+        for (const k of keys) {
+          if (!isUid(k) || p[k] === null || typeof p[k] !== 'object' || Array.isArray(p[k])) {
+            throw new HttpsError('invalid-argument', 'personas entry invalid');
+          }
+        }
+        patch.personas = p;
+      }
+      if (patch.weeklyGoalMin !== undefined && patch.weeklyGoalMax !== undefined && patch.weeklyGoalMin > patch.weeklyGoalMax) {
+        throw new HttpsError('invalid-argument', 'weeklyGoalMin must not exceed weeklyGoalMax');
+      }
+      if (patch.gapMin !== undefined && patch.gapMax !== undefined && patch.gapMin > patch.gapMax) {
+        throw new HttpsError('invalid-argument', 'gapMin must not exceed gapMax');
+      }
+      if (patch.minRespondHours !== undefined && patch.maxRespondHours !== undefined && patch.minRespondHours > patch.maxRespondHours) {
+        throw new HttpsError('invalid-argument', 'minRespondHours must not exceed maxRespondHours');
+      }
+      if (patch.chaserGoalMin !== undefined && patch.chaserGoalMax !== undefined && patch.chaserGoalMin > patch.chaserGoalMax) {
+        throw new HttpsError('invalid-argument', 'chaserGoalMin must not exceed chaserGoalMax');
+      }
+      if (Object.keys(patch).length === 0) throw new HttpsError('invalid-argument', 'Nothing to save');
       patch.updatedAt = FieldValue.serverTimestamp(); patch.updatedBy = request.auth.uid;
       console.log(`[houseAdmin] save by ${request.auth.uid} keys=${Object.keys(patch).join(',')}`);
       await gref.set(patch, { merge: true });
       return { success: true };
     } catch (err) {
+      if (err instanceof HttpsError) throw err;
       console.error(`[houseAdmin] save FAILED by ${request.auth?.uid}:`, err);
       throw new HttpsError('internal', `save_failed:${err.message || err}`);
     }
@@ -16207,124 +16601,1399 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
   if (op === 'nudge') {
     const uid = String(request.data?.uid || '');
     const wp = Math.max(10, Math.min(250, Number(request.data?.wp) || 50));
-    if (!glob.accounts.includes(uid)) throw new HttpsError('invalid-argument', 'Not a house account');
+    if (!glob.accounts.includes(uid) && !(glob.chasers || []).includes(uid) && !((glob.accountPool || []).includes(uid)) && !((glob.chaserPool || []).includes(uid))) throw new HttpsError('invalid-argument', 'Not a house account');
     await _houseAward(uid, wp, 0, 'house_nudge');
     return { success: true, uid, wp };
   }
   if (op === 'rotate') {
     const uid = String(request.data?.uid || request.data?.rotateUid || '');
-    const targets = uid ? [uid] : glob.accounts;
-    const usedSnap = await db.collection('usernames').get().catch(() => null);
-    const used = new Set((usedSnap?.docs || []).map((d) => d.id.toLowerCase()));
-    for (const hid of targets) {
-      const pick = HOUSE_NAME_POOL[_houseJitter(HOUSE_NAME_POOL.length - 1)] + _houseJitter(99);
-      const key = pick.toLowerCase();
-      if (used.has(key)) continue;
-      await db.collection('usernames').doc(key).set({ uid: hid, username: pick });
-      await db.collection('users').doc(hid).set({ username: pick }, { merge: true });
-    }
+    const targets = uid ? [uid] : [...glob.accounts, ...((glob.chaserEnabled !== false && glob.chasers) || [])];
+    await _houseRotateNames(targets);
+    await gref.set({ namePoolVersion: HOUSE_NAME_POOL_VERSION }, { merge: true });
     return { success: true };
   }
   throw new HttpsError('invalid-argument', 'Unknown op');
 });
+async function _houseRotateNames(targets) {
+  if (!Array.isArray(targets) || targets.length === 0) return { rotated: 0 };
+  const usedSnap = await db.collection('usernames').get().catch(() => null);
+  const used = new Set((usedSnap?.docs || []).map((d) => String(d.id).toLowerCase()));
+  let rotated = 0;
+  for (const hid of targets) {
+    const meSnap = await db.collection('users').doc(hid).get().catch(() => null);
+    const oldName = meSnap?.exists ? String(meSnap.data()?.username || '') : '';
+    const oldKey = oldName ? _usernameKey(oldName) : '';
+    let pick = '';
+    let key = '';
+    for (let attempt = 0; attempt < 25; attempt++) {
+      const cand = HOUSE_NAME_POOL[_houseJitter(HOUSE_NAME_POOL.length - 1)];
+      if (!cand || cand === oldName) continue;
+      const k = _usernameKey(cand);
+      if (!k || used.has(k)) continue;
+      pick = cand;
+      key = k;
+      break;
+    }
+    if (!pick) continue;
+    await db.runTransaction(async (tx) => {
+      if (oldKey) {
+        const oldSnap = await tx.get(db.collection('usernames').doc(oldKey));
+        if (oldSnap.exists && oldSnap.data()?.uid === hid) tx.delete(db.collection('usernames').doc(oldKey));
+      }
+      tx.set(db.collection('usernames').doc(key), { uid: hid, username: pick });
+      tx.set(db.collection('users').doc(hid), { username: pick }, { merge: true });
+    });
+    used.delete(oldKey);
+    used.add(key);
+    try {
+      const links = await db.collectionGroup('friendLinks').where('otherUid', '==', hid).limit(500).get();
+      if (!links.empty) {
+        const batch = db.batch();
+        for (const doc of links.docs) batch.set(doc.ref, { username: pick }, { merge: true });
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error(`[houseRotate] friendLinks refresh failed hid=${hid}: ${err.message || err}`);
+    }
+    rotated++;
+  }
+  return { rotated };
+}
+async function _houseRotateCore(now = new Date()) {
+  const glob = await _houseGlobal();
+  if (!glob.enabled || glob.accounts.length === 0) return { skipped: 'disabled' };
+  const weekId = currentWeekId();
+  const todayWAT = _watDateString(now instanceof Date ? now : new Date());
+  const active = _houseActiveSet(glob, weekId);
+  // Rotate the week's active set when pools exist; otherwise legacy full set.
+  const hasPools = (Array.isArray(glob.accountPool) && glob.accountPool.length >= 3) ||
+    (Array.isArray(glob.chaserPool) && glob.chaserPool.length >= 5);
+  const activePool = hasPools
+    ? [...active.accounts, ...((glob.chaserEnabled !== false && active.chasers) || [])]
+    : [...glob.accounts, ...((glob.chaserEnabled !== false && glob.chasers) || [])];
+  // One-time pool migration: new gamer-tag pool (v2) renames ALL bots
+  // immediately, bypassing the Monday-only gate. Runs once, then stamps
+  // namePoolVersion so weekly stability resumes.
+  if (Number(glob.namePoolVersion) !== HOUSE_NAME_POOL_VERSION) {
+    const pool = activePool;
+    if (pool.length) await _houseRotateNames(pool);
+    await db.collection('house_config').doc('global').set(
+      { lastRotateDay: todayWAT, lastRotateWeekId: weekId, namePoolVersion: HOUSE_NAME_POOL_VERSION },
+      { merge: true },
+    );
+    return { success: true, weekId, rotated: pool.length, migrated: true };
+  }
+  if (glob.lastRotateDay === todayWAT) return { skipped: 'already_rotated' };
+  // Stable identity within a week: rotate only on Monday (WAT dayIdx 0).
+  // Mid-week flips are a top tell; one staggered Monday swap preserves cover
+  // while keeping names stable while reals are watching.
+  const { dayIdx } = _houseWatParts(now instanceof Date ? now : new Date());
+  if (dayIdx !== 0) {
+    await db.collection('house_config').doc('global').set({ lastRotateDay: todayWAT, lastRotateWeekId: weekId }, { merge: true });
+    return { skipped: 'midweek_stable' };
+  }
+  const pool = activePool;
+  if (!pool.length) return { skipped: 'empty' };
+  // Monday-only staggered swap: 1-2 bots, stable the rest of the week.
+  const n = 1 + (_houseHash(`${weekId}:${todayWAT}:rotate`) % 2);
+  const start = _houseHash(`${weekId}:${todayWAT}:rotidx`) % pool.length;
+  const targets = [];
+  for (let k = 0; k < n; k++) targets.push(pool[(start + k) % pool.length]);
+  await _houseRotateNames(targets);
+  await db.collection('house_config').doc('global').set({ lastRotateDay: todayWAT, lastRotateWeekId: weekId }, { merge: true });
+  return { success: true, weekId, rotated: targets.length };
+}
 async function _houseTickCore(now = new Date(), isSnipe = false) {
   const glob = await _houseGlobal();
   if (!glob.enabled || glob.accounts.length === 0) return { skipped: 'disabled' };
   const weekId = currentWeekId();
-  if (!isSnipe && !_inHouseWindow(now)) return { skipped: 'window' };
+  const nowMs = now instanceof Date ? now.getTime() : Date.now();
   const board = await _houseBoard(weekId);
   const byUid = new Map(board.map((r) => [r.uid, r]));
-  const reals = board.filter((r) => !glob.accounts.includes(r.uid) && !isAdminAccountUid(r.uid));
+  const active = _houseActiveSet(glob, weekId);
+  const activeAccounts = active.accounts.length ? active.accounts : [...glob.accounts];
+  const activeChasers = active.chasers.length ? active.chasers : [...(glob.chasers || [])];
+  const allHouse = [...activeAccounts, ...activeChasers, ...(glob.accountPool || []), ...(glob.chaserPool || [])];
+  const reals = board.filter((r) => !allHouse.includes(r.uid) && !isAdminAccountUid(r.uid));
   const r4 = reals.length ? (Number(reals[0].weeklyPoints) || 0) : 900;
+  const rMid = reals.length > 9 ? (Number(reals[9].weeklyPoints) || 0) : 350;
   const velocity = reals.length > 3 ? Math.max(0, (Number(reals[0].weeklyPoints) || 0) - (Number(reals[3].weeklyPoints) || 0)) / 4 : 60;
   const projected = Math.max(r4 * 1.22 + 80, r4 + velocity * 7 * 1.15, 1700);
-  const targets = [
-    projected + glob.gap1 + glob.gap2 + _houseJitter(35),
-    projected + glob.gap2 + _houseJitter(25),
-    projected + _houseJitter(25),
-  ];
-  const dayIdx = (new Date().getUTCDay() + 6) % 7;
+  const gapMin = _houseSocialNum(glob, 'gapMin', 60, 20, 250);
+  const gapMax = Math.max(gapMin, _houseSocialNum(glob, 'gapMax', 280, 40, 350));
+  const inWindow = _inHouseWindow(now);
+  const offRate = _houseSocialNum(glob, 'offWindowTickRate', 2, 0, 50);
+  const { hour: watHour, dayIdx: watDayIdx } = _houseWatParts(now instanceof Date ? now : new Date());
+  if (!isSnipe && !inWindow && _houseJitter(99) >= offRate) {
+    const housesBest = Math.max(0, ...activeAccounts.map((hid) => Number(byUid.get(hid)?.weeklyPoints) || 0));
+    if (housesBest - r4 >= 80) return { skipped: 'window' };
+  }
+  // Snipe is backup only: pace holds 1-2-3 all week, so Sunday snipe fires
+  // only when a real is within striking distance. Softened: small chunks that
+  // close to the band instead of 800-point jumps.
+  // House still wins: 3 of 4 weeks defended, 1 in 4 let-win so a real takes #1
+  // (house keeps #2-3 + pool edge). Per-bot 50% skip breaks the 3-min machine cadence.
+  if (isSnipe) {
+    if ((_houseHash(`${weekId}:letwin`) % 4) === 0) return { skipped: 'let_win_week' };
+    const housesMin = Math.min(...activeAccounts.map((hid) => Number(byUid.get(hid)?.weeklyPoints) || 0));
+    if (housesMin - r4 >= 80) return { skipped: 'safe' };
+  }
+  const dayIdx = watDayIdx;
   const curve = [0.18, 0.34, 0.52, 0.68, 0.82, 0.93, 1.0][dayIdx] || 1.0;
   const todayWAT = _watDateString(now);
-  for (let i = 0; i < glob.accounts.length; i++) {
-    const hid = glob.accounts[i];
+  const targets = [];
+  // ── Podium: daily shuffled roles + self-grind floor + catchable band ──
+  // House still wins: gapMin floor + curve floor + snipe backup hold 1-2-3.
+  const shuffleOn = glob.shuffleEnabled !== false;
+  const order = shuffleOn ? _houseShuffleOrder(`${weekId}:${todayWAT}`, activeAccounts) : [...activeAccounts];
+  // Daily breathing gaps so the same 95/75 never repeats. Widened ±45 so
+  // leads vary more day to day (fix 2) while the [gapMin,gapMax] clamp below
+  // still guarantees the house never falls behind.
+  const dHash = _houseHash(`${weekId}:${todayWAT}:gaps`);
+  const gap1Day = Math.max(40, Math.min(130, Number(glob.gap1) + ((dHash % 91) - 45)));
+  const gap2Day = Math.max(40, Math.min(130, Number(glob.gap2) + (((dHash >> 6) % 91) - 45)));
+  const anchorDay = Math.max(gapMin, Math.min(gapMax, Number(glob.gap3) + (((dHash >> 12) % 91) - 45)));
+  const gapsByRank = [gap1Day + gap2Day, gap2Day, anchorDay];
+  // 1x/week upset day: leader sits out so a real can overtake, H3 can dip.
+  const upsetOn = glob.upsetEnabled !== false;
+  const isUpsetDay = upsetOn && (_houseHash(`${weekId}:upset`) % 7) === dayIdx;
+  for (let pos = 0; pos < order.length; pos++) {
+    const hid = order[pos];
+    const i = activeAccounts.indexOf(hid);
+    const persona = _housePersona(hid, Math.max(0, i), glob);
     if ((glob.paused || []).includes(hid)) continue;
-    // Per-house desync: houses never tick in lockstep.
-    if (!isSnipe && _houseJitter(99) < 22) continue;
+    if (isSnipe && _houseJitter(99) < 50) continue; // break 3-min machine cadence
+    if (isUpsetDay && pos === 0 && _houseJitter(99) < 70) continue;
+    // Human schedule: overnight sleep, ~1 day off/week, burst sessions.
+    // Snipe bypasses schedule (backup must fire even on a day off).
+    if (!isSnipe) {
+      if (watHour >= 0 && watHour < 7 && _houseJitter(99) < 98) continue;
+      if (_houseIsDayOff(hid, weekId, dayIdx)) continue;
+      // Slump day (fix 2): a second sit-out day, but ONLY when cushioned so
+      // the house win is never at risk. Reads as a human off-week.
+      const housesBestPre = Math.max(0, ...activeAccounts.map((x) => Number(byUid.get(x)?.weeklyPoints) || 0));
+      const cushioned = housesBestPre - r4 >= 220;
+      if (cushioned && (_houseHash(`${weekId}:${hid}:slump`) % 7) === dayIdx) continue;
+      if (!_houseInSession(hid, todayWAT, watHour) && _houseJitter(99) < 85) continue;
+    }
+    // Per-bot desync: each bot has its own skip rate so they never move together.
+    if (!isSnipe && _houseJitter(99) < persona.skip) continue;
     const cur = Number(byUid.get(hid)?.weeklyPoints) || 0;
-    let want = Math.min(targets[i] * curve, targets[i]);
-    // Steady mode: hold the lead all week. Snipe is backup only — if the
-    // house already leads by its gap, the snipe tick no-ops via deficit<25.
-    if (isSnipe) want = targets[i];
+    const form = _houseFormFor(hid, todayWAT, pos);
+    const jAmp = _houseSocialNum(glob, 'curveJitter', 15, 0, 30) / 100;
+    const jNoise = (((_houseHash(`${todayWAT}:${hid}:curve`) % 31) - 15) / 15) * jAmp;
+    const myCurve = Math.min(1.0, Math.max(0.05, curve + persona.curveBoost + (form - 1.0) * 0.3 + jNoise));
+    // Per-bot gap personality: stable ±110 per week + weekly walk offset so
+    // gaps differ per bot and drift week to week (fix 2).
+    const perBotGap = ((_houseHash(`${weekId}:${hid}:gap`) % 221) - 110);
+    const walkOffset = ((_houseHash(`${weekId}:${hid}:walk`) % 301) - 150);
+    const gapRank = gapsByRank[pos] + persona.gapBonus + perBotGap + _houseJitter(140);
+    const weeklyGoal = _houseWeeklyGoal(hid, weekId, glob);
+    const endTarget = Math.max(projected + gapRank, weeklyGoal + gapRank);
+    targets[Math.max(0, i)] = Math.round(endTarget);
+    // Blend self-driven grind with the r4 band (fix 2): 65% own curve/goal,
+    // 35% band-driven. Clamped to [lo,hi] below so the floor still holds.
+    const selfDriven = weeklyGoal * myCurve + perBotGap + walkOffset + _houseJitter(140);
+    const bandDriven = isSnipe ? endTarget : Math.min(endTarget * myCurve, endTarget);
+    let want = isSnipe ? endTarget : Math.round(selfDriven * 0.65 + bandDriven * 0.35);
+    // Catchable band: anchor tracks r4 within [gapMin,gapMax]; higher ranks
+    // stack their offsets above it. Wide band + per-bot offsets so leads vary;
+    // on upset day H3 may dip below r4 so the board actually flips.
+    const rankLift = (2 - pos) * 55;
+    const loBase = r4 + gapMin + (pos === 2 ? 0 : rankLift * 0.6);
+    const lo = (isUpsetDay && pos === 2) ? r4 - 30 : loBase;
+    const hi = r4 + gapMax + (pos === 2 ? 0 : rankLift + gap1Day * 0.5) + 30;
+    want = Math.max(lo, Math.min(hi, want));
+    // De-shadow: mixed quantize steps + varied deadband + varied catch-up cap
+    // so a real's spike takes hours/days to absorb, not one 15m tick, and the
+    // board never lands on clean 100pt lines every tick.
+    // Floor (lo) still holds so the house never falls behind by accident.
+    const qSteps = [25, 50, 50, 100];
+    const qStep = qSteps[_houseJitter(3)];
+    want = Math.round(want / qStep) * qStep;
+    if (!isSnipe) want = Math.min(want, cur + 250 + _houseJitter(250) + velocity * 1.5);
+    // Cold streak: hot form plays on, cold form sometimes sits out entirely.
+    if (!isSnipe && form < 0.92 && _houseJitter(99) < 30) continue;
     const deficit = Math.round(want - cur);
-    if (deficit < 25) continue;
+    if (deficit < 60 + _houseJitter(80)) continue;
     const earnSnap = await db.collection('users').doc(hid).get().catch(() => null);
     const earnedToday = _resolveDailyWPEarned(earnSnap?.data() || {}, todayWAT);
-    const reserveHold = isSnipe ? 0 : Math.min(120, (glob.reserve || 180) * 0.15);
-    const room = Math.max(0, glob.maxDailyRaw - earnedToday - reserveHold);
+    const effectiveMax = Math.max(Number(glob.maxDailyRaw) || 0, 3000);
+    const effectiveReserve = Math.max(Number(glob.reserve) || 0, 1000);
+    const myDailyMax = Math.round(effectiveMax * persona.dailyMaxFactor * form);
+    const reserveHold = isSnipe ? 0 : Math.min(180, effectiveReserve * 0.15);
+    const room = Math.max(0, myDailyMax - earnedToday - reserveHold);
     if (room < 20 && !isSnipe) continue;
+    // Smaller, human-sized chunks: duels/social carry more of the total now.
+    // Varied sizes so ticks do not all land 12-250; occasional burst to 320.
+    const burst = _houseJitter(99) < 10 ? 70 : 0;
     const chunk = isSnipe
-      ? Math.min(deficit, 320, glob.reserve || 180)
-      : Math.min(deficit, 120 + _houseJitter(80), room, 220);
-    if (chunk < 15) continue;
+      ? Math.min(deficit, 250, effectiveReserve)
+      : Math.min(deficit, 15 + _houseJitter(280) + burst, room, 320);
+    if (chunk < 12) continue;
     const mix = _houseJitter(99);
-    const ac = mix < 25 ? 12 : (mix < 50 ? -40 : 8);
-    await _houseAward(hid, chunk, ac, isSnipe ? 'house_snipe' : 'house_pace');
+    const ac = mix < 20 ? 12 : (mix < 35 ? 25 : (mix < 60 ? -40 : (mix < 75 ? -80 : 8)));
+    await _houseAward(hid, chunk, ac, isSnipe ? 'house_snipe' : 'house_pace', { nowMs, todayWAT });
     const st = db.collection('house_state').doc(hid);
-    await st.set({ targetTotal: Math.round(targets[i]), lastTick: FieldValue.serverTimestamp(), deficit }, { merge: true });
+    await st.set({ targetTotal: Math.round(endTarget), lastTick: FieldValue.serverTimestamp(), deficit }, { merge: true });
+  }
+  // ── Chasers: mid-board liveliness, usually below the podium ──
+  // Independent goals per bot (own curve), loose coupling to rMid only.
+  // Usually ceiling = housesMin - chaserGap; 1 day/week the lead chaser may
+  // push to housesMin + 60 so mid-board occasionally threatens #3 (never #1).
+  const chasers = activeChasers;
+  const chaserOn = glob.chaserEnabled !== false;
+  if (chaserOn && chasers.length && !isSnipe) {
+    const housesMin = Math.min(...activeAccounts.map((hid) => Number(byUid.get(hid)?.weeklyPoints) || 0));
+    const chaserGap = _houseSocialNum(glob, 'chaserGap', 120, 20, 200);
+    const chaserDailyMax = _houseSocialNum(glob, 'chaserDailyMax', 550, 200, 1500);
+    const chaserMax = _houseSocialNum(glob, 'chaserMax', 1000, 400, 2500);
+    const isBreakthroughDay = (_houseHash(`${weekId}:breakthrough`) % 7) === dayIdx;
+    const baseCeiling = housesMin - chaserGap;
+    if (baseCeiling >= 150) {
+      const offsets = [-220, -110, 0, 110, 220];
+      for (let j = 0; j < chasers.length; j++) {
+        const hid = chasers[j];
+        if ((glob.paused || []).includes(hid)) continue;
+        if (watHour >= 0 && watHour < 7 && _houseJitter(99) < 98) continue;
+        if (_houseIsDayOff(hid, weekId, dayIdx)) continue;
+        if (!_houseInSession(hid, todayWAT, watHour) && _houseJitter(99) < 85) continue;
+        const persona = _housePersona(hid, 3 + j, glob);
+        if (_houseJitter(99) < persona.skip) continue;
+        const formC = _houseFormFor(hid, todayWAT, j);
+        if (formC < 0.9 && _houseJitter(99) < 30) continue;
+        // Throttle: chasers act on ~40% of ticks so writes stay bounded.
+        if (_houseJitter(99) >= 40) continue;
+        const cur = Number(byUid.get(hid)?.weeklyPoints) || 0;
+        const form = formC;
+        const myCurve = Math.min(1.0, Math.max(0.05, curve + persona.curveBoost));
+        const savedGoal = Number((glob.personas || {})[hid]?.weeklyGoal);
+        const cLo = _houseSocialNum(glob, 'chaserGoalMin', 300, 100, 1000);
+        const cHi = Math.max(cLo, _houseSocialNum(glob, 'chaserGoalMax', 1500, 400, 2500));
+        const goal = (Number.isFinite(savedGoal) && savedGoal >= cLo && savedGoal <= cHi)
+          ? Math.round(savedGoal)
+          : cLo + (_houseHash(`${weekId}:${hid}`) % (cHi - cLo + 1));
+        const selfWant = goal * myCurve + (offsets[j % offsets.length] * myCurve) + _houseJitter(140);
+        // Loose mid-pack coupling: drift near rMid ±350, never glued (fix 2).
+        let want = Math.max(80, Math.min(rMid + 350, Math.max(rMid - 350, selfWant)));
+        // Soft ceilings: usually below paid top-3, never exceed chaserMax curve.
+        // Breakthrough day: lead chaser may take #3.
+        const ceiling = (isBreakthroughDay && j === 0) ? housesMin + 60 : baseCeiling;
+        want = Math.min(want, ceiling, chaserMax * myCurve + 50);
+        const cqSteps = [25, 50, 50];
+        const cqStep = cqSteps[_houseJitter(2)];
+        want = Math.round(want / cqStep) * cqStep;
+        const deficit = Math.round(want - cur);
+        if (deficit < 30 + _houseJitter(50)) continue;
+        const earnSnap = await db.collection('users').doc(hid).get().catch(() => null);
+        const earnedToday = _resolveDailyWPEarned(earnSnap?.data() || {}, todayWAT);
+        const myDailyMax = Math.round(chaserDailyMax * (0.85 + (form - 0.85) * 0.8));
+        const room = Math.max(0, myDailyMax - earnedToday);
+        if (room < 15) continue;
+        const cBurst = _houseJitter(99) < 8 ? 60 : 0;
+        const chunk = Math.min(deficit, 15 + _houseJitter(140) + cBurst, room, 160);
+        if (chunk < 10) continue;
+        await _houseAward(hid, chunk, 0, 'house_chaser', { nowMs, todayWAT });
+        await db.collection('house_state').doc(hid).set(
+          { targetTotal: Math.round(want), lastTick: FieldValue.serverTimestamp(), deficit },
+          { merge: true },
+        );
+      }
+    }
   }
   return { success: true, weekId, r4, targets };
 }
 exports.houseTick = onSchedule({ schedule: 'every 15 minutes', region: 'us-central1' }, async () => {
   await _houseEnsureEntryCore();
   await _houseTickCore(new Date(), false);
-  await _houseDuelCore();
+  await _houseSocialCore(new Date());
 });
 exports.houseSnipe = onSchedule({ schedule: 'every 3 minutes', region: 'us-central1' }, async () => {
   const wat = new Date(Date.now() + 60 * 60 * 1000);
   const day = wat.getUTCDay();
   const h = wat.getUTCHours() + wat.getUTCMinutes() / 60;
-  if (!(day === 0 && h >= 19.5 && h <= 21.98)) return;
+  if (!(day === 0 && h >= 18.0 && h <= 21.98)) return;
   await _houseTickCore(new Date(), true);
 });
-async function _houseEnsureEntryCore() {
+async function _houseEnsureEntryCore(now = new Date()) {
   const glob = await _houseGlobal();
-  if (!glob.accounts.length) return;
+  const active = _houseActiveSet(glob, currentWeekId());
+  const hasPools = (Array.isArray(glob.accountPool) && glob.accountPool.length >= 3) ||
+    (Array.isArray(glob.chaserPool) && glob.chaserPool.length >= 5);
+  // With pools configured only the week's active subset enters; inactive pool
+  // members sit out (reads as real churn). Without pools, legacy behavior.
+  const all = hasPools
+    ? [...active.accounts, ...((glob.chaserEnabled !== false && active.chasers) || [])]
+    : [...(glob.accounts || []), ...((glob.chaserEnabled !== false && glob.chasers) || [])];
+  if (!all.length) return;
   const weekId = currentWeekId();
-  for (const hid of glob.accounts) {
+  // Stagger Monday entries across ~12h so all 8 bots don't join the same minute.
+  const watMs = now.getTime() + 60 * 60 * 1000;
+  const mondayMidnightUTC = Date.parse(`${weekId}T00:00:00.000Z`);
+  const hoursSinceMonday = Number.isFinite(mondayMidnightUTC)
+    ? Math.max(0, (watMs - (mondayMidnightUTC - 60 * 60 * 1000)) / 3600000)
+    : 99;
+  for (const hid of all) {
     const ref = db.collection('users').doc(hid);
     const snap = await ref.get().catch(() => null);
     if (!snap?.exists) continue;
     if (snap.data()?.leaderboardEntryWeekId === weekId) continue;
-    await ref.set({
+    const slot = _houseHash(`${weekId}:${hid}:entry`) % 12;
+    // Human minutes within the slot hour (fix 1): don't join on the hour.
+    const slotMinute = _houseHash(`${weekId}:${hid}:entrymin`) % 60;
+    if (hoursSinceMonday < slot + slotMinute / 60) continue; // enters on a later hourly tick
+    const isChaser = (glob.chasers || []).includes(hid) || active.chasers.includes(hid);
+    const patch = {
       leaderboardEntryWeekId: weekId, leaderboardEntryEmail: `house+${hid.slice(0, 6)}@local`,
       premiumActive: true,
-    }, { merge: true });
+    };
+    // Identity cover: bots need a campus like every real paid entrant.
+    if (!snap.data()?.university) {
+      patch.university = VALID_UNIVERSITIES[_houseHash(`${weekId}:${hid}:uni`) % VALID_UNIVERSITIES.length];
+    }
+    await ref.set(patch, { merge: true });
     await db.collection('users').doc(hid).collection('leaderboardReceipts').doc(weekId).set({
-      weekId, source: 'house', at: FieldValue.serverTimestamp(),
+      weekId, source: 'entry', at: FieldValue.serverTimestamp(),
     }, { merge: true });
   }
 }
 exports.houseEnsureEntry = onSchedule({ schedule: 'every 60 minutes', region: 'us-central1' }, async () => {
   await _houseEnsureEntryCore();
 });
-async function _houseDuelCore() {
-  const glob = await _houseGlobal();
-  if (!glob.enabled || !glob.accounts.length) return;
-  const houseSet = new Set(glob.accounts);
-  const snap = await db.collection('challenges').where('status', 'in', ['waiting', 'opponent_joined']).limit(30).get().catch(() => null);
-  if (!snap || snap.empty) return;
-  for (const doc of snap.docs) {
-    const c = doc.data() || {};
-    const opp = String(c.opponentUid || c.opponent || '');
-    const creator = String(c.creatorUid || c.creator || '');
-    const hid = houseSet.has(opp) ? opp : (houseSet.has(creator) ? creator : null);
-    if (!hid) continue;
-    if ((glob.paused || []).includes(hid)) continue;
-    const stake = Number(c.wpStake) || 0;
-    if (stake > 120 && _houseJitter(99) < 70) continue;
-    if (_houseJitter(99) < 18) continue;
+exports.houseRotateWeekly = onSchedule(
+  { schedule: 'every day 02:30', timeZone: 'Africa/Lagos', region: 'us-central1' },
+  async () => {
+    await _houseRotateCore(new Date());
+  },
+);
+// ─── House social humanizer (friends / duels / spars) ───────────────────
+// Bots are premium humans: same caps/cooldowns, delayed responses, ~60%
+// duel win rate with loss streaks, occasional high-stake risk takes, 6-min
+// minimum between scored plays (solo floor), occasional 5k permanent anime
+// unlocks.
+// Everything is server-side + best-effort: one bot's failure never blocks
+// the others or the WP pacing tick.
+function _houseSocialNum(glob, key, fallback, min, max) {
+  const n = Number(glob?.[key]);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+function _houseIsHighStake(stakeAmount, wpStake) {
+  return (Number(stakeAmount) || 0) >= 2000 || (Number(wpStake) || 0) >= 200;
+}
+async function _houseSocialState(hid) {
+  const ref = db.collection('house_state').doc(hid);
+  const snap = await ref.get().catch(() => null);
+  const d = snap?.exists ? (snap.data() || {}) : {};
+  return { ref, d };
+}
+async function _houseBumpSocial(hid, todayWAT) {
+  try {
+    const ref = db.collection('house_state').doc(hid);
+    const snap = await ref.get().catch(() => null);
+    const d = snap?.exists ? (snap.data() || {}) : {};
+    const day = d.socialDay === todayWAT ? todayWAT : todayWAT;
+    const count = d.socialDay === todayWAT ? Number(d.socialActionsToday || 0) : 0;
+    await ref.set({ socialDay: day, socialActionsToday: count + 1 }, { merge: true });
+  } catch (_) { /* best-effort */ }
+}
+function _houseSocialBudgetLeft(stateData, glob, todayWAT) {
+  const max = _houseSocialNum(glob, 'maxSocialActionsPerDay', 12, 1, 50);
+  const used = stateData.socialDay === todayWAT ? Number(stateData.socialActionsToday || 0) : 0;
+  return Math.max(0, max - used);
+}
+async function _houseEnsureBankroll(hid, userData, todayWAT, nowMs = 0) {
+  // House ops funding: keep bots liquid enough for high-stake takes.
+  // Stealth: varied top-up targets (8-12k, not round 10k every time) and the
+  // same coinTransactions shape real earn paths use (no house_* type).
+  try {
+    const coins = Number(userData?.animeCoins || 0);
+    if (coins >= 6000) return;
+    if (userData?.bankrollDay === todayWAT) return;
+    const target = 8000 + (_houseHash(`${todayWAT}:${hid}:bank`) % 4001);
+    const topUp = target - coins;
+    if (topUp <= 0) return;
+    const ref = db.collection('users').doc(hid);
+    await ref.set({
+      animeCoins: FieldValue.increment(topUp),
+      bankrollDay: todayWAT,
+    }, { merge: true });
+    await ref.collection('coinTransactions').doc().set({
+      type: 'earn_bonus', delta: topUp,
+      balanceAfter: coins + topUp,
+      timestamp: nowMs ? _houseVisibleTimestamp(hid, todayWAT, nowMs) : FieldValue.serverTimestamp(),
+    });
+    console.log(`[houseSocial] bankroll hid=${hid} +${topUp}AC`);
+  } catch (e) {
+    console.warn(`[houseSocial] bankroll failed hid=${hid}: ${e.message || e}`);
   }
+}
+function _houseTargetScore(oppScoreOrNull, wantWin) {
+  const tilt = _houseJitter(99);
+  if (oppScoreOrNull == null) {
+    // Playing first / blind: wins usually 7-9, deliberate losses 4-6, with
+    // rare perfect 10s and tilt 1-3s so the histogram isn't a narrow band.
+    if (wantWin) return tilt < 6 ? 10 : 7 + _houseJitter(2);
+    return tilt < 8 ? 1 + _houseJitter(3) : 4 + _houseJitter(2);
+  }
+  const opp = Math.max(0, Math.min(10, Number(oppScoreOrNull) || 0));
+  if (wantWin) {
+    if (opp >= 10) return 10; // draw at best vs perfect
+    if (tilt < 5) return 10;
+    return Math.min(10, opp + 1 + _houseJitter(1));
+  }
+  if (tilt < 8) return Math.max(0, Math.min(3, opp - 3 - _houseJitter(2)));
+  return Math.max(0, opp - 1 - _houseJitter(2));
+}
+async function _houseJoinTx(hid, cRef, c) {
+  // Premium-path mirror of joinChallenge (no auth, no device hash server-side).
+  const todayWAT = _watDateString();
+  const now = new Date();
+  await db.runTransaction(async (tx) => {
+    const [cSnap, uSnap] = await Promise.all([tx.get(cRef), tx.get(db.collection('users').doc(hid))]);
+    if (!cSnap.exists) throw new Error('gone');
+    const ch = cSnap.data() || {};
+    if (!JOINABLE_CHALLENGE_STATUSES.includes(ch.status)) throw new Error('not_joinable');
+    if (ch.opponentScore != null) throw new Error('seat_taken');
+    if (ch.opponentUid && ch.opponentUid !== hid) throw new Error('not_invited');
+    if (ch.creatorUid === hid) throw new Error('own');
+    const stakeAmount = Number(ch.stakeAmount) || 0;
+    const wpStake = Number(ch.wpStake) || 0;
+    const creatorUid = String(ch.creatorUid || '');
+    const isSparJoin = ch.challengeType === 'spar';
+    if (isSparJoin && (stakeAmount !== 0 || wpStake !== 0)) throw new Error('spar_must_be_unstaked');
+    // Blocked pair stops staked joins; spars additionally require friendship.
+    const pair = [creatorUid, hid].sort();
+    const fSnap = await tx.get(db.collection('friendships').doc(`${pair[0]}_${pair[1]}`));
+    const f = fSnap.exists ? (fSnap.data() || {}) : {};
+    if (isSparJoin) {
+      if (f.status !== 'active') throw new Error('not_friends');
+    } else if (creatorUid && creatorUid !== 'ghost') {
+      if (f.status === 'blocked') throw new Error('blocked');
+    }
+    const u = uSnap.data() || {};
+    const isPremium = true; // house bots are premium
+    // Active cap (count in-tx like the callable, single-seat reads).
+    const [asC, asO] = await Promise.all([
+      tx.get(db.collection('challenges').where('creatorUid', '==', hid).where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+      tx.get(db.collection('challenges').where('opponentUid', '==', hid).where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
+    ]).catch(async () => {
+      // Fallback when the composite index is missing: unfiltered reads.
+      const [a, b] = await Promise.all([
+        tx.get(db.collection('challenges').where('creatorUid', '==', hid)),
+        tx.get(db.collection('challenges').where('opponentUid', '==', hid)),
+      ]);
+      const onlyActive = (s) => s.docs.filter((d) => ACTIVE_CHALLENGE_STATUSES.includes(d.data()?.status));
+      return [{ size: onlyActive(a).length }, { size: onlyActive(b).length }];
+    });
+    const activeCount = (asC.size || asC.docs?.length || 0) + (asO.size || asO.docs?.length || 0);
+    if (activeCount >= ACTIVE_CHALLENGES_PREMIUM) throw new Error('too_many_active');
+    const userRef = db.collection('users').doc(hid);
+    if (isSparJoin) {
+      const joinedDate = u.sparsJoinedDate === todayWAT;
+      const n = joinedDate ? Number(u.sparsJoinedToday || 0) : 0;
+      if (n >= SPAR_DAILY_PREMIUM) throw new Error('spar_budget');
+      tx.update(userRef, { sparsJoinedToday: n + 1, sparsJoinedDate: todayWAT });
+    } else {
+      if (!Number.isInteger(stakeAmount) || stakeAmount < AC_MIN_STAKE || stakeAmount % AC_STAKE_STEP !== 0) throw new Error('bad_stake');
+      const joinedToday = u.challengesJoinedDate === todayWAT ? Number(u.challengesJoinedToday || 0) : 0;
+      if (joinedToday >= DAILY_CHALLENGE_JOIN_PREMIUM) throw new Error('daily_join');
+      if (Number(u.animeCoins || 0) < stakeAmount) throw new Error('insufficient_coins');
+      tx.update(userRef, {
+        animeCoins: FieldValue.increment(-stakeAmount),
+        challengesJoinedToday: joinedToday + 1,
+        challengesJoinedDate: todayWAT,
+      });
+      tx.set(userRef.collection('coinTransactions').doc(), {
+        type: 'spend_challenge_stake', delta: -stakeAmount,
+        balanceAfter: Number(u.animeCoins || 0) - stakeAmount,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+    }
+    if (wpStake > 0) {
+      if (!Number.isInteger(wpStake) || wpStake < WP_MIN_STAKE || wpStake % WP_STEP !== 0) throw new Error('bad_wp');
+      const stakedToday = u.wpStakedDate === todayWAT ? Number(u.wpStakedToday || 0) : 0;
+      if (stakedToday + wpStake > WP_DAILY_CAP_PREMIUM) throw new Error('wp_cap');
+      if (Number(u.weeklyPoints || 0) < wpStake) throw new Error('insufficient_wp');
+      const map = _getRivalCooldownMap(u);
+      let inSeries = false;
+      try {
+        const rSnap = await tx.get(db.collection('rivalries').doc(`${pair[0]}_${pair[1]}`));
+        const r = rSnap.exists ? (rSnap.data() || {}) : {};
+        inSeries = r.status === 'active' && ((Number(r.winsA) || 0) + (Number(r.winsB) || 0)) > 0;
+      } catch (_) { inSeries = false; }
+      if (!inSeries && _rivalCooldownRemainingHours(map, creatorUid, WP_COOLDOWN_PREMIUM_HOURS) > 0) throw new Error('wp_cooldown');
+      tx.update(userRef, {
+        weeklyPoints: FieldValue.increment(-wpStake),
+        wpStakedToday: stakedToday + wpStake,
+        wpStakedDate: todayWAT,
+        rivalCooldowns: _touchRivalCooldownMap(map, creatorUid),
+        lastRivalChallenge: FieldValue.serverTimestamp(),
+        lastRivalUid: creatorUid,
+      });
+      tx.set(userRef.collection('wpTransactions').doc(), {
+        type: 'spend_challenge_stake', delta: -wpStake,
+        balanceAfter: Number(u.weeklyPoints || 0) - wpStake,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+    }
+    tx.update(cRef, {
+      opponentUid: hid,
+      opponentUsername: u.username || 'Anonymous',
+      status: 'opponent_joined',
+      joinedAt: Timestamp.fromMillis(now.getTime() - _houseJitter(9 * 60 * 1000) - _houseJitter(59 * 1000)),
+      expiresAt: Timestamp.fromDate(new Date(now.getTime() + CHALLENGE_EXPIRY_HOURS * 60 * 60 * 1000)),
+    });
+  });
+}
+async function _houseDeclineTx(hid, cRef) {
+  await db.runTransaction(async (tx) => {
+    const cSnap = await tx.get(cRef);
+    if (!cSnap.exists) return;
+    const ch = cSnap.data() || {};
+    if (ch.opponentUid !== hid) throw new Error('not_invited');
+    if (!JOINABLE_CHALLENGE_STATUSES.includes(ch.status)) throw new Error('not_pending');
+    const stakeAmt = Number(ch.stakeAmount) || 0;
+    const wpStake = Number(ch.wpStake) || 0;
+    const creatorRef = db.collection('users').doc(ch.creatorUid);
+    const creatorSnap = await tx.get(creatorRef);
+    const creatorData = creatorSnap.exists ? (creatorSnap.data() || {}) : {};
+    tx.update(cRef, { status: 'declined', declinedAt: FieldValue.serverTimestamp(), declinedBy: hid });
+    if (stakeAmt > 0) {
+      tx.update(creatorRef, { animeCoins: FieldValue.increment(stakeAmt) });
+      tx.set(creatorRef.collection('coinTransactions').doc(), {
+        type: 'refund_challenge_stake', delta: stakeAmt,
+        balanceAfter: Number(creatorData.animeCoins || 0) + stakeAmt,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+    }
+    if (wpStake > 0) {
+      tx.update(creatorRef, { weeklyPoints: FieldValue.increment(wpStake) });
+      tx.set(creatorRef.collection('wpTransactions').doc(), {
+        type: 'refund_challenge_stake', delta: wpStake,
+        balanceAfter: Number(creatorData.weeklyPoints || 0) + wpStake,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+    }
+  });
+}
+async function _houseSubmitTx(hid, cRef, wantWin) {
+  const cSnap = await cRef.get();
+  if (!cSnap.exists) throw new Error('gone');
+  const ch = cSnap.data() || {};
+  if (ch.resolved === true || ch.status === 'completed' || ch.status === 'declined') throw new Error('settled');
+  const isCreator = ch.creatorUid === hid;
+  const isOpponent = ch.opponentUid === hid;
+  if (!isCreator && !isOpponent) throw new Error('not_participant');
+  const scoreField = isCreator ? 'creatorScore' : 'opponentScore';
+  if (ch[scoreField] != null) throw new Error('already_played');
+  if (isOpponent && !ch.joinedAt) throw new Error('no_seat');
+  const qids = Array.isArray(ch.questionIds) ? ch.questionIds.map(String) : [];
+  if (qids.length !== 10) throw new Error('bad_questions');
+  const snaps = await db.getAll(...qids.map((id) => db.collection('questions').doc(id)));
+  const correctIdx = snaps.map((s) => (s.exists ? s.data()?.correctAnswerIndex : 0));
+  const oppScore = isCreator ? (ch.opponentScore ?? null) : (ch.creatorScore ?? null);
+  const target = _houseTargetScore(oppScore, wantWin);
+  // Choose miss slots uniformly; wrong answer = (correct+1)%4.
+  const order = [...Array(10).keys()];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = _houseJitter(i);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const miss = new Set(order.slice(0, Math.max(0, 10 - target)));
+  const selectedAnswers = qids.map((_, i) => {
+    const cIdx = Number.isInteger(correctIdx[i]) ? correctIdx[i] : 0;
+    return miss.has(i) ? ((cIdx + 1 + _houseJitter(2)) % 4) : cIdx;
+  });
+  let wrote = false;
+  await db.runTransaction(async (tx) => {
+    const fresh = (await tx.get(cRef)).data() || {};
+    if (fresh.resolved === true || fresh[scoreField] != null) return;
+    tx.update(cRef, { [scoreField]: target });
+    wrote = true;
+  });
+  if (!wrote) throw new Error('race');
+  console.log(`[houseSocial] play hid=${hid} cid=${cRef.id} ${scoreField}=${target} wantWin=${wantWin} opp=${oppScore ?? '-'}`);
+  return target;
+}
+async function _houseProcessFriends(hid, glob, nowMs, todayWAT, budgetLeft) {
+  const minH = _houseSocialNum(glob, 'minRespondHours', 2, 0, 48);
+  const maxH = Math.max(minH, _houseSocialNum(glob, 'maxRespondHours', 12, 0, 72));
+  const rate = _houseSocialNum(glob, 'friendAcceptRate', 80, 0, 100);
+  const links = await db.collection('users').doc(hid).collection('friendLinks')
+    .where('status', '==', 'incoming').limit(20).get().catch(() => null);
+  if (!links || links.empty) return 0;
+  let used = 0;
+  for (const doc of links.docs) {
+    if (used >= budgetLeft) break;
+    const peer = String(doc.data()?.otherUid || doc.id || '');
+    if (!peer) continue;
+    const sinceMs = _msOf(doc.data()?.since) || 0;
+    const ageH = sinceMs ? (nowMs - sinceMs) / 3600000 : maxH + 1;
+    // Human delay: too fresh → leave for a later tick; very stale → answer now.
+    if (ageH < minH) continue;
+    if (ageH < maxH && _houseJitter(99) < 45) continue; // not glued to inbox
+    const accept = _houseJitter(99) < rate;
+    try {
+      await db.runTransaction(async (tx) => {
+        const pairRef = db.collection('friendships').doc(_friendPairId(hid, peer));
+        const meRef = db.collection('users').doc(hid);
+        const peerRef = db.collection('users').doc(peer);
+        const [pairSnap, meSnap, peerSnap] = await Promise.all([tx.get(pairRef), tx.get(meRef), tx.get(peerRef)]);
+        if (!pairSnap.exists) { tx.delete(meRef.collection('friendLinks').doc(peer)); return; }
+        const pair = pairSnap.data() || {};
+        if (pair.status === 'blocked') throw new Error('blocked');
+        if (pair.status !== 'pending' || pair.requestedBy === hid) throw new Error('not_pending');
+        if (accept) {
+          const meCount = Number((meSnap.data() || {}).friendCount || 0);
+          const peerCount = Number((peerSnap.data() || {}).friendCount || 0);
+          if (!peerSnap.exists) throw new Error('no_peer');
+          if (meCount >= FRIEND_MAX || peerCount >= FRIEND_MAX) throw new Error('friend_cap');
+          _activateFriendshipTx(tx, { uid: hid, peer, pairRef, meRef, peerRef, meSnap, peerSnap });
+        } else {
+          tx.set(pairRef, { status: 'declined', declinedAt: FieldValue.serverTimestamp(), declinedBy: hid }, { merge: true });
+          tx.delete(meRef.collection('friendLinks').doc(peer));
+          tx.delete(peerRef.collection('friendLinks').doc(hid));
+        }
+      });
+      await _houseBumpSocial(hid, todayWAT);
+      used++;
+      console.log(`[houseSocial] friend hid=${hid} peer=${peer.slice(0, 6)} ${accept ? 'accept' : 'decline'}`);
+    } catch (e) {
+      console.warn(`[houseSocial] friend skip hid=${hid} peer=${peer.slice(0, 6)}: ${e.message || e}`);
+    }
+  }
+  return used;
+}
+async function _houseNoteRefusal(hid, peer, nowMs, hours) {
+  // Back off a peer who refused/ignored us so the bot rotates to someone
+  // else instead of spamming. Stored in house_state.peerBackoff {uid: untilMs}.
+  if (!peer || peer === hid) return;
+  try {
+    const ref = db.collection('house_state').doc(hid);
+    const snap = await ref.get().catch(() => null);
+    const d = snap?.exists ? (snap.data() || {}) : {};
+    const backoff = { ...(d.peerBackoff || {}) };
+    backoff[peer] = nowMs + hours * 3600 * 1000;
+    // Prune expired + cap size.
+    const now = nowMs;
+    for (const k of Object.keys(backoff)) {
+      if (!backoff[k] || backoff[k] <= now) delete backoff[k];
+    }
+    const keys = Object.keys(backoff);
+    if (keys.length > 30) {
+      keys.sort((a, b) => backoff[a] - backoff[b]);
+      for (const k of keys.slice(0, keys.length - 30)) delete backoff[k];
+    }
+    await ref.set({ peerBackoff: backoff }, { merge: true });
+  } catch (_) { /* best-effort */ }
+}
+function _houseBackedOff(stateData, peer, nowMs) {
+  if (!peer) return false;
+  const until = Number((stateData.peerBackoff || {})[peer] || 0);
+  return Number.isFinite(until) && until > nowMs;
+}
+async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budgetLeft) {
+  // Single-field reads (no composite index), filter joinable in code.
+  const [asOpp, asCreator] = await Promise.all([
+    db.collection('challenges').where('opponentUid', '==', hid).limit(25).get().catch(() => null),
+    db.collection('challenges').where('creatorUid', '==', hid).limit(25).get().catch(() => null),
+  ]);
+  const docs = [...(asOpp?.docs || []), ...(asCreator?.docs || [])];
+  // Opponent invites first (need join), then own turns to play.
+  docs.sort((a, b) => {
+    const ca = a.data() || {};
+    const cb = b.data() || {};
+    const aNeedsJoin = a.data()?.opponentUid === hid && ca.opponentScore == null && (ca.status === 'waiting' || ca.status === 'creator_submitted');
+    const bNeedsJoin = b.data()?.opponentUid === hid && cb.opponentScore == null && (cb.status === 'waiting' || cb.status === 'creator_submitted');
+    return (bNeedsJoin ? 1 : 0) - (aNeedsJoin ? 1 : 0);
+  });
+  const duelRateBase = _houseSocialNum(glob, 'duelAcceptRate', 70, 0, 100);
+  const sparRateBase = _houseSocialNum(glob, 'sparAcceptRate', 80, 0, 100);
+  const highRateBase = _houseSocialNum(glob, 'highStakeAcceptRate', 40, 0, 100);
+  const minHBase = _houseSocialNum(glob, 'minRespondHours', 2, 0, 48);
+  // Per-bot personality (fix 6): same global mean, ±12 spread stable per bot
+  // so one bot is picky and another accepts everything.
+  const personaOffset = ((_houseHash(`${hid}:social`) % 25) - 12);
+  const duelRate = Math.max(0, Math.min(100, duelRateBase + personaOffset));
+  const sparRate = Math.max(0, Math.min(100, sparRateBase + personaOffset));
+  const highRate = Math.max(0, Math.min(100, highRateBase + personaOffset));
+  const minH = Math.max(0, minHBase + ((_houseHash(`${hid}:respond`) % 5) - 2));
+  let used = 0;
+  const pending = { ...(stateData.pendingPlays || {}) };
+  for (const doc of docs) {
+    if (used >= budgetLeft) break;
+    const c = doc.data() || {};
+    if (c.resolved === true || ['completed', 'declined', 'expired', 'expired_refunded'].includes(c.status)) {
+      if (pending[doc.id]) { delete pending[doc.id]; }
+      // Our outgoing was refused/ignored → back off that peer and rotate
+      // to someone else. Usually 48h; 1 in 5 rematches after ~8h like a human
+      // who double-texts (fix 6). Series never hangs on one refuser.
+      if (c.creatorUid === hid && c.opponentUid && ['declined', 'expired', 'expired_refunded'].includes(c.status)) {
+        const declinedByPeer = c.declinedBy === c.opponentUid || c.status !== 'completed';
+        if (declinedByPeer) await _houseNoteRefusal(hid, String(c.opponentUid || ''), nowMs, _houseJitter(99) < 20 ? 8 : 48);
+      }
+      continue;
+    }
+    const isCreator = c.creatorUid === hid;
+    const isOpp = c.opponentUid === hid;
+    if (!isCreator && !isOpp) continue;
+    const myScore = isCreator ? c.creatorScore : c.opponentScore;
+    const needsJoin = isOpp && myScore == null && !c.joinedAt &&
+      (c.status === 'waiting' || c.status === 'creator_submitted' || c.status === 'opponent_submitted');
+    const needsPlay = myScore == null && (
+      (isOpp && !!c.joinedAt && ['opponent_joined', 'creator_submitted'].includes(c.status)) ||
+      (isCreator && ['opponent_joined', 'opponent_submitted'].includes(c.status)) ||
+      (isCreator && c.status === 'waiting' && !c.opponentUid)
+    );
+    if (!needsJoin && !needsPlay) continue;
+    const createdMs = _msOf(c.createdAt) || doc.createTime?.toMillis?.() || nowMs;
+    const ageH = (nowMs - createdMs) / 3600000;
+    if (needsJoin && ageH < minH && _houseJitter(99) < 70) continue; // let invite breathe
+    const isSpar = c.challengeType === 'spar';
+    const stakeAmount = Number(c.stakeAmount) || 0;
+    const wpStake = Number(c.wpStake) || 0;
+    if (needsJoin) {
+      const rate = isSpar ? sparRate : (_houseIsHighStake(stakeAmount, wpStake) ? highRate : duelRate);
+      const roll = _houseJitter(99);
+      if (roll >= rate) {
+        // Human decline — only the invitee can decline; creators just wait.
+        // Usually back off 24h; 1 in 5 rematches after ~8h (fix 6).
+        if (isOpp && JOINABLE_CHALLENGE_STATUSES.includes(c.status)) {
+          try {
+            await _houseDeclineTx(hid, doc.ref);
+            await _houseNoteRefusal(hid, String(c.creatorUid || ''), nowMs, _houseJitter(99) < 20 ? 8 : 24);
+            await _houseBumpSocial(hid, todayWAT);
+            used++;
+            console.log(`[houseSocial] decline hid=${hid} cid=${doc.id} stake=${stakeAmount}/${wpStake}`);
+          } catch (e) {
+            console.warn(`[houseSocial] decline fail hid=${hid} cid=${doc.id}: ${e.message || e}`);
+          }
+        }
+        continue;
+      }
+      try {
+        await _houseJoinTx(hid, doc.ref, c);
+        pending[doc.id] = nowMs + (30 + _houseJitter(300)) * 60 * 1000; // 30m–5.5h
+        await _houseBumpSocial(hid, todayWAT);
+        used++;
+        console.log(`[houseSocial] join hid=${hid} cid=${doc.id} spar=${isSpar} stake=${stakeAmount}/${wpStake}`);
+      } catch (e) {
+        const msg = String(e.message || e);
+        // Hard gate failures → decline so creator gets refunded instead of hanging.
+        if (isOpp && JOINABLE_CHALLENGE_STATUSES.includes(c.status) &&
+          /blocked|not_friends|wp_cap|wp_cooldown|insufficient|too_many|daily|budget/i.test(msg)) {
+          try {
+            await _houseDeclineTx(hid, doc.ref);
+            await _houseBumpSocial(hid, todayWAT);
+            used++;
+            console.log(`[houseSocial] gate-decline hid=${hid} cid=${doc.id} why=${msg}`);
+          } catch (_) { /* leave for sweeps */ }
+        } else {
+          console.warn(`[houseSocial] join skip hid=${hid} cid=${doc.id}: ${msg}`);
+        }
+      }
+    } else if (needsPlay) {
+      // Defer to pending scheduler below; stamp if missing.
+      if (!pending[doc.id]) pending[doc.id] = nowMs + (10 + _houseJitter(120)) * 60 * 1000;
+    }
+  }
+  try {
+    await db.collection('house_state').doc(hid).set({ pendingPlays: pending }, { merge: true });
+  } catch (_) { /* best-effort */ }
+  return used;
+}
+async function _houseProcessPendingPlays(hid, glob, stateData, nowMs, todayWAT, budgetLeft) {
+  const floorMs = (_houseSocialNum(glob, 'minPlayIntervalMins', 6, 6, 120) + ((_houseHash(`${hid}:floor`) % 5) - 2)) * 60 * 1000;
+  const winRateBase = _houseSocialNum(glob, 'winRate', 60, 0, 100);
+  const winRate = Math.max(0, Math.min(100, winRateBase + ((_houseHash(`${hid}:winrate`) % 21) - 10)));
+  const lastPlay = Number(stateData.lastPlayAt || 0);
+  if (nowMs - lastPlay < floorMs) return 0; // solo 6-min floor, global for bots
+  const pending = { ...(stateData.pendingPlays || {}) };
+  const ids = Object.keys(pending).sort((a, b) => pending[a] - pending[b]);
+  let used = 0;
+  let winStreak = Number(stateData.winStreak) || 0;
+  let lossStreak = Number(stateData.lossStreak) || 0;
+  for (const cid of ids) {
+    if (used >= budgetLeft) break;
+    if (pending[cid] > nowMs) continue; // not due yet
+    try {
+      const cRef = db.collection('challenges').doc(cid);
+      const snap = await cRef.get();
+      if (!snap.exists) { delete pending[cid]; continue; }
+      const c = snap.data() || {};
+      const isCreator = c.creatorUid === hid;
+      const myScore = isCreator ? c.creatorScore : c.opponentScore;
+      if (c.resolved === true || myScore != null || ['completed', 'declined', 'expired', 'expired_refunded'].includes(c.status)) {
+        delete pending[cid];
+        continue;
+      }
+      if (isCreator === false && !c.joinedAt) { delete pending[cid]; continue; }
+      // Streak breaker: cap win streaks at 4 and loss streaks at 3 so bots
+      // show human hot/cold runs instead of a flat 80% win line.
+      let wantWin = _houseJitter(99) < winRate; // configurable duel win rate (default 60%)
+      if (winStreak >= 4) wantWin = false;
+      else if (lossStreak >= 3) wantWin = true;
+      await _houseSubmitTx(hid, cRef, wantWin);
+      delete pending[cid];
+      winStreak = wantWin ? winStreak + 1 : 0;
+      lossStreak = wantWin ? 0 : lossStreak + 1;
+      await db.collection('house_state').doc(hid).set({
+        lastPlayAt: nowMs,
+        pendingPlays: pending,
+        winStreak, lossStreak,
+      }, { merge: true });
+      await _houseBumpSocial(hid, todayWAT);
+      used++;
+      return used; // one scored play per tick per bot (6-min floor + human pace)
+    } catch (e) {
+      console.warn(`[houseSocial] play skip hid=${hid} cid=${cid}: ${e.message || e}`);
+      delete pending[cid];
+    }
+  }
+  try {
+    await db.collection('house_state').doc(hid).set({ pendingPlays: pending }, { merge: true });
+  } catch (_) { /* best-effort */ }
+  return used;
+}
+async function _houseEnsureFriendCode(hid) {
+  // Humans have a shareable code; bots need one too or the code path can
+  // never reach them. Idempotent mint, same helper as the callable.
+  try {
+    let code = '';
+    await db.runTransaction(async (tx) => {
+      code = await _getOrMintFriendCode(hid, tx);
+    });
+    return code;
+  } catch (e) {
+    console.warn(`[houseSocial] friendCode mint skip hid=${hid}: ${e.message || e}`);
+    return '';
+  }
+}
+async function _houseMaybeOutgoingFriendRequest(hid, glob, nowMs, todayWAT, budgetLeft) {
+  // Slow, human-like graph growth: ~1-2/week per bot, only to real players
+  // the bot actually played (mirrors the uid-path rule). Gated by the same
+  // caps humans hit: FRIEND_MAX, outgoing/day, peer inbox, decline cooldown.
+  if (!glob.outgoingEnabled) return 0;
+  if (budgetLeft <= 0) return 0;
+  try {
+    const stSnap = await db.collection('house_state').doc(hid).get().catch(() => null);
+    const lastOut = Number(stSnap?.exists ? (stSnap.data()?.lastOutgoingFriendAt || 0) : 0);
+    // ~3-4 day gap between sends per bot.
+    if (nowMs - lastOut < 3 * 24 * 3600 * 1000 && _houseJitter(99) < 90) return 0;
+    if (_houseJitter(99) >= 15) return 0;
+    const meSnap = await db.collection('users').doc(hid).get();
+    if (!meSnap.exists) return 0;
+    const me = meSnap.data() || {};
+    if (Number(me.friendCount || 0) >= FRIEND_MAX) return 0;
+    if ((me.outgoingReqDate === todayWAT ? Number(me.outgoingReqCount || 0) : 0) >= FRIEND_OUTGOING_PER_DAY) return 0;
+    // Candidates: recent opponents. Single-field read, no composite index.
+    const matches = await db.collection('users').doc(hid).collection('matches')
+      .orderBy('timestamp', 'desc').limit(20).get().catch(() => null);
+    if (!matches || matches.empty) return 0;
+    const cands = [];
+    for (const m of matches.docs) {
+      const peer = String(m.data()?.opponentUid || '');
+      if (!peer || peer === hid || peer === 'ghost') continue;
+      if (glob.accounts && glob.accounts.includes(peer)) continue;
+      cands.push(peer);
+    }
+    const uniq = [...new Set(cands)];
+    // Shuffle lightly so the same rival isn't always picked.
+    for (let i = uniq.length - 1; i > 0; i--) {
+      const j = _houseJitter(i);
+      [uniq[i], uniq[j]] = [uniq[j], uniq[i]];
+    }
+    for (const peer of uniq.slice(0, 5)) {
+      if (budgetLeft <= 0) return 0;
+      try {
+        const peerSnap = await db.collection('users').doc(peer).get().catch(() => null);
+        if (!peerSnap?.exists) continue;
+        const peerData = peerSnap.data() || {};
+        if (isAdminAccountUid(peer)) continue;
+        const pairId = _friendPairId(hid, peer);
+        const pairSnap = await db.collection('friendships').doc(pairId).get().catch(() => null);
+        const existing = pairSnap?.exists ? (pairSnap.data() || {}) : null;
+        if (existing) {
+          if (existing.status === 'blocked') continue; // silent skip, no oracle
+          if (existing.status === 'active' || existing.status === 'pending') continue;
+          if (existing.status === 'declined' && existing.requestedBy === hid) {
+            const declinedMs = _msOf(existing.declinedAt) || 0;
+            if (declinedMs && Date.now() - declinedMs < FRIEND_DECLINE_COOLDOWN_MS) continue;
+          }
+        }
+        const myLink = await db.collection('users').doc(hid).collection('friendLinks').doc(peer).get().catch(() => null);
+        if (myLink?.exists && (myLink.data()?.status === 'friend' || myLink.data()?.status === 'outgoing' || myLink.data()?.status === 'blocked')) continue;
+        // Peer inbox cap (same as human path).
+        const inbox = await db.collection('users').doc(peer).collection('friendLinks')
+          .where('status', '==', 'incoming').limit(FRIEND_INCOMING_MAX + 1).get().catch(() => null);
+        if (inbox && inbox.size >= FRIEND_INCOMING_MAX) continue;
+        if (Number(peerData.friendCount || 0) >= FRIEND_MAX) continue;
+        await db.runTransaction(async (tx) => {
+          const meRef = db.collection('users').doc(hid);
+          const peerRef = db.collection('users').doc(peer);
+          const pairRef = db.collection('friendships').doc(pairId);
+          const [meSnap2, peerSnap2, pairSnap2] = await Promise.all([tx.get(meRef), tx.get(peerRef), tx.get(pairRef)]);
+          if (!peerSnap2.exists) throw new Error('no_peer');
+          const cur = pairSnap2.exists ? (pairSnap2.data() || {}) : null;
+          if (cur && (cur.status === 'active' || cur.status === 'pending' || cur.status === 'blocked')) throw new Error('taken');
+          const meCount = Number((meSnap2.data() || {}).friendCount || 0);
+          if (meCount >= FRIEND_MAX) throw new Error('friend_cap');
+          const sent = ((meSnap2.data() || {}).outgoingReqDate === todayWAT) ? Number((meSnap2.data() || {}).outgoingReqCount || 0) : 0;
+          if (sent >= FRIEND_OUTGOING_PER_DAY) throw new Error('outgoing_cap');
+          const now = _houseVisibleTimestamp(hid, todayWAT, nowMs);
+          tx.set(pairRef, {
+            aUid: [hid, peer].sort()[0], bUid: [hid, peer].sort()[1],
+            status: 'pending', requestedBy: hid, createdAt: now,
+          }, { merge: true });
+          tx.set(meRef.collection('friendLinks').doc(peer), {
+            otherUid: peer, status: 'outgoing',
+            username: _sanitizeFriendUsername(peerSnap2.data().username), since: now,
+          });
+          tx.set(peerRef.collection('friendLinks').doc(hid), {
+            otherUid: hid, status: 'incoming',
+            username: _sanitizeFriendUsername((meSnap2.data() || {}).username), since: now,
+          });
+          tx.update(meRef, { outgoingReqDate: todayWAT, outgoingReqCount: sent + 1 });
+        });
+        try {
+          await sendToUser(peer, {
+            title: 'New friend request',
+            body: `${_sanitizeFriendUsername(me.username)} wants to add you as a friend.`,
+            data: { type: 'friend_request' },
+          });
+        } catch (_) { /* best-effort */ }
+        await db.collection('house_state').doc(hid).set({ lastOutgoingFriendAt: nowMs }, { merge: true });
+        await _houseBumpSocial(hid, todayWAT);
+        console.log(`[houseSocial] friend-out hid=${hid} peer=${peer.slice(0, 6)}`);
+        return 1;
+      } catch (e) {
+        console.warn(`[houseSocial] friend-out skip hid=${hid} peer=${peer.slice(0, 6)}: ${e.message || e}`);
+        continue;
+      }
+    }
+    return 0;
+  } catch (e) {
+    console.warn(`[houseSocial] friend-out failed hid=${hid}: ${e.message || e}`);
+    return 0;
+  }
+}
+async function _housePruneFriends(hid, glob, nowMs, todayWAT, budgetLeft) {
+  // Humans free slots: cancel stale outgoing (>7d, mirrors decline-cooldown
+  // thinking) and remove least-active friends when near FRIEND_MAX.
+  if (budgetLeft <= 0) return 0;
+  let used = 0;
+  try {
+    const meSnap = await db.collection('users').doc(hid).get().catch(() => null);
+    const meCount = meSnap?.exists ? Number(meSnap.data()?.friendCount || 0) : 0;
+    // 1) Cancel stale outgoing requests (>7d old, still pending).
+    try {
+      const out = await db.collection('users').doc(hid).collection('friendLinks')
+        .where('status', '==', 'outgoing').limit(10).get().catch(() => null);
+      if (out && !out.empty) {
+        for (const doc of out.docs) {
+          if (used >= budgetLeft) break;
+          const peer = String(doc.data()?.otherUid || doc.id || '');
+          const ageMs = nowMs - (_msOf(doc.data()?.since) || nowMs);
+          if (ageMs < 7 * 24 * 3600 * 1000) continue;
+          if (_houseJitter(99) < 50) continue; // humans don't sweep daily
+          try {
+            await db.runTransaction(async (tx) => {
+              const pairRef = db.collection('friendships').doc(_friendPairId(hid, peer));
+              const pairSnap = await tx.get(pairRef);
+              if (!pairSnap.exists) throw new Error('gone');
+              const p = pairSnap.data() || {};
+              if (p.status !== 'pending' || p.requestedBy !== hid) throw new Error('not_mine');
+              tx.delete(pairRef);
+              tx.delete(db.collection('users').doc(hid).collection('friendLinks').doc(peer));
+              tx.delete(db.collection('users').doc(peer).collection('friendLinks').doc(hid));
+            });
+            await _houseBumpSocial(hid, todayWAT);
+            used++;
+            console.log(`[houseSocial] cancel-out hid=${hid} peer=${peer.slice(0, 6)}`);
+          } catch (e) {
+            console.warn(`[houseSocial] cancel skip hid=${hid}: ${e.message || e}`);
+          }
+        }
+      }
+    } catch (_) { /* best-effort */ }
+    // 2) Evict one friend when near the cap so new blood can come in.
+    if (meCount >= FRIEND_MAX - 5 && used < budgetLeft && _houseJitter(99) < 30) {
+      try {
+        const friends = await db.collection('users').doc(hid).collection('friendLinks')
+          .where('status', '==', 'friend').limit(20).get().catch(() => null);
+        if (friends && !friends.empty) {
+          // Least-recently-seen first: check last match per candidate (max 8 reads).
+          let oldest = null;
+          let oldestMs = Infinity;
+          for (const doc of friends.docs.slice(0, 8)) {
+            const peer = String(doc.data()?.otherUid || doc.id || '');
+            if (!peer) continue;
+            const m = await db.collection('users').doc(hid).collection('matches')
+              .where('opponentUid', '==', peer).orderBy('timestamp', 'desc').limit(1).get().catch(() => null);
+            const ts = m && !m.empty ? (_msOf(m.docs[0].data()?.timestamp) || 0) : 0;
+            if (ts < oldestMs) { oldestMs = ts; oldest = peer; }
+          }
+          const victim = oldest || String(friends.docs[_houseJitter(friends.docs.length - 1)].data()?.otherUid || '');
+          if (victim) {
+            await db.runTransaction(async (tx) => {
+              const pairRef = db.collection('friendships').doc(_friendPairId(hid, victim));
+              const pairSnap = await tx.get(pairRef);
+              if (!pairSnap.exists || (pairSnap.data() || {}).status !== 'active') throw new Error('not_active');
+              const meRef = db.collection('users').doc(hid);
+              const peerRef = db.collection('users').doc(victim);
+              const [meS, peerS] = await Promise.all([tx.get(meRef), tx.get(peerRef)]);
+              tx.delete(pairRef);
+              tx.delete(meRef.collection('friendLinks').doc(victim));
+              tx.delete(peerRef.collection('friendLinks').doc(hid));
+              const mc = Number((meS.data() || {}).friendCount || 0);
+              const pc = Number((peerS.data() || {}).friendCount || 0);
+              if (mc > 0) tx.set(meRef, { friendCount: mc - 1 }, { merge: true });
+              if (pc > 0) tx.set(peerRef, { friendCount: pc - 1 }, { merge: true });
+            });
+            await _houseBumpSocial(hid, todayWAT);
+            used++;
+            console.log(`[houseSocial] remove-friend hid=${hid} peer=${victim.slice(0, 6)}`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[houseSocial] prune skip hid=${hid}: ${e.message || e}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[houseSocial] prune failed hid=${hid}: ${e.message || e}`);
+  }
+  return used;
+}
+async function _houseMaybeNudge(hid, glob, nowMs, todayWAT, budgetLeft) {
+  // Humans poke friends who owe them a move, ~once/day per friend. Uses the
+  // same their-turn rule + daily stamp as nudgeFriend (server-side, no auth).
+  if (budgetLeft <= 0) return 0;
+  if (_houseJitter(99) >= 25) return 0; // ~1 nudge per 4 ticks max
+  try {
+    const { theirTurn } = await _duelTurnsFor(hid);
+    if (!theirTurn || theirTurn.size === 0) return 0;
+    const peers = [...theirTurn].filter((p) => p && p !== 'ghost' && !(glob.accounts || []).includes(p));
+    if (!peers.length) return 0;
+    const peer = peers[_houseJitter(peers.length - 1)];
+    const pairRef = db.collection('friendships').doc(_friendPairId(hid, peer));
+    const pairSnap = await pairRef.get().catch(() => null);
+    if (!pairSnap?.exists || (pairSnap.data() || {}).status !== 'active') return 0;
+    const nudgeKey = `${hid}_${peer}`;
+    const lastMap = (pairSnap.data()?.lastNudgeAt && typeof pairSnap.data().lastNudgeAt === 'object')
+      ? pairSnap.data().lastNudgeAt : {};
+    const lastTs = lastMap[nudgeKey];
+    if (lastTs && lastTs.toDate && _watDateString(lastTs.toDate()) === todayWAT) return 0;
+    // Resolve latest their-turn duel for context (same filter as callable).
+    const [asC, asO] = await Promise.all([
+      db.collection('challenges').where('creatorUid', '==', hid).where('opponentUid', '==', peer).limit(5).get().catch(() => null),
+      db.collection('challenges').where('creatorUid', '==', peer).where('opponentUid', '==', hid).limit(5).get().catch(() => null),
+    ]);
+    const cands = [...((asC?.docs) || []), ...((asO?.docs) || [])]
+      .map((d) => ({ id: d.id, ...(d.data() || {}) }))
+      .filter((c) => _theirTurnOnChallenge(c, peer))
+      .sort((a, b) => (_msOf(b.createdAt) || 0) - (_msOf(a.createdAt) || 0));
+    if (!cands.length) return 0;
+    const ch = cands[0];
+    let prevStamp;
+    await db.runTransaction(async (tx) => {
+      const cur = ((await tx.get(pairRef)).data() || {});
+      const lm = (cur.lastNudgeAt && typeof cur.lastNudgeAt === 'object') ? cur.lastNudgeAt : {};
+      const lt = lm[nudgeKey];
+      if (lt && lt.toDate && _watDateString(lt.toDate()) === todayWAT) throw new Error('nudged');
+      prevStamp = lt;
+      tx.set(pairRef, { lastNudgeAt: { ...lm, [nudgeKey]: FieldValue.serverTimestamp() } }, { merge: true });
+    });
+    try {
+      const meDoc = await db.collection('users').doc(hid).get();
+      const sender = _sanitizeFriendUsername(meDoc.data()?.username);
+      const anime = String(ch.animeTitle || 'your duel').slice(0, 40);
+      await _sendPushOrThrow(peer, { title: 'Your turn!', body: `${sender} is waiting in ${anime}.` });
+    } catch (err) {
+      await pairRef.update({ [`lastNudgeAt.${nudgeKey}`]: prevStamp ?? FieldValue.delete() }).catch(() => {});
+      return 0; // no token / push failed: don't burn budget, try later
+    }
+    await _houseBumpSocial(hid, todayWAT);
+    console.log(`[houseSocial] nudge hid=${hid} peer=${peer.slice(0, 6)} cid=${ch.id}`);
+    return 1;
+  } catch (e) {
+    console.warn(`[houseSocial] nudge skip hid=${hid}: ${e.message || e}`);
+    return 0;
+  }
+}
+async function _houseMaybeOutgoing(hid, glob, nowMs, todayWAT, budgetLeft) {
+  if (!glob.outgoingEnabled) return 0;
+  if (budgetLeft <= 0) return 0;
+  if (_houseJitter(99) >= 12) return 0; // ~1 outgoing per 8 ticks per bot
+  try {
+    const uSnap = await db.collection('users').doc(hid).get();
+    const u = uSnap.exists ? (uSnap.data() || {}) : {};
+    const createdToday = u.challengesCreatedDate === todayWAT ? Number(u.challengesCreatedToday || 0) : 0;
+    const sparsToday = u.sparsCreatedDate === todayWAT ? Number(u.sparsCreatedToday || 0) : 0;
+    const friends = await db.collection('users').doc(hid).collection('friendLinks')
+      .where('status', '==', 'friend').limit(20).get().catch(() => null);
+    if (!friends || friends.empty) return 0;
+    const map = _getRivalCooldownMap(u);
+    const stBack = await db.collection('house_state').doc(hid).get().catch(() => null);
+    const backoffState = stBack?.exists ? (stBack.data() || {}) : {};
+    // Shuffle friends so a refuser never blocks the queue — try the next one.
+    const order = [...friends.docs];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = _houseJitter(i);
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    let peer = '';
+    let wantSpar = true;
+    let peerFound = false;
+    for (const candDoc of order) {
+      const cand = String(candDoc.data()?.otherUid || candDoc.id || '');
+      if (!cand || _houseBackedOff(backoffState, cand, nowMs)) continue;
+      const sparRoll = _houseJitter(99) < 75;
+      if (!sparRoll && _rivalCooldownRemainingHours(map, cand, WP_COOLDOWN_PREMIUM_HOURS, nowMs) > 0) {
+        try {
+          const rSnap = await db.collection('rivalries').doc([hid, cand].sort().join('_')).get().catch(() => null);
+          const r = rSnap?.exists ? (rSnap.data() || {}) : {};
+          const inSeries = r.status === 'active' && ((Number(r.winsA) || 0) + (Number(r.winsB) || 0)) > 0;
+          if (!inSeries) continue; // cooldown-gated: try the next friend
+        } catch (_) { continue; }
+      }
+      peer = cand;
+      wantSpar = sparRoll;
+      peerFound = true;
+      break;
+    }
+    if (!peerFound) return 0;
+    if (wantSpar && sparsToday >= SPAR_DAILY_PREMIUM) return 0;
+    if (!wantSpar && createdToday >= DAILY_CHALLENGE_CREATE_PREMIUM) return 0;
+    const catalog = await _loadAnimeCatalog();
+    const title = catalog[_houseJitter(catalog.length - 1)];
+    const qSnap = await db.collection('questions').where('animeTitle', '==', title).limit(10).get().catch(() => null);
+    if (!qSnap || qSnap.size < 10) return 0;
+    const questionIds = qSnap.docs.slice(0, 10).map((d) => d.id);
+    const peerSnap = await db.collection('users').doc(peer).get().catch(() => null);
+    const peerName = peerSnap?.exists ? String(peerSnap.data()?.username || 'Anonymous') : 'Anonymous';
+    // Stakes: usually 20-500 AC / 5-100 WP; ~8% high-stake takes 2000-5000 AC
+    // / 200-400 WP like a confident human (fix 6). Caps enforced below by join
+    // gates and balances.
+    const highRoll = _houseJitter(99) < 8;
+    const stakeAmount = wantSpar ? 0 : highRoll
+      ? Math.min(5000, 2000 + _houseJitter(300) * 10)
+      : (20 + _houseJitter(48) * 10); // 20–500 AC
+    const wpStake = wantSpar ? 0 : highRoll
+      ? Math.min(400, 200 + _houseJitter(40) * 5)
+      : (5 + _houseJitter(19) * 5); // 5–100 WP
+    if (!wantSpar) {
+      if (Number(u.animeCoins || 0) < stakeAmount || Number(u.weeklyPoints || 0) < wpStake) return 0;
+    }
+    const code = _generateCode();
+    const cRef = db.collection('challenges').doc(code);
+    const now = new Date();
+    await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(db.collection('users').doc(hid));
+      const f = fresh.data() || {};
+      const upd = {};
+      if (!wantSpar) {
+        upd.animeCoins = FieldValue.increment(-stakeAmount);
+        upd.weeklyPoints = FieldValue.increment(-wpStake);
+        upd.challengesCreatedToday = (f.challengesCreatedDate === todayWAT ? Number(f.challengesCreatedToday || 0) : 0) + 1;
+        upd.challengesCreatedDate = todayWAT;
+        upd.wpStakedToday = (f.wpStakedDate === todayWAT ? Number(f.wpStakedToday || 0) : 0) + wpStake;
+        upd.wpStakedDate = todayWAT;
+        upd.rivalCooldowns = _touchRivalCooldownMap(_getRivalCooldownMap(f), peer, nowMs);
+        upd.lastRivalChallenge = FieldValue.serverTimestamp();
+        upd.lastRivalUid = peer;
+      } else {
+        upd.sparsCreatedToday = (f.sparsCreatedDate === todayWAT ? Number(f.sparsCreatedToday || 0) : 0) + 1;
+        upd.sparsCreatedDate = todayWAT;
+      }
+      tx.update(db.collection('users').doc(hid), upd);
+      tx.set(cRef, {
+        creatorUid: hid,
+        creatorUsername: f.username || 'Anonymous',
+        opponentUid: peer,
+        opponentUsername: peerName,
+        animeTitle: title,
+        questionIds,
+        stakeAmount,
+        wpStake,
+        challengeType: wantSpar ? 'spar' : 'rival',
+        status: 'waiting',
+        createdAt: _houseVisibleTimestamp(hid, todayWAT, nowMs),
+        expiresAt: Timestamp.fromDate(new Date(now.getTime() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000)),
+        shareCode: code,
+        houseOutgoing: true,
+      });
+    });
+    // Creator plays its own seat after a human delay.
+    const st = await db.collection('house_state').doc(hid).get().catch(() => null);
+    const pend = { ...((st?.exists && st.data()?.pendingPlays) || {}) };
+    pend[code] = nowMs + (30 + _houseJitter(90)) * 60 * 1000;
+    await db.collection('house_state').doc(hid).set({ pendingPlays: pend }, { merge: true });
+    await _houseBumpSocial(hid, todayWAT);
+    console.log(`[houseSocial] outgoing hid=${hid} cid=${code} spar=${wantSpar} vs=${peer.slice(0, 6)}`);
+    return 1;
+  } catch (e) {
+    console.warn(`[houseSocial] outgoing skip hid=${hid}: ${e.message || e}`);
+    return 0;
+  }
+}
+async function _houseMaybeHouseEdge(hid, fellowIds, glob, nowMs, todayWAT, budgetLeft) {
+  // Fix 6: 1-2 house-house friendships so the bot graph isn't a perfect
+  // bipartite real-only star. Rare (~3% of ticks), capped like human adds.
+  if (budgetLeft <= 0) return 0;
+  if (_houseJitter(99) >= 3) return 0;
+  const cands = (fellowIds || []).filter((x) => x && x !== hid);
+  if (!cands.length) return 0;
+  const peer = cands[_houseJitter(cands.length - 1)];
+  try {
+    const [meSnap, peerSnap] = await Promise.all([
+      db.collection('users').doc(hid).get().catch(() => null),
+      db.collection('users').doc(peer).get().catch(() => null),
+    ]);
+    if (!meSnap?.exists || !peerSnap?.exists) return 0;
+    const me = meSnap.data() || {};
+    const peerData = peerSnap.data() || {};
+    if (Number(me.friendCount || 0) >= FRIEND_MAX || Number(peerData.friendCount || 0) >= FRIEND_MAX) return 0;
+    if ((me.outgoingReqDate === todayWAT ? Number(me.outgoingReqCount || 0) : 0) >= FRIEND_OUTGOING_PER_DAY) return 0;
+    const pairId = _friendPairId(hid, peer);
+    const pairSnap = await db.collection('friendships').doc(pairId).get().catch(() => null);
+    if (pairSnap?.exists) return 0;
+    const myLink = await db.collection('users').doc(hid).collection('friendLinks').doc(peer).get().catch(() => null);
+    if (myLink?.exists) return 0;
+    const inbox = await db.collection('users').doc(peer).collection('friendLinks')
+      .where('status', '==', 'incoming').limit(FRIEND_INCOMING_MAX + 1).get().catch(() => null);
+    if (inbox && inbox.size >= FRIEND_INCOMING_MAX) return 0;
+    await db.runTransaction(async (tx) => {
+      const meRef = db.collection('users').doc(hid);
+      const peerRef = db.collection('users').doc(peer);
+      const pairRef = db.collection('friendships').doc(pairId);
+      const [meSnap2, peerSnap2, pairSnap2] = await Promise.all([tx.get(meRef), tx.get(peerRef), tx.get(pairRef)]);
+      if (!peerSnap2.exists) throw new Error('no_peer');
+      if (pairSnap2.exists) throw new Error('taken');
+      const sent = ((meSnap2.data() || {}).outgoingReqDate === todayWAT) ? Number((meSnap2.data() || {}).outgoingReqCount || 0) : 0;
+      if (sent >= FRIEND_OUTGOING_PER_DAY) throw new Error('outgoing_cap');
+      const now = _houseVisibleTimestamp(hid, todayWAT, nowMs);
+      tx.set(pairRef, {
+        aUid: [hid, peer].sort()[0], bUid: [hid, peer].sort()[1],
+        status: 'pending', requestedBy: hid, createdAt: now,
+      }, { merge: true });
+      tx.set(meRef.collection('friendLinks').doc(peer), {
+        otherUid: peer, status: 'outgoing',
+        username: _sanitizeFriendUsername(peerSnap2.data().username), since: now,
+      });
+      tx.set(peerRef.collection('friendLinks').doc(hid), {
+        otherUid: hid, status: 'incoming',
+        username: _sanitizeFriendUsername((meSnap2.data() || {}).username), since: now,
+      });
+      tx.update(meRef, { outgoingReqDate: todayWAT, outgoingReqCount: sent + 1 });
+    });
+    await db.collection('house_state').doc(hid).set({ lastOutgoingFriendAt: nowMs }, { merge: true });
+    await _houseBumpSocial(hid, todayWAT);
+    console.log(`[houseSocial] house-edge hid=${hid} peer=${peer.slice(0, 6)}`);
+    return 1;
+  } catch (e) {
+    console.warn(`[houseSocial] house-edge skip hid=${hid}: ${e.message || e}`);
+    return 0;
+  }
+}
+async function _houseMaybeUnlock(hid, glob, todayWAT, nowMs = 0) {
+  if (!glob.unlockAnimeEnabled) return;
+  if (_houseJitter(99) >= 10) return; // ~10% of ticks
+  try {
+    const ref = db.collection('users').doc(hid);
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const u = snap.data() || {};
+    if (Number(u.animeCoins || 0) < EARLY_UNLOCK_COST + 2000) return;
+    const unlocked = Array.isArray(u.unlockedAnimes) ? u.unlockedAnimes : [];
+    if (unlocked.length >= 8) return;
+    const catalog = await _loadAnimeCatalog();
+    const locked = catalog.filter((t) => !unlocked.includes(t));
+    if (!locked.length) return;
+    const title = locked[_houseJitter(locked.length - 1)];
+    await db.runTransaction(async (tx) => {
+      const fresh = (await tx.get(ref)).data() || {};
+      const cur = Array.isArray(fresh.unlockedAnimes) ? fresh.unlockedAnimes : [];
+      if (cur.includes(title)) return;
+      if (Number(fresh.animeCoins || 0) < EARLY_UNLOCK_COST) throw new Error('poor');
+      tx.update(ref, { animeCoins: FieldValue.increment(-EARLY_UNLOCK_COST), unlockedAnimes: FieldValue.arrayUnion(title) });
+      tx.delete(ref.collection('cooldowns').doc(title));
+      tx.set(ref.collection('coinTransactions').doc(), {
+        type: 'spend_unlock', delta: -EARLY_UNLOCK_COST,
+        balanceAfter: Number(fresh.animeCoins || 0) - EARLY_UNLOCK_COST,
+        timestamp: nowMs ? _houseVisibleTimestamp(hid, todayWAT, nowMs) : FieldValue.serverTimestamp(),
+      });
+    });
+    console.log(`[houseSocial] unlock hid=${hid} anime=${title}`);
+  } catch (e) {
+    console.warn(`[houseSocial] unlock skip hid=${hid}: ${e.message || e}`);
+  }
+}
+async function _houseSocialCore(now = new Date()) {
+  let glob;
+  try {
+    glob = await _houseGlobal();
+  } catch (e) {
+    console.warn(`[houseSocial] global read failed: ${e.message || e}`);
+    return { skipped: 'global' };
+  }
+  if (!glob.enabled || glob.socialEnabled === false || !glob.accounts.length) return { skipped: 'disabled' };
+  const nowMs = now instanceof Date ? now.getTime() : Date.now();
+  const todayWAT = _watDateString(now instanceof Date ? now : new Date());
+  const inWindow = _inHouseWindow(now instanceof Date ? now : new Date());
+  const weekId = currentWeekId();
+  const active = _houseActiveSet(glob, weekId);
+  const socialPodium = active.accounts.length ? active.accounts : [...glob.accounts];
+  const socialChasers = (glob.chaserEnabled !== false && active.chasers.length) ? active.chasers : [];
+  // Chasers socialize at a reduced rate so mid-board accounts have friends and
+  // duels too (previously only podium acted — a graph tell).
+  const socialQueue = [
+    ...socialPodium.map((hid) => ({ hid, chaser: false })),
+    ...socialChasers.filter(() => _houseJitter(99) < 40).map((hid) => ({ hid, chaser: true })),
+  ];
+  for (let i = 0; i < socialQueue.length; i++) {
+    const hid = socialQueue[i].hid;
+    try {
+      if ((glob.paused || []).includes(hid)) continue;
+      // Per-bot desync so they never act on the same tick.
+      if (_houseJitter(99) < 30) continue;
+      const { d: st } = await _houseSocialState(hid);
+      const uSnap = await db.collection('users').doc(hid).get().catch(() => null);
+      const u = uSnap?.exists ? (uSnap.data() || {}) : {};
+      await _houseEnsureBankroll(hid, u, todayWAT, nowMs);
+      await _houseEnsureFriendCode(hid);
+      await _houseMaybeUnlock(hid, glob, todayWAT, nowMs);
+      let budget = _houseSocialBudgetLeft(st, glob, todayWAT);
+      if (budget <= 0) continue;
+      // Outside prime windows: only finish pending plays, rarely.
+      if (!inWindow && _houseJitter(99) < 60) {
+        await _houseProcessPendingPlays(hid, glob, { ...st, pendingPlays: st.pendingPlays || {} }, nowMs, todayWAT, budget);
+        continue;
+      }
+      let used = 0;
+      used += await _houseProcessFriends(hid, glob, nowMs, todayWAT, budget - used);
+      used += await _housePruneFriends(hid, glob, nowMs, todayWAT, budget - used);
+      if (glob.outgoingEnabled) {
+        used += await _houseMaybeOutgoingFriendRequest(hid, glob, nowMs, todayWAT, budget - used);
+        used += await _houseMaybeHouseEdge(hid, [...socialPodium, ...socialChasers], glob, nowMs, todayWAT, budget - used);
+      }
+      const st2 = (await _houseSocialState(hid)).d;
+      used += await _houseProcessInvites(hid, glob, st2, nowMs, todayWAT, budget - used);
+      const st3 = (await _houseSocialState(hid)).d;
+      used += await _houseProcessPendingPlays(hid, glob, st3, nowMs, todayWAT, budget - used);
+      used += await _houseMaybeNudge(hid, glob, nowMs, todayWAT, budget - used);
+      if (glob.outgoingEnabled) {
+        used += await _houseMaybeOutgoing(hid, glob, nowMs, todayWAT, budget - used);
+      }
+    } catch (e) {
+      console.warn(`[houseSocial] bot failed hid=${hid}: ${e.message || e}`);
+    }
+  }
+  return { success: true, day: todayWAT };
+}
+async function _houseDuelCore() {
+  // Back-compat alias: the tick now runs the full social core.
+  return _houseSocialCore(new Date());
 }
 
 // ─── Identity Platform blocking functions (opt-in) ─────────────────────────
@@ -16403,5 +18072,37 @@ if (process.env.NODE_ENV === 'test') {
     _recordPayoutAccount,
     _payoutAccountHash,
     _resetIntegrityLogCache: () => _integrityMissLogged.clear(),
+    // House social seams.
+    _houseHash,
+    _houseShuffleOrder,
+    _houseFormFor,
+    _houseWeeklyGoal,
+    _houseWatParts,
+    _houseIsDayOff,
+    _houseInSession,
+    _houseVisibleAtMs,
+    _houseVisibleTimestamp,
+    _houseActiveSet,
+    _houseMaybeHouseEdge,
+    _houseSocialCore,
+    _houseDuelCore,
+    _houseTargetScore,
+    _houseIsHighStake,
+    _houseSocialNum,
+    _houseMaybeNudge,
+    _housePruneFriends,
+    _houseMaybeOutgoingFriendRequest,
+    _houseEnsureFriendCode,
+    _houseBackedOff,
+    _houseNoteRefusal,
+    _houseProcessFriends,
+    _houseProcessInvites,
+    _houseProcessPendingPlays,
+    _houseMaybeOutgoing,
+    _houseJoinTx,
+    _houseDeclineTx,
+    _houseSubmitTx,
+    _houseSocialState,
+    _houseSocialBudgetLeft,
   };
 }

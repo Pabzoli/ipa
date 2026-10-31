@@ -16,8 +16,7 @@
 // functions. Never mark a real claim paid while testing.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:quiz/features/admin/admin_payout_dashboard.dart'
-    show formatNaira;
+import 'package:quiz/features/admin/widgets/admin_shared.dart' show adminNaira;
 import 'package:quiz/features/admin/admin_payout_service.dart';
 
 AdminClaimInfo _claim({
@@ -26,6 +25,12 @@ AdminClaimInfo _claim({
   double share = 700,
   String? accountNumber = '0123456789',
   String? beneficiaryName = 'Test Winner',
+  String? enforcementLevel,
+  bool payoutHold = false,
+  bool suspended = false,
+  bool leaderboardExcluded = false,
+  bool payoutAccountShared = false,
+  int? payoutAccountUidCount,
 }) {
   return AdminClaimInfo(
     uid: 'winner-uid-1',
@@ -45,6 +50,12 @@ AdminClaimInfo _claim({
     fraudBand: null,
     fraudReasons: const [],
     fraudScoredAt: null,
+    enforcementLevel: enforcementLevel,
+    payoutHold: payoutHold,
+    suspended: suspended,
+    leaderboardExcluded: leaderboardExcluded,
+    payoutAccountShared: payoutAccountShared,
+    payoutAccountUidCount: payoutAccountUidCount,
   );
 }
 
@@ -101,14 +112,21 @@ void main() {
     });
   });
 
-  group('formatNaira (display only — amounts always come from server)', () {
+  group('adminNaira (display only — amounts always come from server)', () {
     test('formats whole naira with separators', () {
-      expect(formatNaira(700), '₦700');
-      expect(formatNaira(12500), '₦12,500');
+      expect(adminNaira(700), '₦700');
+      expect(adminNaira(12500), '₦12,500');
     });
 
     test('keeps kobo decimals when present', () {
-      expect(formatNaira(1234.5), '₦1,234.50');
+      expect(adminNaira(1234.5), '₦1,234.50');
+    });
+
+    test('enforcement hold is display-only and never payable on its own', () {
+      final c = _claim(claimStatus: 'pending', payoutHold: true);
+      expect(c.hasEnforcementHold, isTrue);
+      expect(c.enforcementLabel, 'PAYOUT HOLD');
+      expect(c.needsPayment, isTrue);
     });
   });
 
