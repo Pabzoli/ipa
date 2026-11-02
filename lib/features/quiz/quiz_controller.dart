@@ -884,22 +884,72 @@ class QuizController extends ChangeNotifier {
   /// submit instead of lost points. Bounded: a dead network fails fast into
   /// the normal submit error path.
   Future<void> _awaitPendingLocks() async {
-    if (_pendingLocks.isEmpty) return;
-    try {
-      await Future.wait(_pendingLocks.values).timeout(
-        const Duration(seconds: 10),
-      );
-    } catch (_) {
-      // Timeouts and lock errors are handled below; never trap the submit.
+    if (_pendingLocks.isNotEmpty) {
+      try {
+        await Future.wait(_pendingLocks.values).timeout(
+          const Duration(seconds: 10),
+        );
+      } catch (_) {
+        // Timeouts and lock errors are handled below; never trap the submit.
+      }
     }
-    if (_lockFailed.isEmpty || _disposed) return;
-    final retry = _lockFailed.toList();
-    _lockFailed.clear();
+    if (_disposed) return;
+    if (_lockFailed.isNotEmpty) {
+      final retry = _lockFailed.toList();
+      _lockFailed.clear();
+      final retryRunId = _runId;
+      if (retryRunId != null) {
+        for (final i in retry) {
+          if (_disposed) return;
+          if (i < 0 || i >= _selectedAnswers.length) continue;
+          try {
+            await _invokeSubmitCallable('submitAnswer', {
+              'runId': retryRunId,
+              'questionIndex': i,
+              'selectedAnswer': _selectedAnswers[i],
+              ...AppUpdateService.instance.clientBuildStamp,
+            }).timeout(const Duration(seconds: 5));
+          } catch (_) {
+            // Still failing: the gap scores -1 via the server fill, and the
+            // submit below surfaces a dead run honestly.
+          }
+        }
+      }
+    }
+    // Reconcile locks that never landed (e.g. ghost matches refused every
+    // optimistic lock with challenge_not_active before the server gate
+    // accepted status 'ghost' — _lockDuelAnswer reports those as false
+    // without populating _lockFailed, so the retry above sees nothing).
+    // Re-lock every unconfirmed index in order; already-locked questions are
+    // idempotent (already:true) so this is a no-op when everything landed.
     final runId = _runId;
-    if (runId == null) return;
-    for (final i in retry) {
+    if (_disposed ||
+        runId == null ||
+        runId.isEmpty ||
+        _selectedAnswers.isEmpty) {
+      return;
+    }
+    final confirmed = <int>{};
+    for (final entry in _pendingLocks.entries) {
+      try {
+        final ok = await entry.value.timeout(const Duration(seconds: 1));
+        if (ok == true) confirmed.add(entry.key);
+      } catch (_) {
+        // Treat as unconfirmed — repaired below.
+      }
       if (_disposed) return;
-      if (i < 0 || i >= _selectedAnswers.length) continue;
+    }
+    var needsRepair = false;
+    for (var i = 0; i < _selectedAnswers.length; i++) {
+      if (!confirmed.contains(i)) {
+        needsRepair = true;
+        break;
+      }
+    }
+    if (!needsRepair) return;
+    for (var i = 0; i < _selectedAnswers.length; i++) {
+      if (_disposed) return;
+      if (confirmed.contains(i)) continue;
       try {
         await _invokeSubmitCallable('submitAnswer', {
           'runId': runId,
@@ -907,9 +957,11 @@ class QuizController extends ChangeNotifier {
           'selectedAnswer': _selectedAnswers[i],
           ...AppUpdateService.instance.clientBuildStamp,
         }).timeout(const Duration(seconds: 5));
+        confirmed.add(i);
+        _pendingLocks[i] = Future.value(true);
       } catch (_) {
-        // Still failing: the gap scores -1 via the server fill, and the
-        // submit below surfaces a dead run honestly.
+        // Leave unconfirmed: submitRun surfaces the dead run honestly, and
+        // the server fills the gap as -1 rather than trapping the player.
       }
     }
   }

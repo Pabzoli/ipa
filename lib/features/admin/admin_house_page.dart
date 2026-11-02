@@ -203,8 +203,66 @@ class _AdminHousePageState extends State<AdminHousePage> {
                 ),
                 SizedBox(height: AppSpacing.sm.h),
               ],
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Chasers (mid-board)',
+                        style: AppTypography.titleMedium),
+                    SizedBox(height: AppSpacing.xs.h),
+                    Text(
+                      'Optional mid-pack bots below the podium. The toggle writes chaserEnabled; the engine treats a missing flag as ON.',
+                      style: AppTypography.bodySmall
+                          .copyWith(color: AppColors.textSecondary),
+                    ),
+                    SizedBox(height: AppSpacing.sm.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${(g['chaserEnabled'] as bool?) ?? true ? 'Chasers ON' : 'Chasers OFF'} · ${((g['chasers'] as List?) ?? const []).length} configured · ${data.chasers.length} on board',
+                            style: AppTypography.labelLarge.copyWith(
+                              color: ((g['chaserEnabled'] as bool?) ?? true)
+                                  ? AppColors.correct
+                                  : AppColors.wrong,
+                            ),
+                          ),
+                        ),
+                        AppButton(
+                          label: ((g['chaserEnabled'] as bool?) ?? true)
+                              ? 'Disable'
+                              : 'Enable',
+                          variant: AppButtonVariant.outline,
+                          size: AppButtonSize.small,
+                          loading: _busy,
+                          onPressed: _busy
+                              ? null
+                              : () => _run(
+                                    () => AdminHouseService.instance.save({
+                                      'chaserEnabled':
+                                          !(((g['chaserEnabled'] as bool?) ??
+                                              true)),
+                                    }),
+                                    'Chasers updated.',
+                                  ),
+                        ),
+                      ],
+                    ),
+                    if (data.chasers.isEmpty) ...[
+                      SizedBox(height: AppSpacing.xs.h),
+                      Text(
+                        'No chaser rows on this week board. Create them with scripts/create_chaser_accounts.js, then enable here.',
+                        style: AppTypography.bodySmall
+                            .copyWith(color: AppColors.textMuted),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              SizedBox(height: AppSpacing.sm.h),
               if (data.chasers.isNotEmpty) ...[
-                Text('Chasers (mid-board)', style: AppTypography.titleMedium),
+                Text('On the board (${data.chasers.length})',
+                    style: AppTypography.titleMedium),
                 SizedBox(height: AppSpacing.xs.h),
                 for (var i = 0; i < data.chasers.length; i++) ...[
                   _HouseCard(
@@ -253,7 +311,7 @@ class _AdminHousePageState extends State<AdminHousePage> {
                       runSpacing: AppSpacing.sm.r,
                       children: [
                         _GapChip(
-                            label: 'gap1 ${g['gap1'] ?? 95}',
+                            label: 'gap1 ${g['gap1'] ?? 110}',
                             onTap: _busy
                                 ? null
                                 : () => _run(
@@ -267,7 +325,7 @@ class _AdminHousePageState extends State<AdminHousePage> {
                                         .save({'gap1': 120}),
                                     'gap1 set to 120.')),
                         _GapChip(
-                            label: 'gap2 ${g['gap2'] ?? 75}',
+                            label: 'gap2 ${g['gap2'] ?? 85}',
                             onTap: _busy
                                 ? null
                                 : () => _run(
@@ -275,7 +333,7 @@ class _AdminHousePageState extends State<AdminHousePage> {
                                         .save({'gap2': 75}),
                                     'gap2 set to 75.')),
                         _GapChip(
-                            label: 'gap3 ${g['gap3'] ?? 70}',
+                            label: 'gap3 ${g['gap3'] ?? 95}',
                             onTap: _busy
                                 ? null
                                 : () => _run(
@@ -283,7 +341,7 @@ class _AdminHousePageState extends State<AdminHousePage> {
                                         .save({'gap3': 70}),
                                     'gap3 set to 70.')),
                         _GapChip(
-                            label: 'reserve ${g['reserve'] ?? 620}',
+                            label: 'reserve ${g['reserve'] ?? 1200}',
                             onTap: _busy
                                 ? null
                                 : () => _run(
@@ -349,14 +407,14 @@ class _AdminHousePageState extends State<AdminHousePage> {
                       children: [
                         _GapChip(
                             label:
-                                'duel ${g['duelAcceptRate'] ?? 70}% / win ${g['winRate'] ?? 80}%',
+                                'duel ${g['duelAcceptRate'] ?? 65}% / win ${g['winRate'] ?? 60}%',
                             onTap: null),
                         _GapChip(
-                            label: 'spar ${g['sparAcceptRate'] ?? 80}%',
+                            label: 'spar ${g['sparAcceptRate'] ?? 75}%',
                             onTap: null),
                         _GapChip(
                             label:
-                                'high-stake ${g['highStakeAcceptRate'] ?? 40}%',
+                                'high-stake ${g['highStakeAcceptRate'] ?? 35}%',
                             onTap: null),
                         _GapChip(
                             label:

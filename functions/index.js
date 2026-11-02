@@ -9556,7 +9556,7 @@ exports.submitAnswer = onSecureCall(
       if (!lockCreator && !lockOpponent) throw new HttpsError('permission-denied', 'not_a_participant');
       if (challenge[lockCreator ? 'creatorScore' : 'opponentScore'] != null) throw new HttpsError('failed-precondition', 'score_already_submitted');
       const lockAllowed = lockCreator
-        ? ['waiting', 'opponent_joined', 'opponent_submitted']
+        ? ['waiting', 'opponent_joined', 'opponent_submitted', 'ghost']
         : ['opponent_joined', 'creator_submitted'];
       if (!lockAllowed.includes(challenge.status)) throw new HttpsError('failed-precondition', 'challenge_not_active');
       if (lockOpponent && challenge.opponentUid !== 'ghost' && !challenge.joinedAt) throw new HttpsError('failed-precondition', 'challenge_not_active');
