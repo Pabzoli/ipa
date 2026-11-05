@@ -49,6 +49,10 @@ const WP_DAILY_SOFT_CAP = 300;
 // ─── Non-QM challenge WP rewards ────────────────────────────────────────────
 const CHALLENGE_WIN_WP  = 50;
 const CHALLENGE_DRAW_WP = 25;
+// Small loser participation so a loss never logs 0 WP (bot tell). Stakes
+// still settle the same: loser gets no stake back, just this flat mint
+// (premium 1.2x + soft cap apply like win/draw).
+const CHALLENGE_LOSE_WP = 8;
 
 // Quick Match flat rewards �?mirrors ChallengeModel.quickMatchAcWin /
 // quickMatchAcDraw / quickMatchAcLose / quickMatchWpWin / quickMatchWpDraw /
@@ -299,11 +303,38 @@ async function _assertAppCheck(request, fnName) {
 // App Check enforcement exists in exactly one place and cannot be forgotten on
 // a newly added function. The handler signature is unchanged, which keeps the
 // in-memory test harness (`fn.run(request)`) working.
-function onSecureCall(options, handler) {
+//
+// The wrapper also enforces single-device login (see _assertSingleSession):
+// every authenticated call carries the ID-token `auth_time` of the login that
+// issued it, and the server compares it against users/{uid}.activeSession.
+// A login that has since been superseded by a newer login on another device is
+// rejected with `failed-precondition / session_superseded`. Callables that must
+// stay reachable without (or before) a session pass `{ skipSession: true }:
+// claimSession / releaseSession (the lifecycle itself), ensureProfile (first
+// claim ordering + legacy retries), acceptTerms (one-time compliance),
+// deleteAccount (privacy promise — same reason it skips the build gate), and
+// the pre-auth lockout trio (usually unauthenticated anyway).
+//
+// AUTO-BAN: the wrapper also enforces the silent enforcement ladder centrally.
+// Any caller whose enforcement state is `suspended` is rejected here with
+// `failed-precondition / account_under_review`, so a ban takes effect on every
+// economy path without each handler remembering to check. Callables that must
+// stay reachable for a banned account pass `{ skipSuspension: true }`:
+// claimSession / releaseSession (sign-out must work), ensureProfile /
+// acceptTerms (onboarding), deleteAccount (privacy right), and
+// getMyEnforcementStatus (the client ban probe itself). Admin-only callables
+// skip too — the caller is an admin, never the banned target.
+function onSecureCall(options, handler, opts = {}) {
   return onCall(
     { ...options, enforceAppCheck: APP_CHECK_ENFORCE_DEPLOY },
     async (request) => {
       await _assertAppCheck(request, handler.name || 'callable');
+      if (!opts.skipSession) {
+        await _assertSingleSession(request, handler.name || 'callable');
+      }
+      if (!opts.skipSuspension && request.auth?.uid) {
+        await _assertNotSuspended(request.auth.uid, handler.name || 'callable');
+      }
       return handler(request);
     }
   );
@@ -898,8 +929,14 @@ function _enforcementLevelForSignals(signals) {
 // Silent, reversible ladder. Never deletes, never returns a cheat message, and
 // only acts on high-confidence signals. The caller decides whether to block;
 // this only records and applies state.
+//
+// AUTO-BAN: admins are immune — a false signal must never ladder an ADMIN_UIDS
+// account into `suspended` and lock ops out of the console.
 async function _recordAntiCheatSignal(uid, type, opts = {}) {
   if (!uid || !type) return null;
+  try {
+    if (typeof ADMIN_UIDS !== 'undefined' && ADMIN_UIDS.includes(uid)) return null;
+  } catch (_) { /* ADMIN_UIDS not yet initialized in some test harnesses — fall through */ }
   const hard = opts.hard === true;
   const detail = opts.detail && typeof opts.detail === 'object' ? opts.detail : {};
   const flagRef = db.collection(FLAGGED_ACCOUNTS).doc(uid);
@@ -1378,6 +1415,181 @@ async function _touchDevice(uid, rawDeviceId) {
   return hash;
 }
 
+// ── Single-device login ────────────────────────────────────────────────────
+// One account may hold only one live login at a time: a sign-in on a second
+// device supersedes the first, which is then evicted (client listener signs it
+// out) AND rejected server-side (this gate) so a patched client that ignores
+// the eviction still cannot transact.
+//
+// Mechanism: every Firebase ID token carries `auth_time` (seconds, the moment
+// that login was issued; stable across token refreshes, changed only by a new
+// sign-in). claimSession records the caller's auth_time as
+// users/{uid}.activeSession; _assertSingleSession (run by the onSecureCall
+// wrapper on every callable) rejects any caller whose auth_time is OLDER than
+// the recorded one with `failed-precondition / session_superseded`. A caller
+// NEWER than the record is allowed (its claim is still in flight — the client
+// claims on every authenticated startup) and a caller with no record at all is
+// allowed, so legacy builds that never claim keep working until the build gate
+// retires them. Reads that cannot discriminate (no auth, no auth_time and no
+// session nonce) fail open: an unreadable gate must never lock players out.
+//
+// Same-second logins: auth_time has 1-second resolution, so two logins inside
+// one second share it. New clients therefore also send a per-login random
+// `sessionId` nonce; when BOTH sides present it, the comparison is strict and
+// the tie is broken. Legacy callers without a nonce keep the auth_time rule.
+//
+// Cost note: the gate costs one users/{uid} read per authenticated callable.
+// That is the price of a server-side single-session guarantee; the client-side
+// listener (SessionService) is what evicts promptly, this gate is the backstop.
+function _callerAuthTime(request) {
+  const t = Number(request.auth?.token?.auth_time);
+  return Number.isFinite(t) && t > 0 ? t : 0;
+}
+
+function _callerSessionNonce(request) {
+  const s = request.data?.sessionId;
+  return typeof s === 'string' ? s.trim().slice(0, 128) : '';
+}
+
+function _sessionSupersededError() {
+  return new HttpsError(
+    'failed-precondition',
+    'session_superseded',
+    { reason: 'session_superseded' },
+  );
+}
+
+async function _assertSingleSession(request, fnName) {
+  const uid = request.auth?.uid;
+  if (!uid) return;
+  const callerTime = _callerAuthTime(request);
+  const callerNonce = _callerSessionNonce(request);
+  if (!callerTime && !callerNonce) return; // cannot discriminate → fail open
+
+  let stored = null;
+  try {
+    const snap = await db.collection('users').doc(uid).get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    stored = data.activeSession;
+  } catch (err) {
+    console.warn(`[session] uid=${uid} gate read failed, allowing: ${err.message}`);
+    return; // fail open on read errors
+  }
+  if (!stored || typeof stored !== 'object') return; // never claimed → allow
+
+  const storedTime = Number(stored.authTime);
+  const storedNonce = typeof stored.sessionId === 'string' ? stored.sessionId : '';
+
+  // Strict nonce tiebreak when both sides present one (new clients).
+  if (callerNonce && storedNonce) {
+    if (callerNonce !== storedNonce) {
+      console.log(`[session] uid=${uid} blocked: nonce mismatch (${fnName})`);
+      throw _sessionSupersededError();
+    }
+    return;
+  }
+
+  if (!callerTime || !Number.isFinite(storedTime) || storedTime <= 0) return;
+  if (callerTime < storedTime) {
+    console.log(`[session] uid=${uid} blocked: stale login (${fnName})`);
+    throw _sessionSupersededError();
+  }
+  // callerTime >= storedTime → allow. Equal is the owning login; greater is a
+  // newer login whose claim is still in flight (the client claims on startup).
+}
+
+// Records the caller's login as the single live session, superseding any
+// previous device. Idempotent: re-claiming the same login is a no-op refresh.
+// Never blocks login — failures are for the client to swallow and retry.
+exports.claimSession = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+
+    const authTime = _callerAuthTime(request);
+    const nonce = _callerSessionNonce(request);
+    const deviceHash = _deviceHash(request.data?.deviceId);
+    const platform = typeof request.data?.platform === 'string'
+      ? request.data.platform.slice(0, 32)
+      : null;
+    const rawBuild = request.data?.appBuild;
+    const appBuild = Number.isInteger(rawBuild) && rawBuild >= 1 ? rawBuild : null;
+
+    const userRef = db.collection('users').doc(uid);
+    let superseded = false;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists) {
+        throw new HttpsError('not-found', 'Profile not found.');
+      }
+      const prev = (snap.data() || {}).activeSession;
+      if (prev && typeof prev === 'object') {
+        const prevTime = Number(prev.authTime);
+        const prevNonce = typeof prev.sessionId === 'string' ? prev.sessionId : '';
+        superseded = (authTime && prevTime && authTime !== prevTime) ||
+          (nonce && prevNonce && nonce !== prevNonce);
+      }
+      tx.set(userRef, {
+        activeSession: {
+          authTime: authTime || null,
+          ...(nonce ? { sessionId: nonce } : {}),
+          ...(deviceHash ? { deviceHash } : {}),
+          ...(platform ? { platform } : {}),
+          ...(appBuild !== null ? { appBuild } : {}),
+          claimedAt: FieldValue.serverTimestamp(),
+          lastSeenAt: FieldValue.serverTimestamp(),
+        },
+      }, { merge: true });
+    });
+
+    // Keep the per-install device index fresh (best-effort, never fails claim).
+    if (deviceHash) {
+      await _touchDevice(uid, request.data?.deviceId).catch((err) => {
+        console.warn(`[session] touchDevice failed uid=${uid}: ${err.message}`);
+      });
+    }
+
+    if (superseded) {
+      console.log(`[session] uid=${uid} claimed a new login, previous device superseded`);
+    }
+    return { ok: true, superseded };
+  },
+  { skipSession: true, skipSuspension: true }
+);
+
+// Clears the live session, but ONLY when the caller owns it: a superseded
+// device signing out must never clear the session of the login that replaced
+// it. Best-effort — sign-out always proceeds regardless of the result.
+exports.releaseSession = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+
+    const callerTime = _callerAuthTime(request);
+    const callerNonce = _callerSessionNonce(request);
+    const userRef = db.collection('users').doc(uid);
+    let released = false;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists) return;
+      const stored = (snap.data() || {}).activeSession;
+      if (!stored || typeof stored !== 'object') return;
+      const storedTime = Number(stored.authTime);
+      const storedNonce = typeof stored.sessionId === 'string' ? stored.sessionId : '';
+      const ownsByNonce = !!(callerNonce && storedNonce && callerNonce === storedNonce);
+      const ownsByTime = !!(callerTime && Number.isFinite(storedTime) && callerTime === storedTime);
+      // A caller that can present neither discriminator never owns the record.
+      if (!ownsByNonce && !ownsByTime) return;
+      tx.update(userRef, { activeSession: FieldValue.delete() });
+      released = true;
+    });
+    return { ok: true, released };
+  },
+  { skipSession: true, skipSuspension: true }
+);
+
 async function _isSelfReferral(referrerUid, { normalizedEmail, deviceHash, ip }) {
   if (!referrerUid) return false;
   try {
@@ -1465,9 +1677,17 @@ const NEW_USER_STATS = {
 
 // Returns the trimmed display name, or null when it is not a valid username.
 // 3-20 characters, no control characters (emoji and accents stay allowed).
+// Normalizes with NFKC first so full-width / compatibility variants cannot
+// bypass the length check or the uniqueness claim below.
 function _sanitizeUsername(raw) {
   if (typeof raw !== 'string') return null;
-  const trimmed = raw.trim();
+  let trimmed = raw.trim();
+  try {
+    trimmed = trimmed.normalize('NFKC');
+  } catch (_) {
+    // Very old runtimes without String.normalize: fall back to the trimmed
+    // value so validation still runs instead of throwing.
+  }
   if (trimmed.length < USERNAME_MIN_LEN || trimmed.length > USERNAME_MAX_LEN) {
     return null;
   }
@@ -1477,8 +1697,17 @@ function _sanitizeUsername(raw) {
 
 // Canonical uniqueness key: usernames are case-insensitive and whitespace-
 // insensitive at the edges, so "Alice" and "alice " cannot coexist.
+// NFKC folds full-width / compatibility characters (e.g. "Ａｌｉｃｅ" →
+// "alice") so visually identical names cannot share the board under
+// different code points.
 function _usernameKey(raw) {
-  return String(raw).trim().toLowerCase();
+  let s = String(raw).trim();
+  try {
+    s = s.normalize('NFKC');
+  } catch (_) {
+    // Fall through with the un-normalized value.
+  }
+  return s.toLowerCase();
 }
 
 // null = field absent; undefined = present but invalid; string = accepted.
@@ -1548,6 +1777,10 @@ exports.ensureProfile = onSecureCall(
     const userRef = db.collection('users').doc(uid);
     const preUserSnap = await userRef.get();
     const signupDeviceHash = _deviceHash(request.data?.deviceId);
+    // The login that creates the account is its first live session, so the
+    // account is single-session-protected from birth; the client's claim after
+    // sign-in refreshes the same record idempotently.
+    const signupAuthTime = _callerAuthTime(request);
 
     if (!preUserSnap.exists) {
       if (normalizedEmail && _isDisposableEmail(normalizedEmail)) {
@@ -1676,6 +1909,16 @@ exports.ensureProfile = onSecureCall(
           ...(university ? { university } : {}),
           ...(signupDeviceHash ? { deviceHash: signupDeviceHash } : {}),
           ...(referrerUid ? { referredBy: referrerUid } : {}),
+          ...(signupAuthTime
+            ? {
+                activeSession: {
+                  authTime: signupAuthTime,
+                  ...(signupDeviceHash ? { deviceHash: signupDeviceHash } : {}),
+                  claimedAt: FieldValue.serverTimestamp(),
+                  lastSeenAt: FieldValue.serverTimestamp(),
+                },
+              }
+            : {}),
         });
         profileCreated = true;
       }
@@ -1687,8 +1930,10 @@ exports.ensureProfile = onSecureCall(
           createdAt: FieldValue.serverTimestamp(),
         });
       } else if (nameRef && nameSnap.exists && nameSnap.data()?.uid !== uid) {
-        // A legacy profile whose name is already claimed: never steal it.
-        console.warn(`[ensureProfile] username already claimed uid=${uid} key=${key}`);
+        // A legacy profile whose name is already claimed by another account:
+        // fail closed instead of keeping two accounts on one username.
+        // The caller must pick a new name via changeUsername.
+        throw new HttpsError('already-exists', 'That username is already taken.');
       }
 
       claimedUsername = targetUsername;
@@ -1743,7 +1988,12 @@ exports.ensureProfile = onSecureCall(
       profileCreated,
       username: claimedUsername,
     };
-  }
+  },
+  // Signup ordering: the first claim lands after this, and legacy retries may
+  // already hold a session. See onSecureCall.
+  // Banned accounts can still create their first profile — the ban applies on
+  // the next economy call, and onboarding must never hard-fail.
+  { skipSession: true, skipSuspension: true }
 );
 
 // ── acceptTerms: one-time re-acceptance for pre-terms accounts ───────────────
@@ -1776,7 +2026,10 @@ exports.acceptTerms = onSecureCall(
       termsVersion: TERMS_VERSION,
     }, { merge: true });
     return { success: true, termsVersion: TERMS_VERSION };
-  }
+  },
+  // One-time compliance stamp; a superseded device accepting terms is harmless.
+  // Banned accounts can still accept terms — the ban blocks economy, not compliance.
+  { skipSession: true, skipSuspension: true }
 );
 
 // ── changeUsername �?server-enforced 7-day cooldown + uniqueness ───────────
@@ -1862,7 +2115,62 @@ exports.changeUsername = onSecureCall(
   }
 );
 
-// ── updateUniversity �?CF-only, canonical values only ──────────────────────
+// ── checkUsernameAvailable — pre-flight uniqueness guard ───────────────────
+// Lets the sign-up form and the change-username dialog ask "is this name
+// free?" BEFORE creating an Auth account or hitting the transactional write
+// path, so a taken name surfaces as inline copy instead of a create+rollback.
+//
+// Deliberately unauthenticated-friendly (sign-up has no uid yet) but
+// IP-rate-limited so it cannot be used as a fast enumeration oracle:
+//   - invalid names → { available: false, reason: 'invalid' }
+//   - free names    → { available: true }
+//   - taken names   → { available: false, reason: 'taken' }
+// The transactional claim in ensureProfile / changeUsername stays
+// authoritative; this is UX only and never grants a reservation.
+exports.checkUsernameAvailable = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await _assertClientBuildAllowed(request, 'checkUsernameAvailable');
+
+    const ip = _clientIp(request);
+    const ipKey = _ipHash(ip) || 'no-ip';
+    const limit = await _hitRateLimit(
+      `username_check:hour:${ipKey}`,
+      60,
+      60 * 60 * 1000,
+    );
+    if (!limit.allowed) {
+      throw new HttpsError(
+        'resource-exhausted',
+        'Too many checks. Try again later.',
+        { reason: 'too_many_checks', retryAfterSeconds: limit.retryAfterSeconds },
+      );
+    }
+
+    const username = _sanitizeUsername(request.data?.username);
+    if (!username) {
+      return { available: false, reason: 'invalid' };
+    }
+    const key = _usernameKey(username);
+    if (!key) return { available: false, reason: 'invalid' };
+
+    const snap = await db.collection('usernames').doc(key).get();
+    if (!snap.exists) return { available: true, reason: 'available' };
+
+    const ownerUid = snap.data()?.uid;
+    const callerUid = request.auth?.uid;
+    if (callerUid && ownerUid === callerUid) {
+      return { available: true, reason: 'own' };
+    }
+    return { available: false, reason: 'taken' };
+  },
+  // Reachable before a session exists (sign-up pre-check) and by signed-out
+  // callers, so neither the session nor the build gate may hard-fail here —
+  // the handler above applies its own IP budget instead.
+  { skipSession: true }
+);
+
+// ── updateUniversity —CF-only, canonical values only ──────────────────────
 // `university` is used by the campus leaderboard and friend suggestions, so a
 // free-text client write was both a spoofing vector and a way to move between
 // campuses at will. The canonical list is validated here.
@@ -2321,7 +2629,11 @@ exports.deleteAccount = onSecureCall(
       // Privacy Policy so the wording matches reality.
       retained,
     };
-  }
+  },
+  // Privacy promise: deletion must work even from a superseded login — same
+  // reason this callable skips the build gate. Banned accounts can always
+  // delete themselves.
+  { skipSession: true, skipSuspension: true }
 );
 
 // ── Phase 2: repairAntifraudConfig (one-time stale-config cleanup) ─────────
@@ -2743,9 +3055,142 @@ exports.scoreFraudForWeek = onSecureCall(
     await flush();
     await Promise.all(commits);
 
+    // AUTO-BAN feed: a `high` fraud band is high-confidence multi-account /
+    // farming shape. Record one hard signal per high account so the ladder can
+    // payout_hold / suspend without admin clicks. Soft/moderate bands stay
+    // advisory-only.
+    for (const s of scores) {
+      if (s.band !== 'high') continue;
+      try {
+        if (typeof ADMIN_UIDS !== 'undefined' && ADMIN_UIDS.includes(s.uid)) continue;
+      } catch (_) { /* test harness without ADMIN_UIDS — fall through */ }
+      await _recordAntiCheatSignal(s.uid, 'fraud_score_high', {
+        hard: true,
+        detail: { weekId, score: s.score, band: s.band, source: 'scoreFraudForWeek' },
+      }).catch((err) => console.warn(`[scoreFraudForWeek] signal failed ${s.uid}: ${err.message}`));
+    }
+
     console.log(`[scoreFraudForWeek] week=${weekId} scored=${scores.length} by ${request.auth.uid}`);
     return { success: true, weekId, scored: scores.length, scores };
   }
+);
+
+// ── AUTO-BAN: status probe + manual ban / unban ────────────────────────────
+// `getMyEnforcementStatus` is the client's ban probe. It skips the suspension
+// gate on purpose — a suspended account must still be able to learn it is
+// suspended so the app can show the banned screen instead of generic errors.
+// `adminBan` / `adminUnban` are manual overrides (console / support flow).
+// Auto-bans never need them; they act through `_recordAntiCheatSignal`.
+exports.getMyEnforcementStatus = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Unauthenticated');
+    const enf = await _readEnforcement(uid);
+    return {
+      level: enf.level,
+      suspended: enf.suspended,
+      payoutHold: enf.payoutHold,
+      leaderboardExcluded: enf.leaderboardExcluded,
+    };
+  },
+  { skipSuspension: true }
+);
+
+exports.adminBan = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
+      throw new HttpsError('permission-denied', 'Forbidden');
+    }
+    const targetUid = typeof request.data?.targetUid === 'string'
+      ? request.data.targetUid.trim()
+      : '';
+    if (!targetUid) throw new HttpsError('invalid-argument', 'targetUid required');
+    if (ADMIN_UIDS.includes(targetUid)) {
+      throw new HttpsError('failed-precondition', 'Cannot ban an admin account.');
+    }
+    const reason = typeof request.data?.reason === 'string'
+      ? request.data.reason.slice(0, 200)
+      : 'manual_ban';
+    const flagRef = db.collection(FLAGGED_ACCOUNTS).doc(targetUid);
+    const enfRef = db.collection(ENFORCEMENT_COLLECTION).doc(targetUid);
+    const userRef = db.collection('users').doc(targetUid);
+    await db.runTransaction(async (tx) => {
+      const flagSnap = await tx.get(flagRef);
+      const flag = flagSnap.data() || {};
+      const signals = Array.isArray(flag.signals) ? [...flag.signals] : [];
+      signals.push({ type: 'manual_ban', hard: true, detail: { reason }, at: Date.now() });
+      const actions = Array.isArray(flag.actions) ? [...flag.actions] : [];
+      actions.push({ type: 'suspended', at: Date.now(), source: 'admin', reason });
+      tx.set(flagRef, {
+        uid: targetUid,
+        status: 'suspended',
+        level: 'suspended',
+        signals: signals.slice(-50),
+        actions: actions.slice(-30),
+        lastSignalAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      tx.set(enfRef, {
+        uid: targetUid,
+        level: 'suspended',
+        decayFactor: ENFORCEMENT_DECAY,
+        leaderboardExcluded: true,
+        payoutHold: true,
+        suspended: true,
+        reasons: [...new Set([...signals.map((s) => s.type)])].slice(-20),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      tx.set(userRef, { lbEligible: false }, { merge: true });
+    });
+    console.log(`[adminBan] target=${targetUid} reason=${reason} by=${request.auth.uid}`);
+    return { success: true, targetUid, level: 'suspended' };
+  },
+  { skipSuspension: true }
+);
+
+exports.adminUnban = onSecureCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth?.uid || !ADMIN_UIDS.includes(request.auth.uid)) {
+      throw new HttpsError('permission-denied', 'Forbidden');
+    }
+    const targetUid = typeof request.data?.targetUid === 'string'
+      ? request.data.targetUid.trim()
+      : '';
+    if (!targetUid) throw new HttpsError('invalid-argument', 'targetUid required');
+    const flagRef = db.collection(FLAGGED_ACCOUNTS).doc(targetUid);
+    const enfRef = db.collection(ENFORCEMENT_COLLECTION).doc(targetUid);
+    const userRef = db.collection('users').doc(targetUid);
+    await db.runTransaction(async (tx) => {
+      const flagSnap = await tx.get(flagRef);
+      const flag = flagSnap.data() || {};
+      const actions = Array.isArray(flag.actions) ? [...flag.actions] : [];
+      actions.push({ type: 'cleared', at: Date.now(), source: 'admin', reversible: true });
+      tx.set(flagRef, {
+        uid: targetUid,
+        status: 'cleared',
+        level: 'cleared',
+        actions: actions.slice(-30),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      tx.set(enfRef, {
+        uid: targetUid,
+        level: 'cleared',
+        decayFactor: 1,
+        leaderboardExcluded: false,
+        payoutHold: false,
+        suspended: false,
+        reasons: [],
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      tx.set(userRef, { lbEligible: true }, { merge: true });
+    });
+    console.log(`[adminUnban] target=${targetUid} by=${request.auth.uid}`);
+    return { success: true, targetUid, level: 'cleared' };
+  },
+  { skipSuspension: true }
 );
 // so it does NOT route through the daily soft cap). Tracks granted tiers in
 // achievementsGranted map so nothing fires twice.
@@ -2756,29 +3201,29 @@ exports.scoreFraudForWeek = onSecureCall(
 //   newAchievementsGranted = updated achievementsGranted map (merged)
 const ACHIEVEMENT_TIERS = {
   gamesPlayed: [
-    { threshold: 10,  ac: 20,  frame: null },
-    { threshold: 50,  ac: 75,  frame: null },
-    { threshold: 100, ac: 150, frame: null },
-    { threshold: 500, ac: 500, frame: null },
+    { threshold: 10,  ac: 50,   frame: null },
+    { threshold: 50,  ac: 200,  frame: null },
+    { threshold: 100, ac: 400,  frame: null },
+    { threshold: 500, ac: 1200, frame: null },
   ],
   gamesWon: [
-    { threshold: 10,  ac: 30,  frame: null },
-    { threshold: 50,  ac: 100, frame: null },
-    { threshold: 200, ac: 400, frame: 'frame_victory' },
+    { threshold: 10,  ac: 80,   frame: null },
+    { threshold: 50,  ac: 250,  frame: null },
+    { threshold: 200, ac: 1000, frame: 'frame_victory' },
   ],
   perfectQuizzes: [
-    { threshold: 5,   ac: 20,  frame: null },
-    { threshold: 25,  ac: 80,  frame: null },
-    { threshold: 100, ac: 300, frame: null },
+    { threshold: 5,   ac: 50,  frame: null },
+    { threshold: 25,  ac: 200, frame: null },
+    { threshold: 100, ac: 750, frame: null },
   ],
   rivalWins: [
-    { threshold: 10, ac: 50,  frame: null },
-    { threshold: 50, ac: 250, frame: 'frame_rival_slayer' },
+    { threshold: 10, ac: 120, frame: null },
+    { threshold: 50, ac: 600, frame: 'frame_rival_slayer' },
   ],
   careerWpEarned: [
-    { threshold: 500,   ac: 30,  frame: null },
-    { threshold: 2500,  ac: 150, frame: null },
-    { threshold: 10000, ac: 600, frame: null },
+    { threshold: 500,   ac: 80,   frame: null },
+    { threshold: 2500,  ac: 375,  frame: null },
+    { threshold: 10000, ac: 1500, frame: null },
   ],
 };
 
@@ -4699,6 +5144,7 @@ async function _resolveChallengeCore(challengeId, challengeRef, after) {
     } else if (!isSpar) {
       if (creatorWins) cBaseWp = CHALLENGE_WIN_WP;
       else if (isDraw) cBaseWp = CHALLENGE_DRAW_WP;
+      else cBaseWp = CHALLENGE_LOSE_WP;
     }
     // Spars never touch gamesWon/Lost/Draw stats (an alt account could
     // otherwise farm the win achievements for free). Head-to-head history
@@ -4724,6 +5170,7 @@ async function _resolveChallengeCore(challengeId, challengeRef, after) {
     } else if (!isSpar) {
       if (opponentWins) oBaseWp = CHALLENGE_WIN_WP;
       else if (isDraw) oBaseWp = CHALLENGE_DRAW_WP;
+      else oBaseWp = CHALLENGE_LOSE_WP;
     }
     if (!isSpar && opponentOutcome === 'win') oUpdate['stats.gamesWon'] = FieldValue.increment(1);
     else if (!isSpar && opponentOutcome === 'lose') oUpdate['stats.gamesLost'] = FieldValue.increment(1);
@@ -5256,10 +5703,10 @@ async function _resolveChallengeCore(challengeId, challengeRef, after) {
     // `wpAwarded` is the post-premium, post-daily-cap WP that was actually
     // applied to `weeklyPoints` (see the cAwardedWP / oAwardedWP locals above).
     // The client ledger needs it because `wpChange` alone is only the
-    // pre-multiplier stake settlement �?it omits the flat 50/25 participation
+    // pre-multiplier stake settlement — it omits the flat 50/25/8 participation
     // bonus entirely (so a Code challenge win logged 0) and is 0 for the losing
-    // side (so a rival loss logged nothing at all, even though the stake had
-    // already been debited at create/join time).
+    // side of a WP-staked duel (so a rival loss logged no stake credit, even
+    // though the stake had already been debited at create/join time).
     tx.set(creatorMatchRef, {
       opponent: opponentUsername,
       opponentUid: opponentUid,
@@ -6416,8 +6863,14 @@ async function _getOrMintFriendCode(uid, tx) {
   const userRef = db.collection('users').doc(uid);
   const snap = await tx.get(userRef);
   const data = snap.exists ? (snap.data() || {}) : {};
-  if (typeof data.friendCode === 'string' && data.friendCode.length === 6) {
-    return data.friendCode;
+  const stored = (typeof data.friendCode === 'string' && data.friendCode.length === 6)
+    ? data.friendCode.toUpperCase()
+    : '';
+  if (stored) {
+    // Self-heal: a stored code without its lookup doc can never resolve —
+    // verify it, otherwise fall through and mint a fresh one.
+    const codeSnap = await tx.get(db.collection('friendCodes').doc(stored));
+    if (codeSnap.exists && codeSnap.data()?.uid === uid) return stored;
   }
   for (let i = 0; i < 5; i++) {
     const code = _generateCode();
@@ -6445,6 +6898,18 @@ exports.getMyFriendCode = onSecureCall(
     return { friendCode: code, todayWAT };
   }
 );
+
+// Podium bots are public board figures: any authenticated player may add
+// them by uid (Rivalry page) without cohort or match history. Their uids are
+// already visible to everyone who paid for the board, so this leaks nothing.
+async function _isHousePodiumUid(uid) {
+  try {
+    const g = await db.collection('house_config').doc('global').get().catch(() => null);
+    const d = g?.exists ? (g.data() || {}) : {};
+    const podium = [...(d.accounts || []), ...((d.accountPool || []))];
+    return podium.map(String).includes(String(uid));
+  } catch (_) { return false; }
+}
 
 exports.sendFriendRequest = onSecureCall(
   { region: 'us-central1' },
@@ -6502,6 +6967,10 @@ exports.sendFriendRequest = onSecureCall(
       throw new HttpsError('invalid-argument', 'cannot_friend_yourself');
     }
 
+    // Podium bots skip the cohort/history gate (checked before the tx).
+    let podiumPeer = false;
+    if (viaUid) podiumPeer = await _isHousePodiumUid(targetUid);
+
     const txResult = await db.runTransaction(async (tx) => {
       const meRef = db.collection('users').doc(uid);
       const peerRef = db.collection('users').doc(targetUid);
@@ -6517,7 +6986,7 @@ exports.sendFriendRequest = onSecureCall(
       // leaderboard week (Rankings board → Rivalry page → Add friend), or
       // someone they have actually played (the Rivalry page passes a uid from
       // real match history). Anything else is indistinguishable from unknown.
-      if (viaUid && !_isSameCampusCohort(me, peerData, currentWeekId()) &&
+      if (viaUid && !podiumPeer && !_isSameCampusCohort(me, peerData, currentWeekId()) &&
           !_isSamePaidCohort(me, peerData, currentWeekId())) {
         const played = await tx.get(
           meRef.collection('matches')
@@ -6927,6 +7396,7 @@ exports.getFriendsBoard = onSecureCall(
             uid: s.id, username: 'Deleted user', university: '',
             weeklyPoints: null, entryWeekId: null,
             theirTurn: false, myTurn: false, nudgedToday: false, playedToday: false,
+            premiumActive: false,
           };
         }
         const d = s.data() || {};
@@ -6943,6 +7413,7 @@ exports.getFriendsBoard = onSecureCall(
           myTurn: turns.myTurn.has(s.id),
           nudgedToday: nudgedToday.has(s.id),
           playedToday: playedToday.get(s.id) === true,
+          premiumActive: d.premiumActive === true,
         };
       });
     return { friends };
@@ -8243,29 +8714,41 @@ exports.startAdSession = onSecureCall(
     const now = Date.now();
     const rateRef = db.collection('adSessionRate').doc(uid);
 
-    await db.runTransaction(async (tx) => {
-      const rateSnap = await tx.get(rateRef);
-      const data = rateSnap.data() || {};
-      const windowStart = data.windowStart?.toMillis ? data.windowStart.toMillis() : 0;
-      const inWindow = now - windowStart < AD_SESSION_RATE_WINDOW_MS;
-      const count = inWindow ? (data.count || 0) : 0;
-      if (inWindow && count >= AD_SESSION_RATE_MAX) {
-        throw new HttpsError(
-          'resource-exhausted',
-          'Too many ad sessions. Try again in a minute.'
-        );
-      }
-      tx.set(rateRef, {
-        windowStart: Timestamp.fromMillis(inWindow ? windowStart : now),
-        count: count + 1,
-      }, { merge: true });
-      tx.set(db.collection('adSessions').doc(token), {
-        uid,
-        createdAt: FieldValue.serverTimestamp(),
-        expiresAt: Timestamp.fromMillis(now + AD_SESSION_TTL_MS),
-        used: false,
+    try {
+      await db.runTransaction(async (tx) => {
+        const rateSnap = await tx.get(rateRef);
+        const data = rateSnap.data() || {};
+        const windowStart = data.windowStart?.toMillis ? data.windowStart.toMillis() : 0;
+        const inWindow = now - windowStart < AD_SESSION_RATE_WINDOW_MS;
+        const count = inWindow ? (data.count || 0) : 0;
+        if (inWindow && count >= AD_SESSION_RATE_MAX) {
+          throw new HttpsError(
+            'resource-exhausted',
+            'Too many ad sessions. Try again in a minute.'
+          );
+        }
+        tx.set(rateRef, {
+          windowStart: Timestamp.fromMillis(inWindow ? windowStart : now),
+          count: count + 1,
+        }, { merge: true });
+        tx.set(db.collection('adSessions').doc(token), {
+          uid,
+          createdAt: FieldValue.serverTimestamp(),
+          expiresAt: Timestamp.fromMillis(now + AD_SESSION_TTL_MS),
+          used: false,
+        });
       });
-    });
+    } catch (err) {
+      // AUTO-BAN feed: mint-spam is the bot shape for ad farming. One hit is
+      // just a fast tapper (soft); the ladder escalates on repetition + other
+      // signals, never on this alone.
+      if (err?.code === 'resource-exhausted') {
+        await _recordAntiCheatSignal(uid, 'ad_farm_suspect', {
+          detail: { fn: 'startAdSession' },
+        }).catch(() => {});
+      }
+      throw err;
+    }
 
     return { sessionToken: token, expiresAt: now + AD_SESSION_TTL_MS };
   }
@@ -8382,6 +8865,13 @@ exports.recordAdWatch = onSecureCall(
       );
     } else {
       console.log(`[recordAdWatch] uid=${uid}${hasToken ? '' : ' legacy(no token)'} -> ${result.error}`);
+      // AUTO-BAN feed: replaying / forging a session token is never normal
+      // client behavior. Soft on its own; the ladder suspends on repetition.
+      if (hasToken && result.error === 'ad_session_invalid') {
+        await _recordAntiCheatSignal(uid, 'ad_session_reuse', {
+          detail: { fn: 'recordAdWatch' },
+        }).catch(() => {});
+      }
     }
 
     return result;
@@ -8963,15 +9453,15 @@ const BLITZ_MAX_QUESTIONS = 30;
 const BLITZ_SECONDS = 90;
 // WP per correct answer by question difficulty (no positional tiers;
 // unanswered questions score nothing).
-const BLITZ_WP_BY_DIFFICULTY = { easy: 5, medium: 8, hard: 12 };
+const BLITZ_WP_BY_DIFFICULTY = { easy: 8, medium: 12, hard: 18 };
 // Hard cap on raw run WP before retry decay / premium / daily soft cap.
-const BLITZ_RAW_WP_CAP = 200;
-const BLITZ_COMPLETION_WP = 10;
+const BLITZ_RAW_WP_CAP = 300;
+const BLITZ_COMPLETION_WP = 15;
 const BLITZ_COMPLETION_MIN_ANSWERED = 5;
 // Gamble payout: tiered AC by correct count ([minCorrectInclusive, ac]).
-// A deep retry costs up to 756 AC while the top payout is 60 AC, so only an
+// A deep retry costs up to 756 AC while the top payout is 90 AC, so only an
 // excellent run on a cheap entry can profit — retrying is the gamble.
-const BLITZ_AC_TIERS = [[0, 2], [5, 8], [9, 15], [13, 25], [17, 40], [21, 60]];
+const BLITZ_AC_TIERS = [[0, 3], [5, 12], [9, 23], [13, 38], [17, 60], [21, 90]];
 function _blitzAcEarned(correctCount) {
   let ac = 0;
   for (const [min, value] of BLITZ_AC_TIERS) {
@@ -9558,7 +10048,14 @@ exports.submitAnswer = onSecureCall(
       const lockAllowed = lockCreator
         ? ['waiting', 'opponent_joined', 'opponent_submitted', 'ghost']
         : ['opponent_joined', 'creator_submitted'];
-      if (!lockAllowed.includes(challenge.status)) throw new HttpsError('failed-precondition', 'challenge_not_active');
+      if (!lockAllowed.includes(challenge.status)) {
+        console.warn(
+          `[submitAnswer] lock refused uid=${uid} runId=${runId.trim()} ` +
+            `kind=${run.kind} status=${challenge.status || 'none'} ` +
+            `role=${lockCreator ? 'creator' : 'opponent'} q=${questionIndex}`,
+        );
+        throw new HttpsError('failed-precondition', 'challenge_not_active');
+      }
       if (lockOpponent && challenge.opponentUid !== 'ghost' && !challenge.joinedAt) throw new HttpsError('failed-precondition', 'challenge_not_active');
     }
       if (run.state !== 'active') throw new HttpsError('failed-precondition', 'run_not_active');
@@ -9740,6 +10237,12 @@ exports.submitRun = onSecureCall(
       // an outdated client: fail loudly so it updates instead of recording a
       // bogus all-timeout zero.
       if (!Array.isArray(run.answers) || run.answers.length === 0) {
+        console.warn(
+          `[submitRun] answers_not_locked uid=${uid} runId=${runId} ` +
+            `kind=${run.kind} refId=${run.refId || ''} ` +
+            `state=${run.state || ''} ` +
+            `clientAnswers=${Array.isArray(request.data?.answers) ? request.data.answers.length : 'none'}`,
+        );
         throw new HttpsError('failed-precondition', 'answers_not_locked');
       }
       answers = _answersFromRun(run);
@@ -10541,7 +11044,7 @@ exports.enterDailyGauntlet = onSecureCall(
 // unlockedCategories / unlockedAnimes). One free attempt per WAT day reuses
 // the dailyChallengeDate / dailyChallengeUsed rollover pattern.
 //
-// rewards: WP per correct by difficulty (5/8/12, raw-capped at 200) plus a
+// rewards: WP per correct by difficulty (8/12/18, raw-capped at 300) plus a
 // small completion bonus; AC from the BLITZ_AC_TIERS gamble table by correct
 // count. No streak, no milestones.
 //
@@ -10682,7 +11185,7 @@ async function _handleSubmitDailyGauntlet(request) {
       questionMap[snap.id] = snap.data();
     }
 
-    // Score: WP per correct by question difficulty (5 / 8 / 12), raw-capped.
+    // Score: WP per correct by question difficulty (8 / 12 / 18), raw-capped.
     // AC from the BLITZ_AC_TIERS gamble table by correct count.
     const _normBlitzDiff = (d) => {
       const v = typeof d === 'string' ? d.trim().toLowerCase() : 'medium';
@@ -14895,6 +15398,17 @@ exports.expireExpiredPremium = onSchedule(
     let expired  = 0;
     let orphanedCleared = 0;
 
+    // House podium premium is managed by houseEnsureEntry (no receipts by
+    // design) — never strip it here.
+    let housePodium = new Set();
+    try {
+      const g = await db.collection('house_config').doc('global').get();
+      const d = g?.exists ? (g.data() || {}) : {};
+      for (const u of [...(d.accounts || []), ...((d.accountPool || []))]) {
+        if (u) housePodium.add(String(u));
+      }
+    } catch (_) { /* enforce normally */ }
+
     while (true) {
       let q = db.collection('users')
         .where('premiumActive', '==', true)
@@ -14910,6 +15424,8 @@ exports.expireExpiredPremium = onSchedule(
       for (const doc of snap.docs) {
         const uid  = doc.id;
         const uRef = doc.ref;
+
+        if (housePodium.has(uid)) continue; // managed premium, skip
 
         // Most recent premium receipt = highest expiresAt among the user's
         // premiumReceipts subcollection.
@@ -15952,7 +16468,9 @@ exports.checkAuthAttempt = onSecureCall(
       retryAfterSeconds: remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0,
       remainingAttempts: Math.max(0, CFG.AUTH_FAILURE_MAX - maxCount),
     };
-  }
+  },
+  // Pre-auth lockout probe; usually unauthenticated. See onSecureCall.
+  { skipSession: true }
 );
 
 exports.reportAuthFailure = onSecureCall(
@@ -15990,7 +16508,9 @@ exports.reportAuthFailure = onSecureCall(
         ? Math.ceil((lockedUntilMs - Date.now()) / 1000)
         : 0,
     };
-  }
+  },
+  // Pre-auth advisory signal. See onSecureCall.
+  { skipSession: true }
 );
 
 exports.reportAuthSuccess = onSecureCall(
@@ -16006,7 +16526,9 @@ exports.reportAuthSuccess = onSecureCall(
         }, { merge: true });
     }
     return { success: true };
-  }
+  },
+  // Pre-auth advisory signal. See onSecureCall.
+  { skipSession: true }
 );
 
 // ─── Unverified-account cleanup (B5) ───────────────────────────────────────
@@ -16121,33 +16643,37 @@ exports.cleanupAbuseState = onSchedule(
 );
 
 // ─── House top-3 engine (admin-owned premium grinders) ────────────────────
-// Three permanent UIDs in house_config/global.accounts. Normal player docs:
-// premiumActive=true, paid entry set by houseEnsureEntry, never ADMIN_UIDS,
-// never leaderboardExcluded. All WP flows through _applyDailyWPSoftCap so
+// Three permanent UIDs in house_config/global.accounts. Podium docs:
+// premiumActive=true (paid-top-3 cover), paid entry set by houseEnsureEntry,
+// never ADMIN_UIDS, never leaderboardExcluded. All WP flows through _applyDailyWPSoftCap so
 // wpEarnedToday/wpTransactions/soft-cap math matches real submits.
 const HOUSE_DEFAULTS = {
   enabled: true, neverLose: false, maxDailyRaw: 4000, reserve: 1200,
   gap1: 110, gap2: 85, gap3: 95, gapMin: 60, gapMax: 280, paused: [],
   mode: 'steady',
-  // Unscripted-but-catchable podium: daily role shuffle + self-grind floor.
+  // Unscripted-but-catchable podium: per-tick role rotation + self-grind floor.
   // Targets stay loosely coupled to real #4 (wide band so leads vary) yet
   // progress on their own weekly goals even when reals are idle.
-  // House still wins: gapMin floor + Sunday snipe backup hold 1-2-3 most weeks.
+  // House always defends: gapMin floor + curve floor + Sunday snipe hold 1-2-3.
+  // Chasers removed: the mid-board pack no longer runs; only the top-3 podium
+  // bots score. chaserEnabled and chaser* keys below are legacy no-ops kept
+  // for stored-config compat.
   shuffleEnabled: true,
-  chaserEnabled: true,
+  chaserEnabled: false,
   upsetEnabled: true,
   offWindowTickRate: 2,
   curveJitter: 15,
   weeklyGoalMin: 1600, weeklyGoalMax: 2600,
-  // Chaser pack (mid-board liveliness, never threatens the paid top-3).
+  // Chaser pack REMOVED (legacy keys only, engine ignores them).
   // Independent goals so they drift on their own curve, not glued to rMid.
   chaserDailyMax: 550, chaserGap: 120, chaserMax: 1000,
   chaserGoalMin: 300, chaserGoalMax: 1500,
   // ── Social humanizer (friends / duels / spars) ──────────────────────
   // All server-side, best-effort. Bots behave like premium humans: same
-  // caps, same cooldowns, delayed responses, winRate duel wins (default
-  // 60%), occasional high-stake risk takes, 6-min minimum between scored
-  // plays (solo floor), occasional 5k permanent anime unlocks.
+  // caps, same cooldowns, delayed responses, winRate duel wins (podium
+  // winRatePodium default 82%), occasional high-stake
+  // risk takes, 6-min minimum between scored plays (solo floor), occasional
+  // 5k permanent anime unlocks.
   socialEnabled: true,
   outgoingEnabled: true,
   unlockAnimeEnabled: true,
@@ -16156,6 +16682,7 @@ const HOUSE_DEFAULTS = {
   duelAcceptRate: 65,
   highStakeAcceptRate: 35,
   winRate: 60,
+  winRatePodium: 82,
   minRespondHours: 2,
   maxRespondHours: 12,
   maxSocialActionsPerDay: 20,
@@ -16183,6 +16710,26 @@ function _houseInSession(hid, todayWAT, watHour) {
   return (watHour >= s1 && watHour < s1 + 1.2) ||
     (watHour >= s2 && watHour < s2 + 1.2) ||
     (watHour >= s3 && watHour < s3 + 1.2);
+}
+// Fast accept-or-decline triage per challenge: 0.5–1.5h deterministic delay so
+// invites never sit in silence — the bot joins or declines promptly, then plays
+// on its slow human schedule. Live series duels skip triage and decide at once.
+function _houseTriageHours(cid) {
+  return 0.5 + ((_houseHash(`triage:${cid}`) % 60) / 60);
+}
+// Live best-of-5 check with a per-tick peer cache (one rivalry read per peer
+// per tick, not per invite).
+async function _houseSeriesActiveCached(hid, peer, cache) {
+  if (!peer || peer === hid) return false;
+  if (cache.has(peer)) return cache.get(peer);
+  let active = false;
+  try {
+    const rSnap = await db.collection('rivalries').doc([hid, peer].sort().join('_')).get();
+    const r = rSnap?.exists ? (rSnap.data() || {}) : {};
+    active = r.status === 'active' && ((Number(r.winsA) || 0) + (Number(r.winsB) || 0)) > 0;
+  } catch (_) { active = false; }
+  cache.set(peer, active);
+  return active;
 }
 const HOUSE_NAME_POOL_BASE = [
   // Short tags.
@@ -16235,12 +16782,6 @@ const HOUSE_PERSONA_DEFAULTS = [
   { dailyMaxFactor: 1.0, skip: 28, curveBoost: 0.03 },
   { dailyMaxFactor: 0.92, skip: 35, curveBoost: 0.0 },
   { dailyMaxFactor: 1.08, skip: 42, curveBoost: -0.03 },
-  // Chasers: small daily budgets, high skip so mid-board moves at human pace.
-  { dailyMaxFactor: 0.22, skip: 55, curveBoost: 0.01 },
-  { dailyMaxFactor: 0.20, skip: 60, curveBoost: 0.0 },
-  { dailyMaxFactor: 0.24, skip: 52, curveBoost: -0.01 },
-  { dailyMaxFactor: 0.18, skip: 62, curveBoost: 0.02 },
-  { dailyMaxFactor: 0.21, skip: 58, curveBoost: -0.02 },
 ];
 // Deterministic 32-bit hash (FNV-1a) for daily shuffles/forms: same input
 // every tick within a day, different across days/bots. No Math.random drift,
@@ -16267,6 +16808,29 @@ function _houseShuffleOrder(seedStr, ids) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+// Stall detector (pure): decides whether the podium should ignore real #4.
+// Reals are "stalled" when r4 moved <30 WP since the stored mark and the mark
+// is older than 24h. Any meaningful r4 movement refreshes the mark.
+function _houseR4Mode(r4, mark, nowMs) {
+  const lastR4 = Number(mark?.r4);
+  const lastAt = Number(mark?.atMs) || 0;
+  if (!Number.isFinite(lastR4)) return { selfPlay: false, refresh: true };
+  if (r4 - lastR4 >= 30) return { selfPlay: false, refresh: true };
+  if ((Number(nowMs) || 0) - lastAt > 24 * 3600 * 1000) return { selfPlay: true, refresh: false };
+  return { selfPlay: false, refresh: false };
+}
+// Per-tick podium overtake order: the top-3 bots always swap the lead.
+// Stable weekly base order (hash-shuffled once per week) rotated by the
+// 15-min tick slot, so consecutive ticks always have a different leader and
+// the board visibly flips H1/H2/H3 all week long.
+function _houseOvertakeOrder(ids, weekId, todayWAT, nowMs) {
+  if (!Array.isArray(ids) || ids.length <= 1) return [...(ids || [])];
+  const base = _houseShuffleOrder(`${weekId}:overtake-base`, ids);
+  const slot = Math.floor((Number(nowMs) || Date.now()) / 900000);
+  const shift = ((slot % base.length) + base.length) % base.length;
+  void todayWAT;
+  return base.slice(shift).concat(base.slice(0, shift));
 }
 // Per-bot daily form 0.85-1.15: hot/cold streaks so the same bot doesn't
 // lead every day even after the shuffle.
@@ -16329,10 +16893,10 @@ function _houseVisibleTimestamp(hid, todayWAT, nowMs) {
   try { return Timestamp.fromMillis(_houseVisibleAtMs(hid, todayWAT, nowMs)); }
   catch (_) { return FieldValue.serverTimestamp(); }
 }
-// Active-set rotation (fix 3): when glob.accountPool / chaserPool are
-// configured, pick the week's 3 podium + up-to-5 chasers via a stable
-// week-hash shuffle. Falls back to accounts/chasers when pools are absent,
-// so existing deploys behave identically until pools are populated.
+// Active-set rotation: when glob.accountPool is configured, pick the week's
+// 3 podium via a stable week-hash shuffle. Falls back to accounts when the
+// pool is absent, so existing deploys behave identically until pools are
+// populated. Chasers removed: always returns an empty chaser set.
 function _houseActiveSet(glob, weekId) {
   const pick = (pool, fallback, n, tag) => {
     const src = Array.isArray(pool) && pool.length >= n
@@ -16344,7 +16908,7 @@ function _houseActiveSet(glob, weekId) {
   };
   return {
     accounts: pick(glob.accountPool, glob.accounts, 3, 'pool'),
-    chasers: pick(glob.chaserPool, glob.chasers, 5, 'chaserpool'),
+    chasers: [],
   };
 }
 async function _houseAward(uid, wpRaw, acDelta, source, opts = {}) {
@@ -16374,7 +16938,8 @@ async function _houseAward(uid, wpRaw, acDelta, source, opts = {}) {
       totalScore: (Number(d.totalScore) || 0) + award,
       wpEarnedToday: newEarnedToday, wpEarnedDate: todayWAT,
       animeCoins: Math.max(0, (Number(d.animeCoins) || 0) + (acDelta || 0)),
-      premiumActive: true,
+      // NOTE: premium is managed by houseEnsureEntry (podium premium) —
+      // never force it here or every scoring tick re-premiums bots.
       stats: {
         ...(d.stats || {}),
         gamesPlayed: (Number(d.stats?.gamesPlayed) || 0) + 1,
@@ -16463,7 +17028,7 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
     const board = await _houseBoard(weekId);
     const allHouse = [...glob.accounts, ...(glob.chasers || []), ...((glob.accountPool || [])), ...((glob.chaserPool || []))];
     const houses = board.filter((r) => glob.accounts.includes(r.uid));
-    const chasers = board.filter((r) => (glob.chasers || []).includes(r.uid));
+    const chasers = [];
     const reals = board.filter((r) => !allHouse.includes(r.uid) && !isAdminAccountUid(r.uid));
     let social = [];
     try {
@@ -16494,19 +17059,18 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
   if (op === 'save') {
     try {
       const BOOL_KEYS = new Set(['enabled', 'neverLose',
-        'shuffleEnabled', 'chaserEnabled', 'upsetEnabled',
+        'shuffleEnabled', 'upsetEnabled',
         'socialEnabled', 'outgoingEnabled', 'unlockAnimeEnabled']);
       // [min, max] clamps mirror _houseSocialNum fallbacks + HOUSE_DEFAULTS.
+      // chaser* keys removed (legacy stored values are ignored by the engine).
       const NUM_SPECS = {
         maxDailyRaw: [200, 10000], reserve: [0, 10000],
         gap1: [20, 350], gap2: [20, 350], gap3: [20, 350],
         gapMin: [20, 250], gapMax: [40, 350],
         offWindowTickRate: [0, 50], curveJitter: [0, 30],
         weeklyGoalMin: [100, 5000], weeklyGoalMax: [100, 5000],
-        chaserDailyMax: [200, 1500], chaserGap: [20, 200], chaserMax: [400, 2500],
-        chaserGoalMin: [100, 1000], chaserGoalMax: [400, 2500],
         friendAcceptRate: [0, 100], sparAcceptRate: [0, 100],
-        duelAcceptRate: [0, 100], highStakeAcceptRate: [0, 100], winRate: [0, 100],
+        duelAcceptRate: [0, 100], highStakeAcceptRate: [0, 100], winRate: [0, 100], winRatePodium: [0, 100],
         minRespondHours: [0, 48], maxRespondHours: [0, 72],
         maxSocialActionsPerDay: [1, 50], minPlayIntervalMins: [1, 120],
       };
@@ -16543,12 +17107,8 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
       };
       const accounts = request.data?.accounts !== undefined ? uidList(request.data.accounts, 3) : null;
       if (accounts !== null) patch.accounts = accounts;
-      const chasers = request.data?.chasers !== undefined ? uidList(request.data.chasers, 5) : null;
-      if (chasers !== null) patch.chasers = chasers;
       const accountPool = request.data?.accountPool !== undefined ? uidList(request.data.accountPool, 15) : null;
       if (accountPool !== null) patch.accountPool = accountPool;
-      const chaserPool = request.data?.chaserPool !== undefined ? uidList(request.data.chaserPool, 15) : null;
-      if (chaserPool !== null) patch.chaserPool = chaserPool;
       if (request.data?.paused !== undefined) {
         if (!Array.isArray(request.data.paused)) throw new HttpsError('invalid-argument', 'paused must be an array');
         const out = [];
@@ -16584,9 +17144,6 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
       if (patch.minRespondHours !== undefined && patch.maxRespondHours !== undefined && patch.minRespondHours > patch.maxRespondHours) {
         throw new HttpsError('invalid-argument', 'minRespondHours must not exceed maxRespondHours');
       }
-      if (patch.chaserGoalMin !== undefined && patch.chaserGoalMax !== undefined && patch.chaserGoalMin > patch.chaserGoalMax) {
-        throw new HttpsError('invalid-argument', 'chaserGoalMin must not exceed chaserGoalMax');
-      }
       if (Object.keys(patch).length === 0) throw new HttpsError('invalid-argument', 'Nothing to save');
       patch.updatedAt = FieldValue.serverTimestamp(); patch.updatedBy = request.auth.uid;
       console.log(`[houseAdmin] save by ${request.auth.uid} keys=${Object.keys(patch).join(',')}`);
@@ -16601,13 +17158,13 @@ exports.houseAdmin = onSecureCall({ region: 'us-central1' }, async (request) => 
   if (op === 'nudge') {
     const uid = String(request.data?.uid || '');
     const wp = Math.max(10, Math.min(250, Number(request.data?.wp) || 50));
-    if (!glob.accounts.includes(uid) && !(glob.chasers || []).includes(uid) && !((glob.accountPool || []).includes(uid)) && !((glob.chaserPool || []).includes(uid))) throw new HttpsError('invalid-argument', 'Not a house account');
+    if (!glob.accounts.includes(uid) && !((glob.accountPool || []).includes(uid))) throw new HttpsError('invalid-argument', 'Not a house account');
     await _houseAward(uid, wp, 0, 'house_nudge');
     return { success: true, uid, wp };
   }
   if (op === 'rotate') {
     const uid = String(request.data?.uid || request.data?.rotateUid || '');
-    const targets = uid ? [uid] : [...glob.accounts, ...((glob.chaserEnabled !== false && glob.chasers) || [])];
+    const targets = uid ? [uid] : [...glob.accounts];
     await _houseRotateNames(targets);
     await gref.set({ namePoolVersion: HOUSE_NAME_POOL_VERSION }, { merge: true });
     return { success: true };
@@ -16666,11 +17223,11 @@ async function _houseRotateCore(now = new Date()) {
   const todayWAT = _watDateString(now instanceof Date ? now : new Date());
   const active = _houseActiveSet(glob, weekId);
   // Rotate the week's active set when pools exist; otherwise legacy full set.
-  const hasPools = (Array.isArray(glob.accountPool) && glob.accountPool.length >= 3) ||
-    (Array.isArray(glob.chaserPool) && glob.chaserPool.length >= 5);
+  // Podium only — chasers removed.
+  const hasPools = Array.isArray(glob.accountPool) && glob.accountPool.length >= 3;
   const activePool = hasPools
-    ? [...active.accounts, ...((glob.chaserEnabled !== false && active.chasers) || [])]
-    : [...glob.accounts, ...((glob.chaserEnabled !== false && glob.chasers) || [])];
+    ? [...active.accounts]
+    : [...glob.accounts];
   // One-time pool migration: new gamer-tag pool (v2) renames ALL bots
   // immediately, bypassing the Monday-only gate. Runs once, then stamps
   // namePoolVersion so weekly stability resumes.
@@ -16712,11 +17269,11 @@ async function _houseTickCore(now = new Date(), isSnipe = false) {
   const byUid = new Map(board.map((r) => [r.uid, r]));
   const active = _houseActiveSet(glob, weekId);
   const activeAccounts = active.accounts.length ? active.accounts : [...glob.accounts];
-  const activeChasers = active.chasers.length ? active.chasers : [...(glob.chasers || [])];
-  const allHouse = [...activeAccounts, ...activeChasers, ...(glob.accountPool || []), ...(glob.chaserPool || [])];
+  // Chasers removed: legacy stored chaser uids still count as house for board
+  // filtering (so old rows never read as reals), but they never score.
+  const allHouse = [...activeAccounts, ...(glob.accounts || []), ...(glob.chasers || []), ...(glob.accountPool || []), ...(glob.chaserPool || [])];
   const reals = board.filter((r) => !allHouse.includes(r.uid) && !isAdminAccountUid(r.uid));
   const r4 = reals.length ? (Number(reals[0].weeklyPoints) || 0) : 900;
-  const rMid = reals.length > 9 ? (Number(reals[9].weeklyPoints) || 0) : 350;
   const velocity = reals.length > 3 ? Math.max(0, (Number(reals[0].weeklyPoints) || 0) - (Number(reals[3].weeklyPoints) || 0)) / 4 : 60;
   const projected = Math.max(r4 * 1.22 + 80, r4 + velocity * 7 * 1.15, 1700);
   const gapMin = _houseSocialNum(glob, 'gapMin', 60, 20, 250);
@@ -16731,21 +17288,30 @@ async function _houseTickCore(now = new Date(), isSnipe = false) {
   // Snipe is backup only: pace holds 1-2-3 all week, so Sunday snipe fires
   // only when a real is within striking distance. Softened: small chunks that
   // close to the band instead of 800-point jumps.
-  // House still wins: 3 of 4 weeks defended, 1 in 4 let-win so a real takes #1
-  // (house keeps #2-3 + pool edge). Per-bot 50% skip breaks the 3-min machine cadence.
+  // House always defends: no let-win week — snipe fires every week it is needed.
+  // Per-bot 50% skip breaks the 3-min machine cadence.
   if (isSnipe) {
-    if ((_houseHash(`${weekId}:letwin`) % 4) === 0) return { skipped: 'let_win_week' };
     const housesMin = Math.min(...activeAccounts.map((hid) => Number(byUid.get(hid)?.weeklyPoints) || 0));
     if (housesMin - r4 >= 80) return { skipped: 'safe' };
   }
+  // Stalled-real detection: if real #4 has barely moved (<30 WP) for over 24h,
+  // the podium stops anchoring to it and grinds on its own weekly goals —
+  // bots keep climbing and overtaking each other like real players instead of
+  // parking above an idle board. The moment reals move again, band logic resumes.
+  const r4Mode = _houseR4Mode(r4, glob.r4Mark, nowMs);
+  if (r4Mode.refresh) {
+    await db.collection('house_config').doc('global').set({ r4Mark: { r4, atMs: nowMs } }, { merge: true });
+  }
+  const selfPlay = r4Mode.selfPlay && !isSnipe;
   const dayIdx = watDayIdx;
   const curve = [0.18, 0.34, 0.52, 0.68, 0.82, 0.93, 1.0][dayIdx] || 1.0;
   const todayWAT = _watDateString(now);
   const targets = [];
-  // ── Podium: daily shuffled roles + self-grind floor + catchable band ──
+  // ── Podium: per-tick overtaking roles + self-grind floor + catchable band ──
   // House still wins: gapMin floor + curve floor + snipe backup hold 1-2-3.
+  // The lead rotates every 15-min tick so H1/H2/H3 always overtake each other.
   const shuffleOn = glob.shuffleEnabled !== false;
-  const order = shuffleOn ? _houseShuffleOrder(`${weekId}:${todayWAT}`, activeAccounts) : [...activeAccounts];
+  const order = shuffleOn ? _houseOvertakeOrder(activeAccounts, weekId, todayWAT, nowMs) : [...activeAccounts];
   // Daily breathing gaps so the same 95/75 never repeats. Widened ±45 so
   // leads vary more day to day (fix 2) while the [gapMin,gapMax] clamp below
   // still guarantees the house never falls behind.
@@ -16789,21 +17355,28 @@ async function _houseTickCore(now = new Date(), isSnipe = false) {
     const walkOffset = ((_houseHash(`${weekId}:${hid}:walk`) % 301) - 150);
     const gapRank = gapsByRank[pos] + persona.gapBonus + perBotGap + _houseJitter(140);
     const weeklyGoal = _houseWeeklyGoal(hid, weekId, glob);
-    const endTarget = Math.max(projected + gapRank, weeklyGoal + gapRank);
+    const endTarget = selfPlay ? weeklyGoal + gapRank : Math.max(projected + gapRank, weeklyGoal + gapRank);
     targets[Math.max(0, i)] = Math.round(endTarget);
     // Blend self-driven grind with the r4 band (fix 2): 65% own curve/goal,
     // 35% band-driven. Clamped to [lo,hi] below so the floor still holds.
+    // In self-play (reals stalled >24h) the r4 anchor is dropped entirely —
+    // the bot grinds its own goal curve like a real player on an idle board.
     const selfDriven = weeklyGoal * myCurve + perBotGap + walkOffset + _houseJitter(140);
-    const bandDriven = isSnipe ? endTarget : Math.min(endTarget * myCurve, endTarget);
-    let want = isSnipe ? endTarget : Math.round(selfDriven * 0.65 + bandDriven * 0.35);
-    // Catchable band: anchor tracks r4 within [gapMin,gapMax]; higher ranks
-    // stack their offsets above it. Wide band + per-bot offsets so leads vary;
-    // on upset day H3 may dip below r4 so the board actually flips.
-    const rankLift = (2 - pos) * 55;
-    const loBase = r4 + gapMin + (pos === 2 ? 0 : rankLift * 0.6);
-    const lo = (isUpsetDay && pos === 2) ? r4 - 30 : loBase;
-    const hi = r4 + gapMax + (pos === 2 ? 0 : rankLift + gap1Day * 0.5) + 30;
-    want = Math.max(lo, Math.min(hi, want));
+    let want;
+    if (selfPlay) {
+      want = Math.round(selfDriven);
+    } else {
+      const bandDriven = isSnipe ? endTarget : Math.min(endTarget * myCurve, endTarget);
+      want = isSnipe ? endTarget : Math.round(selfDriven * 0.65 + bandDriven * 0.35);
+      // Catchable band: anchor tracks r4 within [gapMin,gapMax]; higher ranks
+      // stack their offsets above it. Wide band + per-bot offsets so leads vary;
+      // on upset day H3 may dip below r4 so the board actually flips.
+      const rankLift = (2 - pos) * 55;
+      const loBase = r4 + gapMin + (pos === 2 ? 0 : rankLift * 0.6);
+      const lo = (isUpsetDay && pos === 2) ? r4 - 30 : loBase;
+      const hi = r4 + gapMax + (pos === 2 ? 0 : rankLift + gap1Day * 0.5) + 30;
+      want = Math.max(lo, Math.min(hi, want));
+    }
     // De-shadow: mixed quantize steps + varied deadband + varied catch-up cap
     // so a real's spike takes hours/days to absorb, not one 15m tick, and the
     // board never lands on clean 100pt lines every tick.
@@ -16837,70 +17410,7 @@ async function _houseTickCore(now = new Date(), isSnipe = false) {
     const st = db.collection('house_state').doc(hid);
     await st.set({ targetTotal: Math.round(endTarget), lastTick: FieldValue.serverTimestamp(), deficit }, { merge: true });
   }
-  // ── Chasers: mid-board liveliness, usually below the podium ──
-  // Independent goals per bot (own curve), loose coupling to rMid only.
-  // Usually ceiling = housesMin - chaserGap; 1 day/week the lead chaser may
-  // push to housesMin + 60 so mid-board occasionally threatens #3 (never #1).
-  const chasers = activeChasers;
-  const chaserOn = glob.chaserEnabled !== false;
-  if (chaserOn && chasers.length && !isSnipe) {
-    const housesMin = Math.min(...activeAccounts.map((hid) => Number(byUid.get(hid)?.weeklyPoints) || 0));
-    const chaserGap = _houseSocialNum(glob, 'chaserGap', 120, 20, 200);
-    const chaserDailyMax = _houseSocialNum(glob, 'chaserDailyMax', 550, 200, 1500);
-    const chaserMax = _houseSocialNum(glob, 'chaserMax', 1000, 400, 2500);
-    const isBreakthroughDay = (_houseHash(`${weekId}:breakthrough`) % 7) === dayIdx;
-    const baseCeiling = housesMin - chaserGap;
-    if (baseCeiling >= 150) {
-      const offsets = [-220, -110, 0, 110, 220];
-      for (let j = 0; j < chasers.length; j++) {
-        const hid = chasers[j];
-        if ((glob.paused || []).includes(hid)) continue;
-        if (watHour >= 0 && watHour < 7 && _houseJitter(99) < 98) continue;
-        if (_houseIsDayOff(hid, weekId, dayIdx)) continue;
-        if (!_houseInSession(hid, todayWAT, watHour) && _houseJitter(99) < 85) continue;
-        const persona = _housePersona(hid, 3 + j, glob);
-        if (_houseJitter(99) < persona.skip) continue;
-        const formC = _houseFormFor(hid, todayWAT, j);
-        if (formC < 0.9 && _houseJitter(99) < 30) continue;
-        // Throttle: chasers act on ~40% of ticks so writes stay bounded.
-        if (_houseJitter(99) >= 40) continue;
-        const cur = Number(byUid.get(hid)?.weeklyPoints) || 0;
-        const form = formC;
-        const myCurve = Math.min(1.0, Math.max(0.05, curve + persona.curveBoost));
-        const savedGoal = Number((glob.personas || {})[hid]?.weeklyGoal);
-        const cLo = _houseSocialNum(glob, 'chaserGoalMin', 300, 100, 1000);
-        const cHi = Math.max(cLo, _houseSocialNum(glob, 'chaserGoalMax', 1500, 400, 2500));
-        const goal = (Number.isFinite(savedGoal) && savedGoal >= cLo && savedGoal <= cHi)
-          ? Math.round(savedGoal)
-          : cLo + (_houseHash(`${weekId}:${hid}`) % (cHi - cLo + 1));
-        const selfWant = goal * myCurve + (offsets[j % offsets.length] * myCurve) + _houseJitter(140);
-        // Loose mid-pack coupling: drift near rMid ±350, never glued (fix 2).
-        let want = Math.max(80, Math.min(rMid + 350, Math.max(rMid - 350, selfWant)));
-        // Soft ceilings: usually below paid top-3, never exceed chaserMax curve.
-        // Breakthrough day: lead chaser may take #3.
-        const ceiling = (isBreakthroughDay && j === 0) ? housesMin + 60 : baseCeiling;
-        want = Math.min(want, ceiling, chaserMax * myCurve + 50);
-        const cqSteps = [25, 50, 50];
-        const cqStep = cqSteps[_houseJitter(2)];
-        want = Math.round(want / cqStep) * cqStep;
-        const deficit = Math.round(want - cur);
-        if (deficit < 30 + _houseJitter(50)) continue;
-        const earnSnap = await db.collection('users').doc(hid).get().catch(() => null);
-        const earnedToday = _resolveDailyWPEarned(earnSnap?.data() || {}, todayWAT);
-        const myDailyMax = Math.round(chaserDailyMax * (0.85 + (form - 0.85) * 0.8));
-        const room = Math.max(0, myDailyMax - earnedToday);
-        if (room < 15) continue;
-        const cBurst = _houseJitter(99) < 8 ? 60 : 0;
-        const chunk = Math.min(deficit, 15 + _houseJitter(140) + cBurst, room, 160);
-        if (chunk < 10) continue;
-        await _houseAward(hid, chunk, 0, 'house_chaser', { nowMs, todayWAT });
-        await db.collection('house_state').doc(hid).set(
-          { targetTotal: Math.round(want), lastTick: FieldValue.serverTimestamp(), deficit },
-          { merge: true },
-        );
-      }
-    }
-  }
+  // Chasers removed: no mid-board pack scores here. Podium only.
   return { success: true, weekId, r4, targets };
 }
 exports.houseTick = onSchedule({ schedule: 'every 15 minutes', region: 'us-central1' }, async () => {
@@ -16915,16 +17425,25 @@ exports.houseSnipe = onSchedule({ schedule: 'every 3 minutes', region: 'us-centr
   if (!(day === 0 && h >= 18.0 && h <= 21.98)) return;
   await _houseTickCore(new Date(), true);
 });
+async function _houseEntryEmail(hid) {
+  // Real entries store the buyer's real email; the old `house+<uid>@local`
+  // pattern was cohort-readable and a direct bot tell. Use a stable,
+  // plausible gmail per bot (no uid substring, so it can't be correlated
+  // with an opponentUid seen in a duel).
+  const a = _houseHash(`email:${hid}:a`) % 90000 + 10000;
+  const b = _houseHash(`email:${hid}:b`) % 900 + 100;
+  return `animefan${a}.${b}@gmail.com`;
+}
 async function _houseEnsureEntryCore(now = new Date()) {
   const glob = await _houseGlobal();
   const active = _houseActiveSet(glob, currentWeekId());
-  const hasPools = (Array.isArray(glob.accountPool) && glob.accountPool.length >= 3) ||
-    (Array.isArray(glob.chaserPool) && glob.chaserPool.length >= 5);
+  const hasPools = Array.isArray(glob.accountPool) && glob.accountPool.length >= 3;
   // With pools configured only the week's active subset enters; inactive pool
   // members sit out (reads as real churn). Without pools, legacy behavior.
+  // Podium only — chasers removed.
   const all = hasPools
-    ? [...active.accounts, ...((glob.chaserEnabled !== false && active.chasers) || [])]
-    : [...(glob.accounts || []), ...((glob.chaserEnabled !== false && glob.chasers) || [])];
+    ? [...active.accounts]
+    : [...(glob.accounts || [])];
   if (!all.length) return;
   const weekId = currentWeekId();
   // Stagger Monday entries across ~12h so all 8 bots don't join the same minute.
@@ -16937,14 +17456,23 @@ async function _houseEnsureEntryCore(now = new Date()) {
     const ref = db.collection('users').doc(hid);
     const snap = await ref.get().catch(() => null);
     if (!snap?.exists) continue;
-    if (snap.data()?.leaderboardEntryWeekId === weekId) continue;
+    const data = snap.data() || {};
+    // Repair pass: an entry minted with the old `house+@local` pattern stays
+    // readable all week — overwrite it even mid-week. Stable per bot.
+    if (data.leaderboardEntryWeekId === weekId &&
+        typeof data.leaderboardEntryEmail === 'string' &&
+        data.leaderboardEntryEmail.startsWith('house+')) {
+      await ref.set({ leaderboardEntryEmail: await _houseEntryEmail(hid) }, { merge: true });
+      continue;
+    }
+    if (data.leaderboardEntryWeekId === weekId) continue;
     const slot = _houseHash(`${weekId}:${hid}:entry`) % 12;
     // Human minutes within the slot hour (fix 1): don't join on the hour.
     const slotMinute = _houseHash(`${weekId}:${hid}:entrymin`) % 60;
     if (hoursSinceMonday < slot + slotMinute / 60) continue; // enters on a later hourly tick
-    const isChaser = (glob.chasers || []).includes(hid) || active.chasers.includes(hid);
+    // Podium plays as premium (paid-top-3 cover: 1.2x WP, high caps).
     const patch = {
-      leaderboardEntryWeekId: weekId, leaderboardEntryEmail: `house+${hid.slice(0, 6)}@local`,
+      leaderboardEntryWeekId: weekId, leaderboardEntryEmail: await _houseEntryEmail(hid),
       premiumActive: true,
     };
     // Identity cover: bots need a campus like every real paid entrant.
@@ -16955,6 +17483,9 @@ async function _houseEnsureEntryCore(now = new Date()) {
     await db.collection('users').doc(hid).collection('leaderboardReceipts').doc(weekId).set({
       weekId, source: 'entry', at: FieldValue.serverTimestamp(),
     }, { merge: true });
+    // Bots need a resolvable friend code from day one — mint at entry, not
+    // only when the social tick gets around to it.
+    await _houseEnsureFriendCode(hid);
   }
 }
 exports.houseEnsureEntry = onSchedule({ schedule: 'every 60 minutes', region: 'us-central1' }, async () => {
@@ -16967,10 +17498,10 @@ exports.houseRotateWeekly = onSchedule(
   },
 );
 // ─── House social humanizer (friends / duels / spars) ───────────────────
-// Bots are premium humans: same caps/cooldowns, delayed responses, ~60%
-// duel win rate with loss streaks, occasional high-stake risk takes, 6-min
-// minimum between scored plays (solo floor), occasional 5k permanent anime
-// unlocks.
+// Podium bots are premium humans: same cooldowns as their human peers,
+// delayed responses, podium ~82% duel win rate with streak breaker,
+// occasional high-stake risk takes, 6-min minimum between scored plays
+// (solo floor), occasional 5k permanent anime unlocks.
 // Everything is server-side + best-effort: one bot's failure never blocks
 // the others or the WP pacing tick.
 function _houseSocialNum(glob, key, fallback, min, max) {
@@ -17072,7 +17603,9 @@ async function _houseJoinTx(hid, cRef, c) {
       if (f.status === 'blocked') throw new Error('blocked');
     }
     const u = uSnap.data() || {};
-    const isPremium = true; // house bots are premium
+    // House premium is podium premium — read the
+    // live flag so each bot plays under the same caps as its human peers.
+    const isPremium = u.premiumActive === true;
     // Active cap (count in-tx like the callable, single-seat reads).
     const [asC, asO] = await Promise.all([
       tx.get(db.collection('challenges').where('creatorUid', '==', hid).where('status', 'in', ACTIVE_CHALLENGE_STATUSES)),
@@ -17087,17 +17620,17 @@ async function _houseJoinTx(hid, cRef, c) {
       return [{ size: onlyActive(a).length }, { size: onlyActive(b).length }];
     });
     const activeCount = (asC.size || asC.docs?.length || 0) + (asO.size || asO.docs?.length || 0);
-    if (activeCount >= ACTIVE_CHALLENGES_PREMIUM) throw new Error('too_many_active');
+    if (activeCount >= (isPremium ? ACTIVE_CHALLENGES_PREMIUM : ACTIVE_CHALLENGES_FREE)) throw new Error('too_many_active');
     const userRef = db.collection('users').doc(hid);
     if (isSparJoin) {
       const joinedDate = u.sparsJoinedDate === todayWAT;
       const n = joinedDate ? Number(u.sparsJoinedToday || 0) : 0;
-      if (n >= SPAR_DAILY_PREMIUM) throw new Error('spar_budget');
+      if (n >= (isPremium ? SPAR_DAILY_PREMIUM : SPAR_DAILY_FREE)) throw new Error('spar_budget');
       tx.update(userRef, { sparsJoinedToday: n + 1, sparsJoinedDate: todayWAT });
     } else {
       if (!Number.isInteger(stakeAmount) || stakeAmount < AC_MIN_STAKE || stakeAmount % AC_STAKE_STEP !== 0) throw new Error('bad_stake');
       const joinedToday = u.challengesJoinedDate === todayWAT ? Number(u.challengesJoinedToday || 0) : 0;
-      if (joinedToday >= DAILY_CHALLENGE_JOIN_PREMIUM) throw new Error('daily_join');
+      if (joinedToday >= (isPremium ? DAILY_CHALLENGE_JOIN_PREMIUM : DAILY_CHALLENGE_JOIN_FREE)) throw new Error('daily_join');
       if (Number(u.animeCoins || 0) < stakeAmount) throw new Error('insufficient_coins');
       tx.update(userRef, {
         animeCoins: FieldValue.increment(-stakeAmount),
@@ -17113,7 +17646,7 @@ async function _houseJoinTx(hid, cRef, c) {
     if (wpStake > 0) {
       if (!Number.isInteger(wpStake) || wpStake < WP_MIN_STAKE || wpStake % WP_STEP !== 0) throw new Error('bad_wp');
       const stakedToday = u.wpStakedDate === todayWAT ? Number(u.wpStakedToday || 0) : 0;
-      if (stakedToday + wpStake > WP_DAILY_CAP_PREMIUM) throw new Error('wp_cap');
+      if (stakedToday + wpStake > (isPremium ? WP_DAILY_CAP_PREMIUM : WP_DAILY_CAP_FREE)) throw new Error('wp_cap');
       if (Number(u.weeklyPoints || 0) < wpStake) throw new Error('insufficient_wp');
       const map = _getRivalCooldownMap(u);
       let inSeries = false;
@@ -17122,7 +17655,7 @@ async function _houseJoinTx(hid, cRef, c) {
         const r = rSnap.exists ? (rSnap.data() || {}) : {};
         inSeries = r.status === 'active' && ((Number(r.winsA) || 0) + (Number(r.winsB) || 0)) > 0;
       } catch (_) { inSeries = false; }
-      if (!inSeries && _rivalCooldownRemainingHours(map, creatorUid, WP_COOLDOWN_PREMIUM_HOURS) > 0) throw new Error('wp_cooldown');
+      if (!inSeries && _rivalCooldownRemainingHours(map, creatorUid, isPremium ? WP_COOLDOWN_PREMIUM_HOURS : WP_COOLDOWN_FREE_HOURS) > 0) throw new Error('wp_cooldown');
       tx.update(userRef, {
         weeklyPoints: FieldValue.increment(-wpStake),
         wpStakedToday: stakedToday + wpStake,
@@ -17311,18 +17844,18 @@ async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budge
   const duelRateBase = _houseSocialNum(glob, 'duelAcceptRate', 70, 0, 100);
   const sparRateBase = _houseSocialNum(glob, 'sparAcceptRate', 80, 0, 100);
   const highRateBase = _houseSocialNum(glob, 'highStakeAcceptRate', 40, 0, 100);
-  const minHBase = _houseSocialNum(glob, 'minRespondHours', 2, 0, 48);
   // Per-bot personality (fix 6): same global mean, ±12 spread stable per bot
   // so one bot is picky and another accepts everything.
   const personaOffset = ((_houseHash(`${hid}:social`) % 25) - 12);
   const duelRate = Math.max(0, Math.min(100, duelRateBase + personaOffset));
   const sparRate = Math.max(0, Math.min(100, sparRateBase + personaOffset));
   const highRate = Math.max(0, Math.min(100, highRateBase + personaOffset));
-  const minH = Math.max(0, minHBase + ((_houseHash(`${hid}:respond`) % 5) - 2));
   let used = 0;
+  let triageDeclines = 0; // prompt declines bypass the social budget (cap 5/tick)
+  const seriesCache = new Map();
   const pending = { ...(stateData.pendingPlays || {}) };
   for (const doc of docs) {
-    if (used >= budgetLeft) break;
+    if (used >= budgetLeft && triageDeclines >= 5) break;
     const c = doc.data() || {};
     if (c.resolved === true || ['completed', 'declined', 'expired', 'expired_refunded'].includes(c.status)) {
       if (pending[doc.id]) { delete pending[doc.id]; }
@@ -17331,7 +17864,10 @@ async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budge
       // who double-texts (fix 6). Series never hangs on one refuser.
       if (c.creatorUid === hid && c.opponentUid && ['declined', 'expired', 'expired_refunded'].includes(c.status)) {
         const declinedByPeer = c.declinedBy === c.opponentUid || c.status !== 'completed';
-        if (declinedByPeer) await _houseNoteRefusal(hid, String(c.opponentUid || ''), nowMs, _houseJitter(99) < 20 ? 8 : 48);
+        // Never back off a live series peer — the series must be completed.
+        const peerOpen = declinedByPeer ? String(c.opponentUid || '') : '';
+        const peerInSeries = peerOpen ? await _houseSeriesActiveCached(hid, peerOpen, seriesCache) : false;
+        if (declinedByPeer && !peerInSeries) await _houseNoteRefusal(hid, String(c.opponentUid || ''), nowMs, _houseJitter(99) < 20 ? 8 : 48);
       }
       continue;
     }
@@ -17349,22 +17885,35 @@ async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budge
     if (!needsJoin && !needsPlay) continue;
     const createdMs = _msOf(c.createdAt) || doc.createTime?.toMillis?.() || nowMs;
     const ageH = (nowMs - createdMs) / 3600000;
-    if (needsJoin && ageH < minH && _houseJitter(99) < 70) continue; // let invite breathe
     const isSpar = c.challengeType === 'spar';
     const stakeAmount = Number(c.stakeAmount) || 0;
     const wpStake = Number(c.wpStake) || 0;
+    // Series commitment: a live best-of-5 with this peer overrides rates and
+    // triage — every ranked duel from them is accepted, promptly.
+    let seriesDuel = false;
+    if (needsJoin && !isSpar) {
+      const peerUid = String(c.creatorUid || '');
+      if (peerUid && peerUid !== hid) {
+        seriesDuel = await _houseSeriesActiveCached(hid, peerUid, seriesCache);
+      }
+    }
+    // Fast triage: join or decline within ~0.5–1.5h so invites never sit in
+    // silence. The slow play schedule below keeps the human feel.
+    if (needsJoin && !seriesDuel && ageH < _houseTriageHours(doc.id)) continue;
     if (needsJoin) {
-      const rate = isSpar ? sparRate : (_houseIsHighStake(stakeAmount, wpStake) ? highRate : duelRate);
-      const roll = _houseJitter(99);
+      const rate = seriesDuel ? 100 : (isSpar ? sparRate : (_houseIsHighStake(stakeAmount, wpStake) ? highRate : duelRate));
+      const roll = seriesDuel ? 0 : _houseJitter(99);
       if (roll >= rate) {
-        // Human decline — only the invitee can decline; creators just wait.
-        // Usually back off 24h; 1 in 5 rematches after ~8h (fix 6).
+        // Prompt decline — only the invitee can decline; creators just wait.
+        // Bypasses the social budget (capped separately) so rejection is never
+        // starved. Usually back off 24h; 1 in 5 rematches after ~8h (fix 6).
+        if (triageDeclines >= 5) continue;
         if (isOpp && JOINABLE_CHALLENGE_STATUSES.includes(c.status)) {
           try {
             await _houseDeclineTx(hid, doc.ref);
             await _houseNoteRefusal(hid, String(c.creatorUid || ''), nowMs, _houseJitter(99) < 20 ? 8 : 24);
             await _houseBumpSocial(hid, todayWAT);
-            used++;
+            triageDeclines++;
             console.log(`[houseSocial] decline hid=${hid} cid=${doc.id} stake=${stakeAmount}/${wpStake}`);
           } catch (e) {
             console.warn(`[houseSocial] decline fail hid=${hid} cid=${doc.id}: ${e.message || e}`);
@@ -17372,16 +17921,24 @@ async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budge
         }
         continue;
       }
+      // Casual joins wait for social budget; series joins and declines don't.
+      if (!seriesDuel && used >= budgetLeft) continue;
       try {
         await _houseJoinTx(hid, doc.ref, c);
-        pending[doc.id] = nowMs + (30 + _houseJitter(300)) * 60 * 1000; // 30m–5.5h
+        // Series duels get a fast play slot (10–30m); casual joins play slow.
+        pending[doc.id] = seriesDuel
+          ? nowMs + (10 + _houseJitter(20)) * 60 * 1000
+          : nowMs + (30 + _houseJitter(300)) * 60 * 1000; // 30m–5.5h
         await _houseBumpSocial(hid, todayWAT);
         used++;
         console.log(`[houseSocial] join hid=${hid} cid=${doc.id} spar=${isSpar} stake=${stakeAmount}/${wpStake}`);
       } catch (e) {
         const msg = String(e.message || e);
         // Hard gate failures → decline so creator gets refunded instead of hanging.
-        if (isOpp && JOINABLE_CHALLENGE_STATUSES.includes(c.status) &&
+        // Live series duels never decline on transient caps (retry next tick);
+        // only a block ends a series invite.
+        const seriesHang = seriesDuel && !/blocked/i.test(msg);
+        if (!seriesHang && isOpp && JOINABLE_CHALLENGE_STATUSES.includes(c.status) &&
           /blocked|not_friends|wp_cap|wp_cooldown|insufficient|too_many|daily|budget/i.test(msg)) {
           try {
             await _houseDeclineTx(hid, doc.ref);
@@ -17395,7 +17952,16 @@ async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budge
       }
     } else if (needsPlay) {
       // Defer to pending scheduler below; stamp if missing.
-      if (!pending[doc.id]) pending[doc.id] = nowMs + (10 + _houseJitter(120)) * 60 * 1000;
+      if (!pending[doc.id]) {
+        let playSeries = false;
+        if (!isSpar) {
+          const sPeer = String((isCreator ? c.opponentUid : c.creatorUid) || '');
+          if (sPeer && sPeer !== hid) playSeries = await _houseSeriesActiveCached(hid, sPeer, seriesCache);
+        }
+        pending[doc.id] = playSeries
+          ? nowMs + (5 + _houseJitter(10)) * 60 * 1000 // series plays jump the queue
+          : nowMs + (10 + _houseJitter(120)) * 60 * 1000;
+      }
     }
   }
   try {
@@ -17405,8 +17971,15 @@ async function _houseProcessInvites(hid, glob, stateData, nowMs, todayWAT, budge
 }
 async function _houseProcessPendingPlays(hid, glob, stateData, nowMs, todayWAT, budgetLeft) {
   const floorMs = (_houseSocialNum(glob, 'minPlayIntervalMins', 6, 6, 120) + ((_houseHash(`${hid}:floor`) % 5) - 2)) * 60 * 1000;
-  const winRateBase = _houseSocialNum(glob, 'winRate', 60, 0, 100);
-  const winRate = Math.max(0, Math.min(100, winRateBase + ((_houseHash(`${hid}:winrate`) % 21) - 10)));
+  // Podium (top-3 accounts) plays to winRatePodium (default 82, tight ±3
+  // jitter => 79-85 band). Podium streak cap is 6 so the breaker doesn't
+  // drag 82% down to ~75%.
+  const isPodium = Array.isArray(glob.accounts) && glob.accounts.includes(hid);
+  const winRateBase = isPodium
+    ? _houseSocialNum(glob, 'winRatePodium', 82, 0, 100)
+    : _houseSocialNum(glob, 'winRate', 60, 0, 100);
+  const winJitter = isPodium ? ((_houseHash(`${hid}:winrate`) % 7) - 3) : ((_houseHash(`${hid}:winrate`) % 21) - 10);
+  const winRate = Math.max(0, Math.min(100, winRateBase + winJitter));
   const lastPlay = Number(stateData.lastPlayAt || 0);
   if (nowMs - lastPlay < floorMs) return 0; // solo 6-min floor, global for bots
   const pending = { ...(stateData.pendingPlays || {}) };
@@ -17429,10 +18002,10 @@ async function _houseProcessPendingPlays(hid, glob, stateData, nowMs, todayWAT, 
         continue;
       }
       if (isCreator === false && !c.joinedAt) { delete pending[cid]; continue; }
-      // Streak breaker: cap win streaks at 4 and loss streaks at 3 so bots
-      // show human hot/cold runs instead of a flat 80% win line.
-      let wantWin = _houseJitter(99) < winRate; // configurable duel win rate (default 60%)
-      if (winStreak >= 4) wantWin = false;
+      // Streak breaker: cap win streaks at 6 and loss
+      // streaks at 3 so bots show human hot/cold runs instead of a flat line.
+      let wantWin = _houseJitter(99) < winRate; // podium ~82%
+      if (winStreak >= (isPodium ? 6 : 4)) wantWin = false;
       else if (lossStreak >= 3) wantWin = true;
       await _houseSubmitTx(hid, cRef, wantWin);
       delete pending[cid];
@@ -17728,6 +18301,7 @@ async function _houseMaybeOutgoing(hid, glob, nowMs, todayWAT, budgetLeft) {
   try {
     const uSnap = await db.collection('users').doc(hid).get();
     const u = uSnap.exists ? (uSnap.data() || {}) : {};
+    const isPremium = u.premiumActive === true;
     const createdToday = u.challengesCreatedDate === todayWAT ? Number(u.challengesCreatedToday || 0) : 0;
     const sparsToday = u.sparsCreatedDate === todayWAT ? Number(u.sparsCreatedToday || 0) : 0;
     const friends = await db.collection('users').doc(hid).collection('friendLinks')
@@ -17745,11 +18319,32 @@ async function _houseMaybeOutgoing(hid, glob, nowMs, todayWAT, budgetLeft) {
     let peer = '';
     let wantSpar = true;
     let peerFound = false;
+    // Series first: a live best-of-5 outranks casual spars/duels. Ranked rival
+    // duels only (spars don't advance a series), one open invite per peer.
+    try {
+      for (const fdoc of (friends.docs || [])) {
+        const cand = String(fdoc.data()?.otherUid || fdoc.id || '');
+        if (!cand || cand === hid) continue;
+        if (await _houseSeriesActiveCached(hid, cand, new Map())) {
+          const mine = await db.collection('challenges').where('creatorUid', '==', hid).limit(25).get().catch(() => null);
+          const hasOpen = (mine?.docs || []).some((d) => {
+            const m = d.data() || {};
+            return m.opponentUid === cand && m.resolved !== true &&
+              !['completed', 'declined', 'expired', 'expired_refunded'].includes(m.status);
+          });
+          if (hasOpen) return 0; // series invite already pending — wait for them
+          peer = cand; wantSpar = false; peerFound = true;
+          break;
+        }
+      }
+    } catch (_) { /* fall through to casual picks */ }
+    if (!peerFound) {
+    if (_houseJitter(99) >= 12) return 0; // ~1 outgoing per 8 ticks per bot
     for (const candDoc of order) {
       const cand = String(candDoc.data()?.otherUid || candDoc.id || '');
       if (!cand || _houseBackedOff(backoffState, cand, nowMs)) continue;
       const sparRoll = _houseJitter(99) < 75;
-      if (!sparRoll && _rivalCooldownRemainingHours(map, cand, WP_COOLDOWN_PREMIUM_HOURS, nowMs) > 0) {
+      if (!sparRoll && _rivalCooldownRemainingHours(map, cand, isPremium ? WP_COOLDOWN_PREMIUM_HOURS : WP_COOLDOWN_FREE_HOURS, nowMs) > 0) {
         try {
           const rSnap = await db.collection('rivalries').doc([hid, cand].sort().join('_')).get().catch(() => null);
           const r = rSnap?.exists ? (rSnap.data() || {}) : {};
@@ -17762,9 +18357,10 @@ async function _houseMaybeOutgoing(hid, glob, nowMs, todayWAT, budgetLeft) {
       peerFound = true;
       break;
     }
+    } // end casual picks (skipped when a series duel was forced above)
     if (!peerFound) return 0;
-    if (wantSpar && sparsToday >= SPAR_DAILY_PREMIUM) return 0;
-    if (!wantSpar && createdToday >= DAILY_CHALLENGE_CREATE_PREMIUM) return 0;
+    if (wantSpar && sparsToday >= (isPremium ? SPAR_DAILY_PREMIUM : SPAR_DAILY_FREE)) return 0;
+    if (!wantSpar && createdToday >= (isPremium ? DAILY_CHALLENGE_CREATE_PREMIUM : DAILY_CHALLENGE_CREATE_FREE)) return 0;
     const catalog = await _loadAnimeCatalog();
     const title = catalog[_houseJitter(catalog.length - 1)];
     const qSnap = await db.collection('questions').where('animeTitle', '==', title).limit(10).get().catch(() => null);
@@ -17775,7 +18371,7 @@ async function _houseMaybeOutgoing(hid, glob, nowMs, todayWAT, budgetLeft) {
     // Stakes: usually 20-500 AC / 5-100 WP; ~8% high-stake takes 2000-5000 AC
     // / 200-400 WP like a confident human (fix 6). Caps enforced below by join
     // gates and balances.
-    const highRoll = _houseJitter(99) < 8;
+    const highRoll = isPremium && _houseJitter(99) < 8;
     const stakeAmount = wantSpar ? 0 : highRoll
       ? Math.min(5000, 2000 + _houseJitter(300) * 10)
       : (20 + _houseJitter(48) * 10); // 20–500 AC
@@ -17944,13 +18540,8 @@ async function _houseSocialCore(now = new Date()) {
   const weekId = currentWeekId();
   const active = _houseActiveSet(glob, weekId);
   const socialPodium = active.accounts.length ? active.accounts : [...glob.accounts];
-  const socialChasers = (glob.chaserEnabled !== false && active.chasers.length) ? active.chasers : [];
-  // Chasers socialize at a reduced rate so mid-board accounts have friends and
-  // duels too (previously only podium acted — a graph tell).
-  const socialQueue = [
-    ...socialPodium.map((hid) => ({ hid, chaser: false })),
-    ...socialChasers.filter(() => _houseJitter(99) < 40).map((hid) => ({ hid, chaser: true })),
-  ];
+  // Podium only — chasers removed.
+  const socialQueue = socialPodium.map((hid) => ({ hid, chaser: false }));
   for (let i = 0; i < socialQueue.length; i++) {
     const hid = socialQueue[i].hid;
     try {
@@ -17975,7 +18566,7 @@ async function _houseSocialCore(now = new Date()) {
       used += await _housePruneFriends(hid, glob, nowMs, todayWAT, budget - used);
       if (glob.outgoingEnabled) {
         used += await _houseMaybeOutgoingFriendRequest(hid, glob, nowMs, todayWAT, budget - used);
-        used += await _houseMaybeHouseEdge(hid, [...socialPodium, ...socialChasers], glob, nowMs, todayWAT, budget - used);
+        used += await _houseMaybeHouseEdge(hid, [...socialPodium], glob, nowMs, todayWAT, budget - used);
       }
       const st2 = (await _houseSocialState(hid)).d;
       used += await _houseProcessInvites(hid, glob, st2, nowMs, todayWAT, budget - used);
@@ -18075,6 +18666,9 @@ if (process.env.NODE_ENV === 'test') {
     // House social seams.
     _houseHash,
     _houseShuffleOrder,
+    _houseOvertakeOrder,
+    _houseR4Mode,
+    _houseTriageHours,
     _houseFormFor,
     _houseWeeklyGoal,
     _houseWatParts,

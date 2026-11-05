@@ -319,6 +319,18 @@ class QuizController extends ChangeNotifier {
   /// short wait instead of lost points.
   final Map<int, Future<bool>> _pendingLocks = {};
 
+  /// Last permanent refusal seen while locking answers (e.g.
+  /// `challenge_not_active`). Lets an `answers_not_locked` submit failure
+  /// surface the real cause instead of a generic connection message.
+  String? _lastLockRefusal;
+
+  /// Serialises duel locks so they reach the server in question order.
+  /// Concurrent locks can arrive out of order and the server gap-fills a
+  /// skipped slot as a timeout (-1), permanently scoring a correct answer
+  /// as wrong (first write wins). Chaining keeps the UI instant — the 900 ms
+  /// dwell still drives advancing — while the network writes stay ordered.
+  Future<void> _duelLockChain = Future<void>.value();
+
   /// Duel questions whose background lock gave up (permanent server states
   /// are excluded — those surface at submit). Retried once at final submit.
   final Set<int> _lockFailed = {};
@@ -426,7 +438,9 @@ class QuizController extends ChangeNotifier {
 
   // ── Load ───────────────────────────────────────────────────────────────────
 
-  Future<void> loadQuestions() async {
+  Future<void> loadQuestions() => _loadQuestionsInternal(healChecked: false);
+
+  Future<void> _loadQuestionsInternal({required bool healChecked}) async {
     _isLoading = true;
     _errorMsg = null;
     _notify();
@@ -478,6 +492,8 @@ class QuizController extends ChangeNotifier {
       _completed = false;
       _pendingLocks.clear();
       _lockFailed.clear();
+      _lastLockRefusal = null;
+      _duelLockChain = Future<void>.value();
       // Duel resume: the server returns our own locked picks. Skip past
       // them — replaying locked questions is pointless (already scored) and
       // re-showing them is the preview this fixes.
@@ -533,9 +549,117 @@ class QuizController extends ChangeNotifier {
       _isLoading = false;
       debugPrint('[GhostMatch][loadQuestions] ERROR: $e');
       debugPrintStack(stackTrace: st);
-      _errorMsg = e.toString().replaceFirst('Exception: ', '');
+      // One-active-run lock: the quiz page is gone but the server lock is
+      // still held (quit raced the background cancel, app killed, second
+      // quiz started on top). Home has a Clear-run flow; this page only has
+      // Try Again, so self-heal when the server already released the lock
+      // and otherwise name the stuck run instead of leaking the raw code.
+      if (!healChecked && _isRunInProgress(e)) {
+        try {
+          final status = await FirestoreService.instance
+              .getActiveRunStatus()
+              .timeout(const Duration(seconds: 8));
+          if (_disposed) return;
+          if (status['active'] != true) {
+            // Expired/settled lock was cleared by the status check itself —
+            // retry once so the user never sees a dead end.
+            await _loadQuestionsInternal(healChecked: true);
+            return;
+          }
+          _errorMsg = _stuckRunMessage(status);
+          _notify();
+          return;
+        } catch (_) {
+          // Status lookup failed (offline) — fall through to the generic
+          // run_in_progress message below.
+        }
+      }
+      _errorMsg = _loadErrorMessage(e);
       _notify();
     }
+  }
+
+  bool _isRunInProgress(Object e) {
+    return e is FirebaseFunctionsException &&
+        e.code == 'failed-precondition' &&
+        (e.message ?? '') == 'run_in_progress';
+  }
+
+  String _stuckRunMessage(Map<String, dynamic> status) {
+    final kind = _friendlyStuckKind(status['kind'] as String?);
+    final secs = (status['secondsLeft'] as num?)?.toInt();
+    final when = secs == null
+        ? 'is still in progress'
+        : secs < 60
+            ? 'ends in less than a minute'
+            : 'ends in ~${(secs / 60).ceil()} min';
+    return 'Your $kind $when. '
+        'Go back to Home to clear it, then try again.';
+  }
+
+  String _friendlyStuckKind(String? kind) {
+    return switch (kind) {
+      'gauntlet' => 'Blitz run',
+      'challenge' => 'challenge run',
+      'quickmatch' => 'Quick Match run',
+      _ => 'solo run',
+    };
+  }
+
+  String _loadErrorMessage(Object e) {
+    if (e is FirebaseFunctionsException) {
+      final msg = e.message ?? '';
+      if (e.code == 'unauthenticated') {
+        return 'Your session expired — sign in again, then retry.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg.contains('App update required') || msg == 'legacy_quiz_path')) {
+        return 'App update required: please update to the latest version.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'run_in_progress') {
+        return 'You still have a run in progress. '
+            'Go back to Home to clear it, then try again.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'run_expired') {
+        return 'This run expired — go back and start a new quiz.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg == 'run_cancelled' ||
+              msg == 'run_not_active' ||
+              msg == 'run_already_submitted')) {
+        return 'This run is no longer active — go back and start a new one.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg == 'challenge_not_active' ||
+              msg == 'challenge_not_found' ||
+              msg == 'not_a_quick_match' ||
+              msg == 'use_quickmatch_mode')) {
+        return 'This match is no longer available.';
+      }
+      if (e.code == 'permission-denied' && msg == 'not_a_participant') {
+        return 'This match is no longer available.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'not_enough_questions') {
+        return 'Not enough questions yet — try another anime.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'solo_session_mismatch') {
+        return 'This run could not be verified — go back and start a new quiz.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'session_superseded') {
+        return 'You signed in on another device — this session has been signed out.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'account_under_review') {
+        return 'This account is under review and cannot play right now.';
+      }
+    }
+    final raw = e.toString().replaceFirst('Exception: ', '');
+    if (raw.isNotEmpty &&
+        !raw.startsWith('[firebase_functions/') &&
+        raw != e.toString()) {
+      return raw;
+    }
+    if (raw.contains('No questions found')) return raw;
+    return 'Could not load questions — check your connection and tap Try Again.';
   }
 
   /// Resolves the server-minted run for this session. The response contains
@@ -814,7 +938,9 @@ class QuizController extends ChangeNotifier {
     _submittingAnswer = false;
     if (lockRunId == null || lockRunId.isEmpty) {
       // No server run (offline resume edge): still advance locally so the
-      // player is never stranded on a dead question.
+      // player is never stranded on a dead question. The final submit will
+      // surface the verification error instead of the cryptic
+      // `answers_not_locked` (zero locks can never score).
       _selectedOption = index;
       _showResult = true;
       _notify();
@@ -828,10 +954,28 @@ class QuizController extends ChangeNotifier {
     _showResult = true;
     _notify();
     _timer?.cancel();
-    _pendingLocks[lockIndex] = _lockDuelAnswer(lockRunId, lockIndex, index);
+    _pendingLocks[lockIndex] = _enqueueDuelLock(lockRunId, lockIndex, index);
     Future.delayed(const Duration(milliseconds: 900), () {
       if (!_disposed) _advance();
     });
+  }
+
+  /// Enqueues a duel answer lock behind [_duelLockChain] so concurrent taps
+  /// and timeout heals land on the server in question order. Returns true
+  /// when the lock landed. Stored in [_pendingLocks] so the final submit
+  /// awaits it.
+  Future<bool> _enqueueDuelLock(
+    String runId,
+    int questionIndex,
+    int selectedAnswer,
+  ) {
+    final task = _duelLockChain.then(
+      (_) => _lockDuelAnswer(runId, questionIndex, selectedAnswer),
+    );
+    // Keep the chain alive regardless of this lock's outcome; a failure must
+    // never block every later question's lock.
+    _duelLockChain = task.then<void>((_) {}).catchError((_) {});
+    return task;
   }
 
   /// Locks one duel answer server-side with retries. Returns true when the
@@ -859,15 +1003,21 @@ class QuizController extends ChangeNotifier {
         if (e.code == 'failed-precondition' &&
             (msg == 'run_cancelled' ||
                 msg == 'run_expired' ||
+                msg == 'run_not_active' ||
                 msg == 'run_already_submitted' ||
+                msg == 'per_answer_not_supported' ||
                 msg == 'score_already_submitted' ||
                 msg == 'challenge_not_active' ||
                 msg == 'challenge_not_found' ||
                 msg.contains('App update required') ||
                 msg == 'legacy_quiz_path')) {
           debugPrint('[QuizController] duel lock refused: ${e.code} $msg');
+          _lastLockRefusal =
+              msg.contains('App update required') ? 'App update required' : msg;
           return false;
         }
+        debugPrint(
+            '[QuizController] duel lock retryable (attempt $attempt): ${e.code} $msg');
       } catch (e) {
         debugPrint('[QuizController] duel lock failed (attempt $attempt): $e');
       }
@@ -909,19 +1059,21 @@ class QuizController extends ChangeNotifier {
               'selectedAnswer': _selectedAnswers[i],
               ...AppUpdateService.instance.clientBuildStamp,
             }).timeout(const Duration(seconds: 5));
-          } catch (_) {
+          } catch (e) {
             // Still failing: the gap scores -1 via the server fill, and the
-            // submit below surfaces a dead run honestly.
+            // submit below surfaces a dead run honestly. Log the reason so
+            // `answers_not_locked` can be traced in device logs.
+            debugPrint('[QuizController] lock retry failed (q$i): $e');
+            _recordLockRefusal(e);
           }
         }
       }
     }
-    // Reconcile locks that never landed (e.g. ghost matches refused every
-    // optimistic lock with challenge_not_active before the server gate
-    // accepted status 'ghost' — _lockDuelAnswer reports those as false
-    // without populating _lockFailed, so the retry above sees nothing).
-    // Re-lock every unconfirmed index in order; already-locked questions are
-    // idempotent (already:true) so this is a no-op when everything landed.
+    // Reconcile locks that never landed (e.g. an optimistic lock refused with
+    // a permanent state, which reports false without populating _lockFailed,
+    // so the retry above sees nothing). Re-lock every unconfirmed index in
+    // order; already-locked questions are idempotent (already:true) so this
+    // is a no-op when everything landed.
     final runId = _runId;
     if (_disposed ||
         runId == null ||
@@ -959,9 +1111,22 @@ class QuizController extends ChangeNotifier {
         }).timeout(const Duration(seconds: 5));
         confirmed.add(i);
         _pendingLocks[i] = Future.value(true);
-      } catch (_) {
+      } catch (e) {
         // Leave unconfirmed: submitRun surfaces the dead run honestly, and
         // the server fills the gap as -1 rather than trapping the player.
+        // Logged so a persistent `answers_not_locked` has a traceable cause.
+        debugPrint('[QuizController] lock repair failed (q$i): $e');
+        _recordLockRefusal(e);
+      }
+    }
+  }
+
+  void _recordLockRefusal(Object e) {
+    if (e is FirebaseFunctionsException && e.code == 'failed-precondition') {
+      final msg = e.message ?? '';
+      if (msg.isNotEmpty) {
+        _lastLockRefusal =
+            msg.contains('App update required') ? 'App update required' : msg;
       }
     }
   }
@@ -984,22 +1149,17 @@ class QuizController extends ChangeNotifier {
 
     // Best-effort lock for a timed-out question. The final submitRun treats
     // any missing slot as -1 regardless, so a dropped request cannot change
-    // the score — but locking it keeps duel resumes exact.
+    // the score — but locking it keeps duel resumes exact. Tracked in
+    // _pendingLocks (ordered behind the chain) so the final submit awaits it
+    // instead of racing it: an untracked fire-and-forget lock can still be
+    // in flight when submitRun reads the run and throws answers_not_locked.
     if ((mode == QuizMode.solo || mode == QuizMode.asyncChallenge) &&
         _runId != null &&
         _selectedOption == -1) {
-      unawaited(() async {
-        try {
-          await _invokeSubmitCallable('submitAnswer', {
-            'runId': _runId,
-            'questionIndex': _qIndex,
-            'selectedAnswer': -1,
-            ...AppUpdateService.instance.clientBuildStamp,
-          });
-        } catch (e) {
-          debugPrint('[QuizController] timeout lock failed (ignored): $e');
-        }
-      }());
+      final timeoutRunId = _runId!;
+      final timeoutIndex = _qIndex;
+      _pendingLocks[timeoutIndex] ??=
+          _enqueueDuelLock(timeoutRunId, timeoutIndex, -1);
     }
 
     _answerResults.add(
@@ -1294,13 +1454,35 @@ class QuizController extends ChangeNotifier {
       final correctCount =
           (data['correctCount'] as num?)?.toInt() ?? _correctCount;
       onChallengeComplete(challengeId!, isCreator, correctCount);
-    } catch (e) {
-      if (!_disposed) {
-        _isNavigating = false;
-        _submitFailed = true;
-        _notify();
-        onError('Failed to save score: $e', onRetry: retrySubmit);
+    } on FirebaseFunctionsException catch (e) {
+      if (_disposed) return;
+      // Heal the zero-lock race once: an untracked timeout lock can still be
+      // in flight when the first submit reads the run. Repair re-locks every
+      // unconfirmed index in order, then the submit is retried once before
+      // the player ever sees an error.
+      if (_isAnswersNotLocked(e)) {
+        await _awaitPendingLocks();
+        if (_disposed) return;
+        try {
+          final data = await _invokeSubmitCallable('submitRun', {
+            'runId': _runId ?? '',
+            'answers': _selectedAnswers,
+            ...AppUpdateService.instance.clientBuildStamp,
+          });
+          if (_disposed) return;
+          _completed = true;
+          final correctCount =
+              (data['correctCount'] as num?)?.toInt() ?? _correctCount;
+          onChallengeComplete(challengeId!, isCreator, correctCount);
+          return;
+        } catch (e2) {
+          _failDuelSubmit(e2, isQuickMatch: false);
+          return;
+        }
       }
+      _failDuelSubmit(e, isQuickMatch: false);
+    } catch (e) {
+      _failDuelSubmit(e, isQuickMatch: false);
     }
   }
 
@@ -1389,14 +1571,171 @@ class QuizController extends ChangeNotifier {
       if (!_disposed) {
         onChallengeComplete(challengeId!, isCreator, correctCount);
       }
+    } on FirebaseFunctionsException catch (e) {
+      if (_disposed) return;
+      // Same zero-lock heal as _finishChallenge: repair unconfirmed locks in
+      // order, then retry the submit once before surfacing an error.
+      if (_isAnswersNotLocked(e)) {
+        await _awaitPendingLocks();
+        if (_disposed) return;
+        try {
+          final data = await _invokeSubmitCallable('submitRun', {
+            'runId': _runId ?? '',
+            'answers': _selectedAnswers,
+            ...AppUpdateService.instance.clientBuildStamp,
+          });
+          if (_disposed) return;
+          _completed = true;
+          final correctCount = (data['correctCount'] as num?)?.toInt() ?? 0;
+          unawaited(_saveGhostSession());
+          if (!_disposed) {
+            onChallengeComplete(challengeId!, isCreator, correctCount);
+          }
+          return;
+        } catch (e2) {
+          _failDuelSubmit(e2, isQuickMatch: true);
+          return;
+        }
+      }
+      _failDuelSubmit(e, isQuickMatch: true);
     } catch (e) {
-      if (!_disposed) {
-        _isNavigating = false;
-        _submitFailed = true;
-        _notify();
-        onError('Failed to save Quick Match result: $e', onRetry: retrySubmit);
+      _failDuelSubmit(e, isQuickMatch: true);
+    }
+  }
+
+  /// True when the submit failed because the server saw zero per-answer
+  /// locks (`answers_not_locked`). The client ignores its own answer array
+  /// for duels, so this means none of the optimistic `submitAnswer` writes
+  /// had landed when `submitRun` read the run — a lock race or a dead
+  /// network, never a wrong answer.
+  bool _isAnswersNotLocked(Object e) {
+    return e is FirebaseFunctionsException &&
+        e.code == 'failed-precondition' &&
+        (e.message ?? '') == 'answers_not_locked';
+  }
+
+  /// Shared failure path for duel submits (challenge + quick match). Maps
+  /// server codes to an actionable message and only offers Retry when a
+  /// retry can actually succeed. Permanent states (expired run, dead match,
+  /// outdated build) never get a Retry action.
+  void _failDuelSubmit(Object e, {required bool isQuickMatch}) {
+    if (_disposed) return;
+    _isNavigating = false;
+    final retryable = _isDuelRetryable(e);
+    _submitFailed = retryable;
+    _notify();
+    final rid = _runId ?? '';
+    debugPrint(
+      '[QuizController] duel submit failed kind=${isQuickMatch ? 'quickmatch' : 'challenge'} '
+      'run=${rid.length > 6 ? rid.substring(rid.length - 6) : rid} '
+      'answers=${_selectedAnswers.length} pending=${_pendingLocks.length} '
+      'lastRefusal=${_lastLockRefusal ?? 'none'} error=$e',
+    );
+    onError(
+      _duelErrorMessage(e, isQuickMatch: isQuickMatch),
+      onRetry: retryable ? retrySubmit : null,
+    );
+  }
+
+  /// Retry helps for transport failures and the lock race; it cannot revive
+  /// an expired run, a settled match, or an outdated build.
+  bool _isDuelRetryable(Object e) {
+    if (e is FirebaseFunctionsException) {
+      final msg = e.message ?? '';
+      if (e.code == 'unauthenticated') return false;
+      if (e.code == 'failed-precondition' &&
+          (msg.contains('App update required') ||
+              msg == 'legacy_quiz_path' ||
+              msg == 'run_expired' ||
+              msg == 'run_cancelled' ||
+              msg == 'run_not_active' ||
+              msg == 'run_already_submitted' ||
+              msg == 'score_already_submitted' ||
+              msg == 'challenge_not_active' ||
+              msg == 'challenge_not_found' ||
+              msg == 'not_a_quick_match' ||
+              msg == 'use_quickmatch_mode')) {
+        return false;
+      }
+      if (e.code == 'invalid-argument' ||
+          e.code == 'not-found' ||
+          e.code == 'permission-denied') {
+        return false;
       }
     }
+    return true;
+  }
+
+  /// User-facing message for a duel submit failure. Never leaks the raw
+  /// exception (`failed-precondition: answers_not_locked`) that the old
+  /// `Failed to save …: $e` path showed.
+  String _duelErrorMessage(Object e, {required bool isQuickMatch}) {
+    final prefix = isQuickMatch
+        ? 'Failed to save Quick Match result'
+        : 'Failed to save score';
+    if (e is FirebaseFunctionsException) {
+      final msg = e.message ?? '';
+      if (e.code == 'unauthenticated') {
+        return 'Your session has expired — sign in again, then retry.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg.contains('App update required') || msg == 'legacy_quiz_path')) {
+        return 'App update required: please update to the latest version.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'run_expired') {
+        return 'This run expired — start a new quiz to earn rewards.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg == 'run_cancelled' || msg == 'run_not_active')) {
+        return 'This run is no longer active — start a new quiz.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg == 'run_already_submitted' ||
+              msg == 'score_already_submitted')) {
+        return 'This result was already submitted.';
+      }
+      if (e.code == 'failed-precondition' &&
+          (msg == 'challenge_not_active' || msg == 'challenge_not_found')) {
+        return 'This match is no longer active.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'answers_not_locked') {
+        // If the repair pass already learned the real refusal (dead match,
+        // expired run), surface that instead of the generic lock message —
+        // retrying a dead match can never succeed.
+        final refusal = _lastLockRefusal;
+        if (refusal == 'challenge_not_active' ||
+            refusal == 'challenge_not_found') {
+          return 'This match is no longer active.';
+        }
+        if (refusal == 'run_expired') {
+          return 'This run expired — start a new quiz to earn rewards.';
+        }
+        if (refusal == 'run_cancelled' || refusal == 'run_not_active') {
+          return 'This run is no longer active — start a new quiz.';
+        }
+        if (refusal == 'run_already_submitted' ||
+            refusal == 'score_already_submitted') {
+          return 'This result was already submitted.';
+        }
+        return '$prefix — your answers could not be locked. '
+            'Check your connection and tap Retry. '
+            'If retry keeps failing, go back to Home, clear the stuck run, '
+            'and start a fresh Quick Match.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'run_in_progress') {
+        return '$prefix — a previous submit is still processing. '
+            'Wait a moment, then tap Retry.';
+      }
+      if (e.code == 'failed-precondition' && msg == 'run_has_no_questions') {
+        return 'This run could not be verified — start a new quiz to earn rewards.';
+      }
+      if (e.code == 'invalid-argument' ||
+          e.code == 'not-found' ||
+          e.code == 'permission-denied') {
+        return 'This run could not be verified — start a new quiz to earn rewards.';
+      }
+    }
+    return '$prefix — check your connection and tap Retry.';
   }
 
   // ── Ghost pool replenishment ─────────────────────────────────────────────

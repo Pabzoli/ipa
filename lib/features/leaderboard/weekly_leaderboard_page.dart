@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
@@ -738,6 +739,7 @@ class _GlobalLeaderboardTab extends StatelessWidget {
                   myWeeklyPoints: provider.weeklyPoints,
                   displayName: myRow?.username ?? _fallbackName(),
                   isEligible: eligible,
+                  isPremium: myRow?.isPremium ?? provider.premiumActive,
                   entryCta: cta,
                 ),
               ),
@@ -802,7 +804,17 @@ class _GlobalLeaderboardTab extends StatelessWidget {
               ),
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(20.r, 0.r, 20.r, 32.r),
+                  // Bottom clearance clears the fixed bottom nav (nav height +
+                  // safe-area inset), plus a web lift where the toolbar
+                  // reports a zero inset.
+                  padding: EdgeInsets.fromLTRB(
+                    20.r,
+                    0.r,
+                    20.r,
+                    96.h +
+                        MediaQuery.paddingOf(context).bottom +
+                        (kIsWeb ? 28.h : 0.0),
+                  ),
                   child: BoardFooter(
                     shown: entries.length,
                     totalPlayers: standing.totalPlayers,

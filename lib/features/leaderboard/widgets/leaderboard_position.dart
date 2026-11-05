@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../core/services/firestore_service.dart';
 import '../../../core/theme/app_theme.dart';
 import 'leaderboard_pool_card.dart';
+import 'premium_mark.dart';
 
 /// The signed-in player's standing on this week's board.
 ///
@@ -29,6 +30,9 @@ class YourPositionCard extends StatelessWidget {
   /// Whether the player holds an entry this week.
   final bool isEligible;
 
+  /// True when the signed-in player is a premium member.
+  final bool isPremium;
+
   /// Shown only when [isEligible] is false.
   final Widget? entryCta;
 
@@ -39,6 +43,7 @@ class YourPositionCard extends StatelessWidget {
     required this.myWeeklyPoints,
     required this.displayName,
     required this.isEligible,
+    this.isPremium = false,
     this.entryCta,
   });
 
@@ -88,6 +93,10 @@ class YourPositionCard extends StatelessWidget {
                         ),
                         SizedBox(width: 6.w),
                         const _YouBadge(),
+                        if (isPremium) ...[
+                          SizedBox(width: 5.w),
+                          const PremiumMark(),
+                        ],
                       ],
                     ),
                     SizedBox(height: 4.h),

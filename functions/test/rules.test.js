@@ -281,7 +281,7 @@ describe('firestore.rules against the emulator', () => {
       }));
     });
 
-    it('new-user create: only the exact legacy starter profile is allowed', async () => {
+    it('new-user create: denied — profiles are CF-only (uniqueness guard)', async () => {
       const db = env.authenticatedContext('uid_new').firestore();
       const legacy = {
         username: 'new', email: 'new@example.com',
@@ -292,23 +292,13 @@ describe('firestore.rules against the emulator', () => {
           hseWon: 0, hseLost: 0, hseStaked: 0,
         },
       };
-      // TRANSITIONAL: the shipped APK still writes this exact shape.
-      await allowed(doc(db, 'users/uid_new').set(legacy), 'legacy starter profile');
-
-      // But every economy/stat value is pinned and unknown fields are denied.
+      // All client creates are denied: ensureProfile mints the doc inside the
+      // same transaction that claims `usernames/{key}`, so a direct write
+      // could never check uniqueness and could fork duplicate usernames.
+      await denied(doc(db, 'users/uid_new').set(legacy), 'direct create denied');
       await denied(doc(db, 'users/uid_new2').set({
         ...legacy, animeCoins: 100000,
       }));
-      await denied(doc(db, 'users/uid_new3').set({
-        ...legacy, totalScore: 999999,
-      }));
-      await denied(doc(db, 'users/uid_new4').set({
-        ...legacy, stats: { ...legacy.stats, gamesWon: 999 },
-      }));
-      await denied(doc(db, 'users/uid_new5').set({
-        ...legacy, premiumActive: true,
-      }));
-      // A partial "clean" profile is not the legacy shape.
       await denied(doc(db, 'users/uid_clean').set({ username: 'clean' }));
     });
 

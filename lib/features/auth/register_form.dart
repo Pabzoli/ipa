@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +42,14 @@ class _RegisterFormState extends State<RegisterForm> {
   String? _error;
   String? _selectedUniversity;
 
+  // ── Username uniqueness pre-check ──────────────────────────────────────
+  // Live guard so a taken name surfaces inline before the signup attempt
+  // (which would otherwise create an Auth account just to roll it back).
+  // The server claim in `ensureProfile` stays authoritative.
+  Timer? _nameDebounce;
+  bool _checkingName = false;
+  bool _nameTaken = false;
+
   @override
   void initState() {
     super.initState();
@@ -47,10 +57,13 @@ class _RegisterFormState extends State<RegisterForm> {
       ..onTap = () => _open(const TermsOfServicePage());
     _privacyTap = TapGestureRecognizer()
       ..onTap = () => _open(const PrivacyPolicyPage());
+    _nameCtrl.addListener(_onNameChanged);
   }
 
   @override
   void dispose() {
+    _nameDebounce?.cancel();
+    _nameCtrl.removeListener(_onNameChanged);
     _termsTap.dispose();
     _privacyTap.dispose();
     _nameCtrl.dispose();
@@ -60,6 +73,26 @@ class _RegisterFormState extends State<RegisterForm> {
     super.dispose();
   }
 
+  void _onNameChanged() {
+    _nameDebounce?.cancel();
+    final trimmed = _nameCtrl.text.trim();
+    if (AuthService.validateUsername(trimmed) != null) {
+      if (_nameTaken && mounted) setState(() => _nameTaken = false);
+      return;
+    }
+    _nameDebounce = Timer(const Duration(milliseconds: 500), () async {
+      if (!mounted) return;
+      setState(() => _checkingName = true);
+      final result = await AuthService.instance.checkUsernameAvailable(trimmed);
+      if (!mounted) return;
+      setState(() {
+        _checkingName = false;
+        // Fail-open ('unknown') never marks taken so a blip can't block signup.
+        _nameTaken = result.taken;
+      });
+    });
+  }
+
   void _open(Widget page) {
     Navigator.of(context).push(AppPageRoute(builder: (_) => page));
   }
@@ -67,10 +100,28 @@ class _RegisterFormState extends State<RegisterForm> {
   Future<void> _register() async {
     if (!_agreed) return;
     if (!_formKey.currentState!.validate()) return;
+    if (_nameTaken) {
+      _fail('That username is already taken. Try another.');
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
+    // Final authoritative pre-check right before creating the Auth account:
+    // avoids a create+delete rollback when the live check raced or was
+    // skipped. Fail-open still lets the server decide on errors.
+    final availability = await AuthService.instance
+        .checkUsernameAvailable(_nameCtrl.text.trim());
+    if (!mounted) return;
+    if (availability.taken) {
+      setState(() {
+        _loading = false;
+        _nameTaken = true;
+        _error = 'That username is already taken. Try another.';
+      });
+      return;
+    }
     try {
       await AuthService.instance.signUp(
         email: _emailCtrl.text,
@@ -155,8 +206,24 @@ class _RegisterFormState extends State<RegisterForm> {
                       icon: Icons.person_outline,
                       enabled: !_loading,
                       textInputAction: TextInputAction.next,
-                      validator: (v) => (v == null || v.trim().length < 3)
-                          ? 'Username must be at least 3 characters'
+                      validator: (v) {
+                        final local = AuthService.validateUsername(v);
+                        if (local != null) return local;
+                        if (_nameTaken) {
+                          return 'That username is already taken. Try another.';
+                        }
+                        return null;
+                      },
+                      suffixIcon: _checkingName
+                          ? Padding(
+                              padding: EdgeInsets.all(12.r),
+                              child: SizedBox(
+                                width: 16.r,
+                                height: 16.r,
+                                child: const CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              ),
+                            )
                           : null,
                     ),
                     SizedBox(height: 14.h),

@@ -1,5 +1,18 @@
 {
   "projects": {
     "default": "anime-quiz-1ab1b"
-  }
+  },
+  "targets": {
+    "anime-quiz-1ab1b": {
+      "hosting": {
+        "live": [
+          "anime-quiz-1ab1b"
+        ],
+        "app": [
+          "playanimequiz"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

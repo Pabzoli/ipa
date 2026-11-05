@@ -104,47 +104,15 @@ service cloud.firestore {
     }
 
     // ── Profile creation is Cloud-Function-only ──────────────────────────
-    // Signup no longer writes `users/{uid}` from the client. The ensureProfile
+    // Signup never writes `users/{uid}` from the client. The ensureProfile
     // callable creates it with totalScore/stats/animeCoins/weeklyPoints seeded
     // server-side and claims the username in `usernames/{key}`. That removes
     // the whole class of "new account seeded itself a maxed profile" and makes
     // username uniqueness enforceable at creation, not just on edit.
-
-    // ── Transitional legacy-client signup ────────────────────────────────
-    // The APK in distribution still writes its own users/{uid} doc. Until the
-    // App Check build is shipped, allow ONLY the exact legacy starter profile
-    // with every economy/stat value PINNED, so this cannot be used to seed a
-    // balance, points or statistics, and unknown fields are rejected.
-    // Once the new client is live, delete this function and set create:false.
-    function isLegacyStarterProfile(d) {
-      return d.keys().hasOnly([
-               'username', 'email', 'totalScore', 'animeCoins',
-               'weeklyPoints', 'weeklyReset', 'createdAt', 'stats',
-               'university', 'referredBy'
-             ])
-        && d.username is string
-        && d.username.size() >= 3 && d.username.size() <= 64
-        && d.email is string && d.email.size() <= 254
-        && d.totalScore == 500
-        && d.animeCoins == 0
-        && d.weeklyPoints == 0
-        && d.weeklyReset is timestamp
-        && d.createdAt is timestamp
-        && d.stats.keys().hasOnly([
-             'gamesPlayed', 'gamesWon', 'gamesLost',
-             'hseWon', 'hseLost', 'hseStaked'
-           ])
-        && d.stats.gamesPlayed == 0
-        && d.stats.gamesWon == 0
-        && d.stats.gamesLost == 0
-        && d.stats.hseWon == 0
-        && d.stats.hseLost == 0
-        && d.stats.hseStaked == 0
-        && (!('university' in d)
-            || (d.university is string && d.university.size() <= 64))
-        && (!('referredBy' in d)
-            || (d.referredBy is string && d.referredBy.size() <= 64));
-    }
+    //
+    // The transitional legacy-client direct-write path was removed: it could
+    // not check the `usernames/{key}` claim, so two legacy signups could land
+    // the same username. All clients now go through ensureProfile.
 
     // ── Users ─────────────────────────────────────────────────────────────
     match /users/{userId} {
@@ -154,18 +122,21 @@ service cloud.firestore {
         isPayoutAdmin() || isSameWeekEntrant(resource.data)
       );
 
-      // TRANSITIONAL: see isLegacyStarterProfile above. New clients create the
-      // profile through ensureProfile (Admin SDK bypasses rules); this branch
-      // exists only for the currently shipped build.
-      allow create: if request.auth != null
-        && request.auth.uid == userId
-        && isLegacyStarterProfile(request.resource.data);
+      // No client creates: profiles are minted by ensureProfile (Admin SDK
+      // bypasses rules) inside the same transaction that claims
+      // `usernames/{lowercased}`. Keeping this false closes the duplicate-
+      // username hole a direct client write could never check.
+      allow create: if false;
 
       // POSITIVE ALLOWLIST. Clients may write exactly one field on their own
       // profile: the FCM registration token. Everything else is server-owned:
       //   • username / university → changeUsername / updateUniversity callables
       //     (7-day cooldown, uniqueness claim, canonical university list),
-      //   • totalScore / stats / weeklyPoints / animeCoins / entitlements → CFs.
+      //   • totalScore / stats / weeklyPoints / animeCoins / entitlements → CFs,
+      //   • activeSession → claimSession / releaseSession callables
+      //     (single-device login: last login wins, superseded logins are
+      //     rejected server-side; the owner already reads it via the rule
+      //     above, which is what the client eviction listener subscribes to).
       // hasOnly (not a denylist) means a field added on the server in future is
       // NOT client-writable until it is deliberately listed here.
       allow update: if request.auth != null

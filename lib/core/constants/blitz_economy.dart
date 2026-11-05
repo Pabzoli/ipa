@@ -19,17 +19,17 @@ const Map<String, int> kBlitzMix = {'easy': 10, 'medium': 10, 'hard': 10};
 
 /// WP per correct answer, by question difficulty.
 const Map<String, int> kBlitzWpByDifficulty = {
-  'easy': 5,
-  'medium': 8,
-  'hard': 12,
+  'easy': 8,
+  'medium': 12,
+  'hard': 18,
 };
 
 /// Hard cap on raw run WP before retry decay / premium / daily soft cap.
-const int kBlitzRawWpCap = 200;
+const int kBlitzRawWpCap = 300;
 
 /// Flat completion bonus when at least [kBlitzCompletionMinAnswered]
 /// questions were answered (correct or not).
-const int kBlitzCompletionWp = 10;
+const int kBlitzCompletionWp = 15;
 
 /// Minimum answered questions for the completion bonus.
 const int kBlitzCompletionMinAnswered = 5;
@@ -44,12 +44,12 @@ class BlitzAcTier {
 }
 
 const List<BlitzAcTier> kBlitzAcTiers = [
-  BlitzAcTier(0, 2),
-  BlitzAcTier(5, 8),
-  BlitzAcTier(9, 15),
-  BlitzAcTier(13, 25),
-  BlitzAcTier(17, 40),
-  BlitzAcTier(21, 60),
+  BlitzAcTier(0, 3),
+  BlitzAcTier(5, 12),
+  BlitzAcTier(9, 23),
+  BlitzAcTier(13, 38),
+  BlitzAcTier(17, 60),
+  BlitzAcTier(21, 90),
 ];
 
 /// AC earned for [correctCount] correct answers.

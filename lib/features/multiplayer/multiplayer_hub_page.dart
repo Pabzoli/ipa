@@ -20,6 +20,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
@@ -92,10 +93,28 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage>
     _bump();
   }
 
-  void _goQuickMatch() => _startMatchmaking();
+  void _goQuickMatch() {
+    // Tab guard: rapid taps would otherwise spawn overlapping matchmaking
+    // flows, each burning a token and stacking search dialogs. The flag
+    // clears when the flow settles, so legitimate retries still work.
+    if (_matchmaking) return;
+    _matchmaking = true;
+    _startMatchmaking().whenComplete(() {
+      _matchmaking = false;
+    });
+  }
+
+  /// True while a matchmaking flow is in flight (see [_goQuickMatch]).
+  bool _matchmaking = false;
 
   Future<void> _startMatchmaking() async {
     if (!mounted) return;
+    // One-active-run guard: getQuizRun would refuse with `run_in_progress`
+    // if a previous quiz is still holding the lock (quit raced the cancel,
+    // app killed, second quiz on top). Check here on the hub before burning
+    // a matchmaking round and landing on a dead quiz page.
+    final free = await _ensureNoActiveRun();
+    if (!mounted || !free) return;
     final result = await showDialog<_MatchResult?>(
       context: context,
       barrierDismissible: false,
@@ -152,6 +171,72 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage>
     ));
   }
 
+  /// Returns true when no run is holding the one-active-run lock. On a stuck
+  /// lock shows the same Clear-run recovery the Home tab uses instead of
+  /// letting matchmaking mint a challenge that getQuizRun will refuse.
+  /// Never blocks on a status failure — matchmaking surfaces its own error.
+  Future<bool> _ensureNoActiveRun() async {
+    Map<String, dynamic> status;
+    try {
+      status = await FirestoreService.instance
+          .getActiveRunStatus()
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      return true;
+    }
+    if (status['active'] != true) return true;
+    if (!mounted) return false;
+    final kind = switch (status['kind'] as String?) {
+      'gauntlet' => 'Blitz run',
+      'challenge' => 'challenge run',
+      'quickmatch' => 'Quick Match run',
+      _ => 'solo run',
+    };
+    final secs = (status['secondsLeft'] as num?)?.toInt();
+    final when = secs == null
+        ? 'is still in progress'
+        : secs < 60
+            ? 'ends in less than a minute'
+            : 'ends in ~${(secs / 60).ceil()} min';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Your $kind $when. Clear it to start a Quick Match. '
+          'Clearing a live duel forfeits it.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Clear run',
+          onPressed: () => _clearStuckRun(),
+        ),
+      ),
+    );
+    return false;
+  }
+
+  Future<void> _clearStuckRun() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || !mounted) return;
+    try {
+      final snap =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final activeRunId =
+          (snap.data()?['activeRunId'] as String?)?.trim() ?? '';
+      if (!mounted) return;
+      if (activeRunId.isEmpty) {
+        _snack('No stuck run found — try Quick Match again.');
+        return;
+      }
+      await FirestoreService.instance.cancelRun(activeRunId);
+      if (!mounted) return;
+      _snack('Stuck run cleared — try Quick Match again.');
+    } catch (_) {
+      if (!mounted) return;
+      _snack("Couldn't clear the run — check connection, try again.");
+    }
+  }
+
   PageRoute _slideRoute(Widget page) => AppPageRoute(builder: (_) => page);
 
   @override
@@ -178,7 +263,17 @@ class _MultiplayerHubPageState extends State<MultiplayerHubPage>
               onRefresh: () async => _bump(),
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 40.r),
+                // Bottom clearance clears the fixed bottom nav (nav height +
+                // safe-area inset), plus a web lift where the toolbar reports
+                // a zero inset — otherwise the last cards hide behind the bar.
+                padding: EdgeInsets.fromLTRB(
+                  20.r,
+                  18.r,
+                  20.r,
+                  96.h +
+                      MediaQuery.paddingOf(context).bottom +
+                      (kIsWeb ? 28.h : 0.0),
+                ),
                 children: [
                   _HubHeader(premiumActive: udp.premiumActive),
                   SizedBox(height: 16.h),
@@ -1130,6 +1225,14 @@ class _QuickMatchSectionState extends State<_QuickMatchSection> {
     // Captured before the await: the messenger survives the ad flow, so no
     // BuildContext is touched across an async gap.
     final messenger = ScaffoldMessenger.of(context);
+    // Web has no video ads yet (AdSense later).
+    if (kIsWeb) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Video ads are not on web yet.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
     setState(() => _watchingAd = true);
     final shown = await AdService.instance.showQMTokenAd(
       context: context,

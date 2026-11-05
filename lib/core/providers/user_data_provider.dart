@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import '../services/connectivity_service.dart';
 import '../services/firestore_service.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -141,7 +141,7 @@ class UserDataProvider extends ChangeNotifier {
 
   // ── Stream Subscriptions ────────────────────────────────────────────────────
 
-  StreamSubscription<List<ConnectivityResult>>? _connectSub;
+  StreamSubscription<bool>? _connectSub;
   StreamSubscription<User?>? _authSub;
   StreamSubscription<int>? _scoreSub;
   StreamSubscription<int>? _animeCoinsSub;
@@ -169,15 +169,18 @@ class UserDataProvider extends ChangeNotifier {
     _isInitialized = true;
 
     // ── 1. Connectivity Check ────────────────────────────────────────────────
+    // Web: `navigator.onLine` is instant and synchronous. Fail open — a
+    // false negative must never wall the user out; Firestore errors surface
+    // through the stream handlers below.
     try {
-      Connectivity()
-          .checkConnectivity()
+      ConnectivityService.instance
+          .checkOnline()
           .timeout(
             const Duration(seconds: 3),
-            onTimeout: () => [ConnectivityResult.wifi],
+            onTimeout: () => true,
           )
-          .then((results) {
-        _isOnline = _hasConnection(results);
+          .then((online) {
+        _isOnline = online;
       }).catchError((_) {
         _isOnline = true;
       }).whenComplete(() {
@@ -191,10 +194,12 @@ class UserDataProvider extends ChangeNotifier {
     }
 
     // ── 2. Live Connection Listener ──────────────────────────────────────────
+    // Browser `online`/`offline` events. Firestore stream errors also flip
+    // `_isOnline` (see handlers below), so a lying `navigator.onLine`
+    // self-corrects on the first failed read.
     try {
-      _connectSub = Connectivity().onConnectivityChanged.listen(
-        (results) {
-          final online = _hasConnection(results);
+      _connectSub = ConnectivityService.instance.onStatusChanged.listen(
+        (online) {
           if (online != _isOnline) {
             _isOnline = online;
             notifyListeners();
@@ -204,11 +209,11 @@ class UserDataProvider extends ChangeNotifier {
           }
         },
         onError: (error) {
-          debugPrint('Connectivity stream error ignored on iOS: $error');
+          debugPrint('Connectivity stream error ignored: $error');
         },
       );
     } catch (e) {
-      debugPrint('Failed to bind connectivity stream on iOS: $e');
+      debugPrint('Failed to bind connectivity stream: $e');
     }
 
     // ── 3. Auth State Listener ───────────────────────────────────────────────
@@ -235,9 +240,6 @@ class UserDataProvider extends ChangeNotifier {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
-
-  bool _hasConnection(List<ConnectivityResult> results) =>
-      results.any((r) => r != ConnectivityResult.none);
 
   void _resetLocalState() {
     _score = 0;
@@ -297,22 +299,10 @@ class UserDataProvider extends ChangeNotifier {
   void _startFirestoreStreams() {
     _cancelFirestoreStreams();
 
-    // One-time migrations — fire-and-forget.
-    FirestoreService.instance.runMigrationIfNeeded().catchError((e) {
-      debugPrint('[UserDataProvider] migration error (ignored): $e');
-    });
-    FirestoreService.instance.ensureAnimeCoinField().catchError((e) {
-      debugPrint('[UserDataProvider] ensureAnimeCoinField error (ignored): $e');
-    });
-    FirestoreService.instance.ensureDailyAdWatchedFields().catchError((e) {
-      debugPrint(
-          '[UserDataProvider] ensureDailyAdWatchedFields error (ignored): $e');
-    });
-    FirestoreService.instance
-        .ensureChallengesCreatedTodayField()
-        .catchError((e) {
-      debugPrint(
-          '[UserDataProvider] ensureChallengesCreatedTodayField error (ignored): $e');
+    // One-time startup patches — a single user-doc read covering the legacy
+    // migration plus all additive field backfills. Fire-and-forget.
+    FirestoreService.instance.runStartupPatches().catchError((e) {
+      debugPrint('[UserDataProvider] startup patches error (ignored): $e');
     });
 
     // ── Score ────────────────────────────────────────────────────────────────

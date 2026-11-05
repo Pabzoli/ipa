@@ -21,9 +21,10 @@ const Duration kRivalryExpiry = Duration(days: 14);
 const int kBountyWpGap = 200;
 const int kBountyWpBonus = 25;
 
-/// Flat WP participation. Server: CHALLENGE_WIN_WP / CHALLENGE_DRAW_WP.
+/// Flat WP participation. Server: CHALLENGE_WIN_WP / CHALLENGE_DRAW_WP / CHALLENGE_LOSE_WP.
 const int kDuelFlatWinWp = 50;
 const int kDuelFlatDrawWp = 25;
+const int kDuelFlatLoseWp = 8;
 
 /// Spar flat reward. Server: SPAR_WP_WIN.
 const int kSparWinWp = 5;

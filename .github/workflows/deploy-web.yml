@@ -1,0 +1,74 @@
+name: Deploy web app
+
+# Web-only pipeline: every push to main rebuilds the browser app and deploys
+# it to the Firebase Hosting `app` target (playanimequiz). The old iOS
+# workflow was deleted with the native folders.
+#
+# One-time setup: add a repo secret named FIREBASE_SERVICE_ACCOUNT containing
+# the JSON of a service account with Firebase Hosting Admin on
+# anime-quiz-1ab1b (Cloud Console → IAM → Service Accounts → Keys → JSON).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'functions/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'data/**'
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: flutter build web + deploy hosting
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the SDK this app is developed on.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.9'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze (deploy gate)
+        run: flutter analyze
+
+      - name: Build web
+        run: flutter build web --release
+
+      # version.json ships from the build with pubspec fields only. Stamp
+      # every deploy with commit + time so the in-app updater always tells a
+      # new deploy apart — even when pubspec wasn't bumped.
+      - name: Stamp version.json
+        run: |
+          python3 - <<'EOF'
+          import json, datetime
+          p = 'build/web/version.json'
+          with open(p) as f:
+              data = json.load(f)
+          data['commit'] = '${{ github.sha }}'
+          data['deployed_at'] = datetime.datetime.now(
+              datetime.timezone.utc).isoformat(timespec='seconds')
+          with open(p, 'w') as f:
+              json.dump(data, f)
+          print(open(p).read())
+          EOF
+
+      - name: Deploy to Firebase Hosting (app target)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: anime-quiz-1ab1b
+          target: app

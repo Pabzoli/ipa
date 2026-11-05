@@ -1,11 +1,11 @@
 {
-    "name": "quiz",
-    "short_name": "quiz",
+    "name": "AnimeQuiz",
+    "short_name": "AnimeQuiz",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#16161F",
+    "theme_color": "#16161F",
+    "description": "Head-to-head anime quizzes for cash prizes. Play free on web.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

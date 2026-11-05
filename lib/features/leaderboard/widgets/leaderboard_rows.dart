@@ -5,6 +5,7 @@ import '../../../core/services/prize_pool_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../leaderboard_models.dart';
 import 'leaderboard_pool_card.dart';
+import 'premium_mark.dart';
 
 /// The top three, ordered strictly by rank.
 ///
@@ -155,17 +156,29 @@ class PodiumCard extends StatelessWidget {
               ),
             ),
             SizedBox(height: 8.h),
-            Text(
-              isMe ? 'You' : entry.username,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isMe ? AppColors.primary : AppColors.textPrimary,
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.1,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    isMe ? 'You' : entry.username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isMe ? AppColors.primary : AppColors.textPrimary,
+                      fontSize: 12.sp,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.1,
+                    ),
+                  ),
+                ),
+                if (entry.isPremium) ...[
+                  SizedBox(width: 3.w),
+                  const PremiumMark(size: 11),
+                ],
+              ],
             ),
             SizedBox(height: 3.h),
             Text(
@@ -229,6 +242,7 @@ class PodiumCard extends StatelessWidget {
     final parts = <String>[
       if (entry.isRanked) 'Rank ${entry.rank}' else 'No entry',
       if (entry.isCurrentUser) 'you' else entry.username,
+      if (entry.isPremium) 'premium member',
       '${entry.weeklyPoints} points',
       if (entry.isRanked && prize != null && prize! > 0)
         PrizePoolService.formatExact(prize!),
@@ -350,6 +364,10 @@ class RankRow extends StatelessWidget {
                           SizedBox(width: 5.w),
                           _MiniTag(label: 'YOU', color: AppColors.primaryText),
                         ],
+                        if (entry.isPremium) ...[
+                          SizedBox(width: 5.w),
+                          const PremiumMark(),
+                        ],
                         if (isRival) ...[
                           SizedBox(width: 5.w),
                           const _MiniTag(
@@ -419,6 +437,7 @@ class RankRow extends StatelessWidget {
     final parts = <String>[
       if (entry.isRanked) 'Rank ${entry.rank}' else 'No entry',
       if (isMe) 'you' else entry.username,
+      if (entry.isPremium) 'premium member',
       '${entry.weeklyPoints} points',
       if (entry.isRanked && prize != null && prize! > 0)
         PrizePoolService.formatExact(prize!),

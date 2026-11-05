@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../../core/services/app_update_service.dart';
 import '../../core/services/device_id_service.dart';
 import '../../core/services/firestore_service.dart';
+import '../../core/services/session_service.dart';
 
 /// Wraps Firebase Auth + Firestore profile operations.
 class AuthService {
@@ -152,6 +153,11 @@ class AuthService {
 
   Future<void> signOut() async {
     FriendsBoardFetch.invalidateFriendsBoardCache();
+    // Releases the single-device session first (while still authenticated),
+    // but only when this login still owns it — a superseded device signing
+    // out never clears the login that replaced it. Best-effort: sign-out
+    // always proceeds.
+    await SessionService.instance.release();
     await _auth.signOut();
   }
 
@@ -170,6 +176,7 @@ class AuthService {
         .call<Map<String, dynamic>>();
     // Server already deleted the Auth user; clear the local session too.
     FriendsBoardFetch.invalidateFriendsBoardCache();
+    SessionService.instance.stopGuard();
     try {
       await _auth.signOut();
     } catch (_) {
@@ -348,6 +355,69 @@ class AuthService {
     final uid = currentUser!.uid;
     return _db.collection('users').doc(uid).snapshots();
   }
+
+  // ── Username uniqueness guard ──────────────────────────────────────────
+  //
+  // The transactional claim in `ensureProfile` / `changeUsername` stays
+  // authoritative, but failing there costs a created-then-deleted Auth
+  // account (signup) or a late dialog error (rename). This pre-flight lets
+  // the forms warn inline BEFORE that happens. Fail-open: a network or
+  // rate-limit error returns `available: true` so the server still decides.
+
+  /// Shared client-side shape check: 3-20 chars after trim, no control
+  /// characters. Mirrors `_sanitizeUsername` in functions/index.js.
+  static String? validateUsername(String? value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.length < 3 || trimmed.length > 20) {
+      return 'Username must be 3-20 characters.';
+    }
+    // ignore: avoid_bool_literals_in_conditional_expressions
+    final hasControl = trimmed.codeUnits.any(
+      (c) => (c >= 0x00 && c <= 0x1F) || c == 0x7F,
+    );
+    if (hasControl) return 'Username contains invalid characters.';
+    return null;
+  }
+
+  /// Asks `checkUsernameAvailable` whether [username] is free.
+  /// Returns `available: false` only when the server is sure (invalid or
+  /// taken). Any error fails open to `available: true`.
+  Future<UsernameAvailability> checkUsernameAvailable(
+    String username,
+  ) async {
+    final trimmed = username.trim();
+    if (validateUsername(trimmed) != null) {
+      return const UsernameAvailability(
+        available: false,
+        reason: 'invalid',
+      );
+    }
+    try {
+      final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('checkUsernameAvailable')
+          .call<Map<String, dynamic>>({
+        'username': trimmed,
+        ...AppUpdateService.instance.clientBuildStamp,
+      });
+      final data = Map<String, dynamic>.from(res.data);
+      final available = data['available'] == true;
+      final reason = (data['reason'] as String?) ?? '';
+      return UsernameAvailability(available: available, reason: reason);
+    } catch (_) {
+      // Fail open — the transactional claim decides.
+      return const UsernameAvailability(available: true, reason: 'unknown');
+    }
+  }
+}
+
+/// Pre-flight username availability result from `checkUsernameAvailable`.
+class UsernameAvailability {
+  final bool available;
+  final String reason;
+  const UsernameAvailability({required this.available, required this.reason});
+
+  bool get taken => !available && reason == 'taken';
+  bool get invalid => !available && reason == 'invalid';
 }
 
 /// A registration failure the UI can show verbatim (e.g. "That username is

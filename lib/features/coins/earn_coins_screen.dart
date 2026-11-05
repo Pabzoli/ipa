@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -62,6 +63,13 @@ class _EarnCoinsScreenState extends State<EarnCoinsScreen> {
 
   Future<void> _onWatchAdTapped() async {
     final provider = context.read<UserDataProvider>();
+
+    // Web has no video ads yet (AdSense later) — point at the shop instead
+    // of spinning for 5s and failing.
+    if (kIsWeb) {
+      _showSnack('Video ads are not on web yet. Top up via Coin packs below.');
+      return;
+    }
 
     if (provider.adsRemainingToday <= 0) return;
     if (_cooldownSecsLeft > 0) return;

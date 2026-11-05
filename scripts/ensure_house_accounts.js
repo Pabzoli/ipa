@@ -30,7 +30,7 @@ const CHASERS = [
   { email: 'house.chaser5.ng@gmail.com', username: 'LastBencher', university: 'UNIBEN', pwd: 'Chas3rFive!7q' },
 ];
 
-async function ensureUser(auth, db, h, freshStats) {
+async function ensureUser(auth, db, h, freshStats, isPremium) {
   let user;
   let created = false;
   try {
@@ -54,10 +54,12 @@ async function ensureUser(auth, db, h, freshStats) {
       accountStatus: 'active', totalScore: freshStats.totalScore, animeCoins: freshStats.coins,
       weeklyPoints: 0, weeklyReset: admin.firestore.FieldValue.serverTimestamp(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      stats: freshStats.stats, university: h.university, premiumActive: true,
+      stats: freshStats.stats, university: h.university, premiumActive: isPremium,
     }, { merge: true });
   } else {
-    const patch = { premiumActive: true };
+    // Role-based premium: podium true, chasers false. Managed here so a
+    // re-run converges existing docs instead of re-premiuming everyone.
+    const patch = { premiumActive: isPremium };
     if (!usnap.data()?.university) patch.university = h.university;
     await uref.set(patch, { merge: true });
   }
@@ -81,14 +83,14 @@ async function main() {
     houses.push(await ensureUser(auth, db, h, {
       totalScore: 500, coins: 2000,
       stats: { gamesPlayed: 40, gamesWon: 24, gamesLost: 16, hseWon: 0, hseLost: 0, hseStaked: 0 },
-    }));
+    }, true));
   }
   const chasers = [];
   for (const h of CHASERS) {
     chasers.push(await ensureUser(auth, db, h, {
       totalScore: 120, coins: 3500,
       stats: { gamesPlayed: 18, gamesWon: 9, gamesLost: 9, hseWon: 0, hseLost: 0, hseStaked: 0 },
-    }));
+    }, false));
   }
 
   const gref = db.collection('house_config').doc('global');

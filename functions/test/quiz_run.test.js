@@ -373,14 +373,14 @@ describe('server-minted Gauntlet Blitz run', () => {
     assert.equal(settled.correctCount, 30);
     assert.equal(settled.answeredCount, 30);
     assert.equal(settled.totalQuestions, 30);
-    // Ramp is 10 easy / 10 medium / 10 hard → 10×5 + 10×8 + 10×12.
+    // Ramp is 10 easy / 10 medium / 10 hard → 10×8 + 10×12 + 10×18.
     assert.deepEqual(settled.perQuestionWP, [
-      ...Array(10).fill(5),
       ...Array(10).fill(8),
       ...Array(10).fill(12),
+      ...Array(10).fill(18),
     ]);
-    // Top gamble tier: 30 correct → 60 AC.
-    assert.equal(settled.acEarned, 60);
+    // Top gamble tier: 30 correct → 90 AC.
+    assert.equal(settled.acEarned, 90);
     assert.ok(settled.totalWP > 0);
     assert.equal((await H.getDoc(db, `quizRuns/${entry.runId}`)).state, 'submitted');
   });
@@ -396,7 +396,7 @@ describe('server-minted Gauntlet Blitz run', () => {
     const settled = await settle('A', entry.runId, answers);
 
     assert.equal(settled.correctCount, 0);
-    assert.equal(settled.acEarned, 2);
+    assert.equal(settled.acEarned, 3);
     assert.ok(settled.totalWP >= 0);
   });
 
@@ -577,8 +577,8 @@ describe('legacy client compatibility', () => {
 
     assert.equal(res.correctCount, 7);
     assert.equal(res.isFreeAttempt, true);
-    // 7 correct lands the 5–8 gamble tier → 8 AC.
-    assert.equal(res.acEarned, 8);
+    // 7 correct lands the 5–8 gamble tier → 12 AC.
+    assert.equal(res.acEarned, 12);
     assert.ok(res.totalWP > 0);
   });
 });

@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -75,23 +75,27 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
     }
 
     setState(() => _opening = true);
-    HttpClient? client;
     try {
       // Purchases are account-bound server-side: the ID token decides who the
       // code belongs to, and no email is sent in the body.
+      // package:http (not dart:io HttpClient) so this works on web too.
       final token = await user.getIdToken();
       if (token == null || token.isEmpty) {
         if (mounted) _snack('Your session expired. Sign in again.');
         return;
       }
 
-      client = HttpClient();
-      final request = await client.postUrl(Uri.parse(_paymentEndpoint));
-      request.headers.contentType = ContentType.json;
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.write(jsonEncode({'productId': 'AQ_LB_WEEK'}));
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
+      final response = await http
+          .post(
+            Uri.parse(_paymentEndpoint),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({'productId': 'AQ_LB_WEEK'}),
+          )
+          .timeout(const Duration(seconds: 20));
+      final body = response.body;
 
       final decoded = jsonDecode(body);
       if (response.statusCode == 401) {
@@ -127,7 +131,6 @@ class _LeaderboardPurchaseSheetState extends State<_LeaderboardPurchaseSheet> {
       debugPrint('[LeaderboardPurchase] error: $e');
       if (mounted) _snack('Something went wrong. Please try again.');
     } finally {
-      client?.close(force: true);
       if (mounted) setState(() => _opening = false);
     }
   }

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/constants/referral_economy.dart';
 import '../../../../core/services/app_update_service.dart';
@@ -19,47 +20,112 @@ import '../model/referral_entry.dart';
 class ReferralRemoteDataSource {
   const ReferralRemoteDataSource();
 
+  /// Session caches so reopening the page doesn't replay every read.
+  /// The invite code is stable once minted (memory + prefs); entries and the
+  /// cashout claim are short-TTL memory only — pull-to-refresh bypasses them
+  /// via [forceRefresh].
+  static const Duration _listTtl = Duration(seconds: 90);
+  static final Map<String, String> _codeMemory = {};
+  static List<ReferralEntry>? _entriesMemory;
+  static DateTime? _entriesMemoryAt;
+  static String? _entriesMemoryUid;
+  static ReferralCashoutClaim? _cashoutMemory;
+  static DateTime? _cashoutMemoryAt;
+  static String? _cashoutMemoryUid;
+  static bool _cashoutMemoryHasValue = false;
+
+  static String _codePrefsKey(String uid) => 'referral_code_$uid';
+
   /// The inviter's own short invite code (`getMyReferralCode`), minted
   /// server-side on first request and stable after that.
+  ///
+  /// Served from memory, then device storage, then network — a cold-start
+  /// Cloud Function call no longer blocks the code card on every visit.
   ///
   /// Returns '' when the call fails, so the page shows no code rather than a
   /// wrong one. The code is display-only: what gets stored on a new account is
   /// the uid the code resolves to, never the code itself.
   Future<String> getReferralCode() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return '';
+    final mem = _codeMemory[uid];
+    if (mem != null && mem.isNotEmpty) return mem;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_codePrefsKey(uid)) ?? '';
+      if (stored.isNotEmpty) {
+        _codeMemory[uid] = stored;
+        return stored;
+      }
+    } catch (_) {
+      // Storage is best-effort; fall through to the network mint.
+    }
     try {
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('getMyReferralCode')
           .call<Map<String, dynamic>>({
         ...AppUpdateService.instance.clientBuildStamp,
       });
-      return (res.data['referralCode'] as String?) ?? '';
+      final code = (res.data['referralCode'] as String?) ?? '';
+      if (code.isNotEmpty) {
+        _codeMemory[uid] = code;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_codePrefsKey(uid), code);
+        } catch (_) {
+          // Best-effort only.
+        }
+      }
+      return code;
     } catch (_) {
       return '';
     }
   }
 
-  Future<List<ReferralEntry>> getReferralEntries() async {
+  Future<List<ReferralEntry>> getReferralEntries(
+      {bool forceRefresh = false}) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return const [];
 
+    if (!forceRefresh &&
+        _entriesMemoryUid == uid &&
+        _entriesMemory != null &&
+        _entriesMemoryAt != null &&
+        DateTime.now().difference(_entriesMemoryAt!) < _listTtl) {
+      return _entriesMemory!;
+    }
+
     final entries = <ReferralEntry>[];
 
+    // The records query and the legacy ledger scan are independent — run
+    // them concurrently instead of sequentially.
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> recordDocs = [];
+    List<DateTime> ledgerDates = [];
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('referrals')
-          .orderBy('createdAt', descending: true)
-          .get();
-      for (final doc in snap.docs) {
-        entries.add(_entryFromDoc(doc.data()));
-      }
+      final results = await Future.wait([
+        FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('referrals')
+            .orderBy('createdAt', descending: true)
+            .get(),
+        _referralLedgerDates(uid),
+      ]);
+      recordDocs = (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
+      ledgerDates = results[1] as List<DateTime>;
     } catch (_) {
       // Referral records are not readable yet (rules not deployed) — fall
       // back to the ledger-only view instead of failing the whole page.
+      try {
+        ledgerDates = await _referralLedgerDates(uid);
+      } catch (_) {
+        ledgerDates = [];
+      }
+    }
+    for (final doc in recordDocs) {
+      entries.add(_entryFromDoc(doc.data()));
     }
 
-    final ledgerDates = await _referralLedgerDates(uid);
     final paidRecords = entries.where((entry) => entry.isRewarded).length;
     final legacyCount = ledgerDates.length - paidRecords;
     if (legacyCount > 0) {
@@ -75,6 +141,9 @@ class ReferralRemoteDataSource {
       }
     }
 
+    _entriesMemory = entries;
+    _entriesMemoryAt = DateTime.now();
+    _entriesMemoryUid = uid;
     return entries;
   }
 
@@ -105,20 +174,42 @@ class ReferralRemoteDataSource {
   /// The player's own cashout claim, or null when none was submitted.
   ///
   /// Owner-read only (rules). A failed read is treated as "no claim" so a
-  /// pending rules deploy never breaks the Referrals page.
-  Future<ReferralCashoutClaim?> getCashoutClaim() async {
+  /// pending rules deploy never breaks the Referrals page. Short-TTL cached;
+  /// pull-to-refresh bypasses via [forceRefresh].
+  Future<ReferralCashoutClaim?> getCashoutClaim(
+      {bool forceRefresh = false}) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
+    if (!forceRefresh &&
+        _cashoutMemoryUid == uid &&
+        _cashoutMemoryAt != null &&
+        DateTime.now().difference(_cashoutMemoryAt!) < _listTtl) {
+      return _cashoutMemoryHasValue ? _cashoutMemory : null;
+    }
     try {
       final snap = await FirebaseFirestore.instance
           .collection('referralCashouts')
           .doc(uid)
           .get();
-      if (!snap.exists) return null;
-      return ReferralCashoutClaim.fromMap(snap.data() ?? const {});
+      if (!snap.exists) {
+        _storeCashout(uid, null);
+        return null;
+      }
+      final claim = ReferralCashoutClaim.fromMap(snap.data() ?? const {});
+      _storeCashout(uid, claim);
+      return claim;
     } catch (_) {
-      return null;
+      return _cashoutMemoryUid == uid && _cashoutMemoryHasValue
+          ? _cashoutMemory
+          : null;
     }
+  }
+
+  void _storeCashout(String uid, ReferralCashoutClaim? claim) {
+    _cashoutMemory = claim;
+    _cashoutMemoryHasValue = true;
+    _cashoutMemoryAt = DateTime.now();
+    _cashoutMemoryUid = uid;
   }
 
   /// Submits the cashout destination via `claimReferralCashout`.

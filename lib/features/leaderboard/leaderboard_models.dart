@@ -199,6 +199,9 @@ class BoardEntry {
   /// The leaderboard week this player paid for. Null means never entered.
   final String? entryWeekId;
 
+  /// Whether the player holds an active premium subscription.
+  final bool isPremium;
+
   const BoardEntry({
     required this.rank,
     required this.uid,
@@ -207,6 +210,7 @@ class BoardEntry {
     required this.weeklyPoints,
     required this.isCurrentUser,
     required this.entryWeekId,
+    this.isPremium = false,
   });
 
   /// True when the player holds a rank this week and can therefore win.
@@ -224,11 +228,12 @@ class BoardEntry {
       other.university == university &&
       other.weeklyPoints == weeklyPoints &&
       other.isCurrentUser == isCurrentUser &&
-      other.entryWeekId == entryWeekId;
+      other.entryWeekId == entryWeekId &&
+      other.isPremium == isPremium;
 
   @override
   int get hashCode => Object.hash(rank, uid, username, university, weeklyPoints,
-      isCurrentUser, entryWeekId);
+      isCurrentUser, entryWeekId, isPremium);
 
   @override
   String toString() => 'BoardEntry(#$rank $uid $username $weeklyPoints pts)';

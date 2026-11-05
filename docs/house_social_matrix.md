@@ -1,6 +1,6 @@
 # House social decision matrix
 
-Bots are premium humans. Every branch is server-side, best-effort, idempotent.
+Bots are role-based premium humans: podium (top-3 accounts) plays premium, chasers play free. Every branch is server-side, best-effort, idempotent.
 One bot's failure never blocks the others or the WP pacing tick.
 
 Tick order per bot (`_houseSocialCore`, every 15 min):
@@ -57,14 +57,15 @@ Reads `challenges where opponentUid==hid` (25) + `where creatorUid==hid` (25), f
 
 | # | Condition | Outcome |
 |---|---|---|
-| I1 | `resolved` or `completed/declined/expired/expired_refunded` | drop from `pendingPlays`; if we were creator and it was refused → `_houseNoteRefusal(peer, 48h)` |
+| I1 | `resolved` or `completed/declined/expired/expired_refunded` | drop from `pendingPlays`; if we were creator and it was refused → `_houseNoteRefusal(peer, 48h)` unless live series peer |
 | I2 | not a participant / no action needed | skip |
-| I3 | `needsJoin` + `ageH<minH` + `jitter<70` | skip (let invite breathe) |
-| I4 | spar? `sparAcceptRate` : high-stake? `highStakeAcceptRate` : `duelAcceptRate`; roll>=rate | invitee declines via `_houseDeclineTx` (creator refunded), `_houseNoteRefusal(creator,24h)`; creators just wait |
-| I5 | join throws blocked/not_friends/wp_cap/wp_cooldown/insufficient/too_many/daily/budget | gate-decline (refund creator) + bump |
+| I3 | `needsJoin`, not a series duel, `ageH < _houseTriageHours(cid)` (0.5–1.5h) | skip (fast triage pending) |
+| I3b | `needsJoin` + live series peer (ranked duel) | accept at once: rate 100, no triage delay, fast play slot 10–30m |
+| I4 | spar? `sparAcceptRate` : high-stake? `highStakeAcceptRate` : `duelAcceptRate`; roll>=rate | invitee declines via `_houseDeclineTx` (creator refunded), `_houseNoteRefusal(creator,24h)`; creators just wait; max 5 declines/tick, bypass social budget |
+| I5 | join throws blocked/not_friends/wp_cap/wp_cooldown/insufficient/too_many/daily/budget | gate-decline (refund creator) + bump; live series duels only decline on `blocked`, transient caps retry next tick |
 | I6 | other join error | warn, leave for sweeps |
-| I7 | join ok | `_houseJoinTx`, schedule `pendingPlays[cid]=now+30m..5.5h`, bump |
-| I8 | `needsPlay` only | stamp `pendingPlays[cid]` if missing (submit happens in stage 5) |
+| I7 | join ok | `_houseJoinTx`, schedule `pendingPlays[cid]=now+30m..5.5h` (series 10–30m), bump |
+| I8 | `needsPlay` only | stamp `pendingPlays[cid]` if missing (series 5–15m, else 10m–2h; submit happens in stage 5) |
 
 `_houseJoinTx` gates (premium path mirror): joinable status, seat free, invited, not own, spar zero-stake, spar requires friendship / staked blocks on `blocked`, active cap 5, spar 15/day else join 8/day, AC shape+balance, WP shape+`WP_DAILY_CAP_PREMIUM 500`+balance, rival 6h cooldown unless active series, deduct + touch `rivalCooldowns`, extend expiry to 24h.
 `_houseDeclineTx`: invitee only + joinable; set `declined`, refund creator AC+WP with ledger entries.
@@ -78,7 +79,7 @@ Reads `challenges where opponentUid==hid` (25) + `where creatorUid==hid` (25), f
 | S3 | doc gone | drop entry |
 | S4 | `resolved` / score set / terminal status | drop entry |
 | S5 | opponent seat with no `joinedAt` | drop entry |
-| S6 | else | `wantWin = jitter<winRate` (default 60) with streak breaker (`winStreak>=4` forces loss, `lossStreak>=3` forces win); `_houseSubmitTx`; set `lastPlayAt=now`, `winStreak/lossStreak`, drop entry, bump; **return after 1 play** (one scored play per tick per bot) |
+| S6 | else | `wantWin = jitter<winRatePodium` (default 82 ±3) with streak breaker (`winStreak>=6` forces loss, `lossStreak>=3` forces win); `_houseSubmitTx`; set `lastPlayAt=now`, `winStreak/lossStreak`, drop entry, bump; **return after 1 play** (one scored play per tick per bot) |
 | S7 | submit race (`already_played`) | drop entry, warn |
 
 `_houseSubmitTx`: participant + seat free + `joinedAt` for opponent + 10 qids; fetch `correctAnswerIndex`, `target=_houseTargetScore(oppScore, wantWin)` (blind 7-9 win / 4-6 loss; vs opp: win `opp+1..`, loss under, cap 0-10); uniform miss slots, wrong=`(correct+1+jitter)%4`; tx writes score field only if still free.
@@ -99,14 +100,15 @@ Reads `challenges where opponentUid==hid` (25) + `where creatorUid==hid` (25), f
 
 | # | Condition | Outcome |
 |---|---|---|
-| C1 | `!outgoingEnabled` / budget 0 / `jitter>=12` | `0` |
+| C1 | `!outgoingEnabled` / budget 0 | `0` (series check runs before the throttle) |
+| C1b | live series peer among friends | ranked rival duel to them (never spar), one open invite max; skips the 12% throttle and cooldown/backoff gates |
 | C2 | no friends | `0` |
 | C3 | peer backed off / WP cooldown (unless active series) | try next friend (shuffled 20); none valid → `0` |
 | C4 | spar budget / create budget hit | `0` (spar 15/d, staked 8/d premium) |
 | C5 | `<10` questions for anime / insufficient balance | `0` |
 | C6 | else | 75% spar (0/0) / 25% low duel (20-500 AC, 5-100 WP); deduct, write `waiting` rival/spar vs friend, 12h expiry, schedule creator play 30m-2h, bump |
 
-Never hangs: a refuser gets `peerBackoff` 48h (24h if we declined them); the picker shuffles and tries the next friend. Stale series expire via `expireStaleRivalries` (14d); bots keep playing others meanwhile.
+Never hangs: prompt decline (≤1.5h) instead of silence; a refuser gets `peerBackoff` 48h (24h if we declined them) unless a live series peer; the picker shuffles and tries the next friend. Stale series expire via `expireStaleRivalries` (14d); bots keep playing others meanwhile. Live series: bot accepts every ranked duel from the peer at once, sends its own ranked duel (one open at a time) until first-to-3 decides it.
 
 ## 8. Money/cooldown invariants (never violated)
 

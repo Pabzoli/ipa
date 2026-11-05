@@ -5,12 +5,15 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/providers/user_data_provider.dart';
+import '../../core/services/ban_service.dart';
+import '../../core/services/session_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/coin_earn_animation.dart';
 import '../../core/widgets/shared_widgets.dart';
 import 'auth_service.dart';
 import 'auth_widgets.dart';
+import 'banned_screen.dart';
 import 'email_verification_page.dart';
 import 'register_form.dart';
 import 'terms_acceptance_page.dart';
@@ -60,10 +63,91 @@ class _AuthGateState extends State<AuthGate> {
             },
           );
         }
-        return _TermsGate(home: _PostLoginGate(home: widget.home));
+        return _BanGate(
+          home: _SessionGate(
+            home: _TermsGate(home: _PostLoginGate(home: widget.home)),
+          ),
+        );
       },
     );
   }
+}
+
+// ─── Ban Gate ───────────────────────────────────────────────────────────────
+// Only reached by verified accounts. Probes `getMyEnforcementStatus` once: a
+// suspended account sees BannedScreen instead of the app. Fails open — an
+// unreachable backend shows the app and the server-side gate still refuses
+// every economy call with `account_under_review`.
+class _BanGate extends StatefulWidget {
+  final Widget home;
+  const _BanGate({required this.home});
+
+  @override
+  State<_BanGate> createState() => _BanGateState();
+}
+
+class _BanGateState extends State<_BanGate> {
+  late final Future<bool> _bannedFuture = BanService.instance.isBanned();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _bannedFuture,
+      builder: (context, snapshot) {
+        if (snapshot.data == true) return const BannedScreen();
+        return widget.home;
+      },
+    );
+  }
+}
+
+// ─── Session Gate ───────────────────────────────────────────────────────────
+// Only reached by verified accounts. Claims this login as the account's single
+// live session (last login wins) and watches users/{uid}.activeSession: when
+// another device signs in, this device is signed out and the login screen
+// explains why. Claim + guard are best-effort — an unreachable backend fails
+// open and retries on the next startup; the server-side gate
+// (_assertSingleSession) is what actually refuses superseded callers.
+class _SessionGate extends StatefulWidget {
+  final Widget home;
+  const _SessionGate({required this.home});
+
+  @override
+  State<_SessionGate> createState() => _SessionGateState();
+}
+
+class _SessionGateState extends State<_SessionGate> {
+  bool _signingOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    SessionService.instance.addListener(_onSession);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _claimAndGuard());
+  }
+
+  @override
+  void dispose() {
+    SessionService.instance.removeListener(_onSession);
+    super.dispose();
+  }
+
+  Future<void> _claimAndGuard() async {
+    await SessionService.instance.claim();
+    if (!mounted) return;
+    SessionService.instance.startGuard();
+    // The supersede may have landed before the guard was listening.
+    _onSession();
+  }
+
+  void _onSession() {
+    if (!SessionService.instance.superseded || _signingOut) return;
+    _signingOut = true;
+    AuthService.instance.signOut();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.home;
 }
 
 // ─── Terms Gate ─────────────────────────────────────────────────────────────
@@ -206,6 +290,10 @@ class _LoginPageState extends State<LoginPage>
       duration: const Duration(milliseconds: 600),
     )..forward();
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    // A login that ended because another device signed in explains itself.
+    if (SessionService.instance.consumeSupersededNotice()) {
+      _notice = SessionService.supersededNotice;
+    }
   }
 
   @override

@@ -1,5 +1,6 @@
 // lib/features/player/pi_page.dart
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -644,9 +645,48 @@ class _EditUsernameDialog extends StatefulWidget {
 
 class _EditUsernameDialogState extends State<_EditUsernameDialog> {
   bool _saving = false;
+  Timer? _debounce;
+  bool _checking = false;
+  bool _taken = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onNameChanged);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    widget.controller.removeListener(_onNameChanged);
+    super.dispose();
+  }
+
+  void _onNameChanged() {
+    _debounce?.cancel();
+    final trimmed = widget.controller.text.trim();
+    if (AuthService.validateUsername(trimmed) != null) {
+      if (_taken && mounted) setState(() => _taken = false);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      if (!mounted) return;
+      setState(() => _checking = true);
+      final result = await AuthService.instance.checkUsernameAvailable(trimmed);
+      if (!mounted) return;
+      setState(() {
+        _checking = false;
+        _taken = result.taken;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final name = widget.controller.text.trim();
+    final localError = AuthService.validateUsername(name);
+    final showTaken = _taken && localError == null;
+    final canSave = !_saving && !_checking && !showTaken && localError == null;
     return AlertDialog(
       backgroundColor: AppColors.surface,
       title: Text('Edit Username',
@@ -660,14 +700,33 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
             controller: widget.controller,
             style: TextStyle(color: AppColors.textPrimary),
             maxLength: 20,
+            onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               hintText: 'Enter new username',
               counterStyle: TextStyle(color: AppColors.textMuted),
+              errorText: showTaken
+                  ? 'That username is already taken. Try another.'
+                  : null,
+              suffixIcon: _checking
+                  ? Padding(
+                      padding: EdgeInsets.all(12.r),
+                      child: SizedBox(
+                        width: 16.r,
+                        height: 16.r,
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : null,
             ),
           ),
           SizedBox(height: 6.h),
           Text(
-            '⚠ Username can only be changed once every 7 days.',
+            'Usernames are unique — no two players can share one.',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp),
+          ),
+          SizedBox(height: 2.h),
+          Text(
+            'Username can only be changed once every 7 days.',
             style: TextStyle(color: AppColors.textMuted, fontSize: 11.sp),
           ),
         ],
@@ -678,14 +737,25 @@ class _EditUsernameDialogState extends State<_EditUsernameDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: _saving
+          onPressed: !canSave
               ? null
               : () async {
-                  final name = widget.controller.text.trim();
-                  if (name.length < 3) return;
+                  // Final guard: re-check right before the transactional
+                  // `changeUsername` call so a race can't slip through.
+                  final current = widget.controller.text.trim();
                   final navigator = Navigator.of(context);
                   setState(() => _saving = true);
-                  final saved = await widget.onSave(name);
+                  final pre = await AuthService.instance
+                      .checkUsernameAvailable(current);
+                  if (!mounted) return;
+                  if (pre.taken) {
+                    setState(() {
+                      _saving = false;
+                      _taken = true;
+                    });
+                    return;
+                  }
+                  final saved = await widget.onSave(current);
                   if (!mounted) return;
                   if (saved) {
                     navigator.pop();
@@ -1163,7 +1233,18 @@ class _StatisticsTab extends StatelessWidget {
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 32.r + keyboardHeight),
+      // Bottom clearance clears the fixed bottom nav (nav height +
+      // safe-area inset), plus a web lift where the toolbar reports a zero
+      // inset. The keyboard offset is additive so focused fields stay visible.
+      padding: EdgeInsets.fromLTRB(
+        20.r,
+        12.r,
+        20.r,
+        96.h +
+            MediaQuery.paddingOf(context).bottom +
+            (kIsWeb ? 28.h : 0.0) +
+            keyboardHeight,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1997,10 +2078,10 @@ class _AchievementsTabState extends State<_AchievementsTab> {
       color: AppColors.primary,
       unit: 'games',
       tiers: [
-        _AchievementTier(10, 20),
-        _AchievementTier(50, 75),
-        _AchievementTier(100, 150),
-        _AchievementTier(500, 500),
+        _AchievementTier(10, 50),
+        _AchievementTier(50, 200),
+        _AchievementTier(100, 400),
+        _AchievementTier(500, 1200),
       ],
     ),
     _AchievementDef(
@@ -2011,9 +2092,9 @@ class _AchievementsTabState extends State<_AchievementsTab> {
       color: AppColors.accent,
       unit: 'wins',
       tiers: [
-        _AchievementTier(10, 30),
-        _AchievementTier(50, 100),
-        _AchievementTier(200, 400, 'frame_victory'),
+        _AchievementTier(10, 80),
+        _AchievementTier(50, 250),
+        _AchievementTier(200, 1000, 'frame_victory'),
       ],
     ),
     _AchievementDef(
@@ -2024,9 +2105,9 @@ class _AchievementsTabState extends State<_AchievementsTab> {
       color: AppColors.secondary,
       unit: 'perfects',
       tiers: [
-        _AchievementTier(5, 20),
-        _AchievementTier(25, 80),
-        _AchievementTier(100, 300),
+        _AchievementTier(5, 50),
+        _AchievementTier(25, 200),
+        _AchievementTier(100, 750),
       ],
     ),
     _AchievementDef(
@@ -2037,8 +2118,8 @@ class _AchievementsTabState extends State<_AchievementsTab> {
       color: AppColors.primary,
       unit: 'rival wins',
       tiers: [
-        _AchievementTier(10, 50),
-        _AchievementTier(50, 250, 'frame_rival_slayer'),
+        _AchievementTier(10, 120),
+        _AchievementTier(50, 600, 'frame_rival_slayer'),
       ],
     ),
     _AchievementDef(
@@ -2049,9 +2130,9 @@ class _AchievementsTabState extends State<_AchievementsTab> {
       color: AppColors.secondary,
       unit: 'WP',
       tiers: [
-        _AchievementTier(500, 30),
-        _AchievementTier(2500, 150),
-        _AchievementTier(10000, 600),
+        _AchievementTier(500, 80),
+        _AchievementTier(2500, 375),
+        _AchievementTier(10000, 1500),
       ],
     ),
   ];
@@ -2094,7 +2175,15 @@ class _AchievementsTabState extends State<_AchievementsTab> {
     _notifyNewlyGranted(p);
 
     return ListView(
-      padding: EdgeInsets.fromLTRB(20.r, 12.r, 20.r, 32.r),
+      // Bottom clearance clears the fixed bottom nav (nav height +
+      // safe-area inset), plus a web lift where the toolbar reports a zero
+      // inset — otherwise the last cards hide behind the bar.
+      padding: EdgeInsets.fromLTRB(
+        20.r,
+        12.r,
+        20.r,
+        96.h + MediaQuery.paddingOf(context).bottom + (kIsWeb ? 28.h : 0.0),
+      ),
       children: [
         _buildSummaryCard(
           totalGranted: totalGranted,
@@ -2589,11 +2678,17 @@ class _HistoryTab extends StatelessWidget {
         final matches = allMatches.take(maxItems).toList(growable: false);
 
         return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(
+          // Bottom clearance clears the fixed bottom nav (nav height +
+          // safe-area inset), plus a web lift where the toolbar reports a
+          // zero inset — otherwise the last cards hide behind the bar.
+          padding: EdgeInsets.fromLTRB(
             AppSpacing.page,
             AppSpacing.md,
             AppSpacing.page,
-            AppSpacing.xxl,
+            AppSpacing.xxl +
+                80.h +
+                MediaQuery.paddingOf(context).bottom +
+                (kIsWeb ? 28.h : 0.0),
           ),
           itemCount: matches.length,
           separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),

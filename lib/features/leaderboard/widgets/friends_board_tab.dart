@@ -17,6 +17,7 @@
 // removing or blocking a friend happens on that page, not in a ⋯ menu over the
 // list.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:provider/provider.dart';
@@ -35,6 +36,7 @@ import '../../friends/friend_widgets.dart';
 import '../../multiplayer/rivalry_page.dart';
 import 'leaderboard_rows.dart';
 import 'leaderboard_states.dart';
+import 'premium_mark.dart';
 
 class FriendsBoardTab extends StatelessWidget {
   /// Null until the first board request; shows a spinner in the meantime.
@@ -107,21 +109,33 @@ class _FriendsBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final myPoints = context.watch<UserDataProvider>().weeklyPoints;
+    final provider = context.watch<UserDataProvider>();
+    final myPoints = provider.weeklyPoints;
     final rows = rankFriendsBoard(friends: data.friends, myPoints: myPoints);
     final me = rows.firstWhere((r) => r.isMe);
     final friendRows = rows.where((r) => !r.isMe).toList();
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
+      // Bottom clearance clears the fixed bottom nav (nav height +
+      // safe-area inset), plus a web lift where the toolbar reports a zero
+      // inset — otherwise the last rows hide behind the bar.
       padding: EdgeInsets.fromLTRB(
         AppSpacing.page,
         AppSpacing.lg,
         AppSpacing.page,
-        AppSpacing.xxl,
+        AppSpacing.xxl +
+            80.h +
+            MediaQuery.paddingOf(context).bottom +
+            (kIsWeb ? 28.h : 0.0),
       ),
       children: [
-        _MeRow(name: me.name, rank: me.rank, points: me.points),
+        _MeRow(
+          name: me.name,
+          rank: me.rank,
+          points: me.points,
+          isPremium: provider.premiumActive,
+        ),
         SizedBox(height: AppSpacing.lg),
         FriendSectionTitle(
           title: 'Friends',
@@ -171,8 +185,14 @@ class _MeRow extends StatelessWidget {
   final String name;
   final int? rank;
   final int? points;
+  final bool isPremium;
 
-  const _MeRow({required this.name, required this.rank, required this.points});
+  const _MeRow({
+    required this.name,
+    required this.rank,
+    required this.points,
+    this.isPremium = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -191,11 +211,22 @@ class _MeRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.labelLarge,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.labelLarge,
+                      ),
+                    ),
+                    if (isPremium) ...[
+                      SizedBox(width: 4.w),
+                      const PremiumMark(),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -347,15 +378,26 @@ class _FriendRow extends StatelessWidget {
                 // the rank, the status and the points are information, so a
                 // tap on them does nothing instead of opening something the
                 // player did not aim at.
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _openFriend(context),
-                  child: Text(
-                    row.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.labelLarge,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _openFriend(context),
+                        child: Text(
+                          row.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.labelLarge,
+                        ),
+                      ),
+                    ),
+                    if (row.isPremium) ...[
+                      SizedBox(width: 4.w),
+                      const PremiumMark(),
+                    ],
+                  ],
                 ),
                 SizedBox(height: 2.h),
                 _StatusLine(row: row),

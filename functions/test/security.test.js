@@ -70,6 +70,55 @@ describe('server-authoritative profile', () => {
     assert.equal((await H.getDoc(db, 'usernames/original')).uid, 'u1');
     assert.equal((await H.getDoc(db, 'usernames/renamed')), null);
   });
+
+  it('rejects full-width / compatibility duplicates (NFKC guard)', async () => {
+    await fns.ensureProfile.run(H.req('u1', { username: 'Alice', termsAccepted: true }));
+    await H.rejectsWith(
+      fns.ensureProfile.run(H.req('u2', { username: 'Ａｌｉｃｅ', termsAccepted: true })),
+      'already-exists');
+    assert.equal(await H.getDoc(db, 'users/u2'), null);
+  });
+
+  it('existing profile whose name is claimed elsewhere fails closed', async () => {
+    // Two legacy docs forked the same username before the claim existed.
+    await H.mkUser(db, 'u1', { username: 'samename' });
+    await H.mkUser(db, 'u2', { username: 'samename' });
+    await H.setDoc(db, 'usernames/samename', { uid: 'u1', username: 'samename' });
+    await H.rejectsWith(
+      fns.ensureProfile.run(H.req('u2', { username: 'ignored' })),
+      'already-exists');
+    assert.equal((await H.getDoc(db, 'users/u2')).username, 'samename');
+  });
+});
+
+describe('checkUsernameAvailable', () => {
+  beforeEach(() => H.clearDb(db));
+
+  it('reports free / taken / own / invalid without reserving', async () => {
+    await fns.ensureProfile.run(H.req('u1', { username: 'Alice', termsAccepted: true }));
+
+    const free = await fns.checkUsernameAvailable.run(
+      { data: { username: 'Bob', platform: 'web' } });
+    assert.equal(free.available, true);
+
+    const taken = await fns.checkUsernameAvailable.run(
+      { data: { username: '  ALICE ', platform: 'web' } });
+    assert.equal(taken.available, false);
+    assert.equal(taken.reason, 'taken');
+
+    const own = await fns.checkUsernameAvailable.run(
+      H.req('u1', { username: 'alice', platform: 'web' }));
+    assert.equal(own.available, true);
+    assert.equal(own.reason, 'own');
+
+    const invalid = await fns.checkUsernameAvailable.run(
+      { data: { username: 'ab', platform: 'web' } });
+    assert.equal(invalid.available, false);
+    assert.equal(invalid.reason, 'invalid');
+
+    // A check never creates a reservation: the name is still claimable.
+    assert.equal((await H.getDoc(db, 'usernames/bob')), null);
+  });
 });
 
 describe('changeUsername', () => {

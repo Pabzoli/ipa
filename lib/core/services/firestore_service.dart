@@ -490,47 +490,56 @@ class FirestoreService {
 
   /// Converts any legacy [hintCount] field into [animeCoins] (× 2 exchange rate)
   /// and deletes the old field �?all in a single atomic transaction.
-  Future<void> runMigrationIfNeeded() async {
-    if (_uid == null) return;
-    try {
-      await _db.runTransaction((tx) async {
-        final snap = await tx.get(_userDoc);
-        final data = snap.data();
-        if (data == null || !data.containsKey('hintCount')) return;
-
-        final hintCount = (data['hintCount'] as int?) ?? 0;
-
-        final animeCoins = data.containsKey('animeCoins')
-            ? (data['animeCoins'] as num?)?.toInt() ?? 0
-            : hintCount * 2;
-
-        tx.update(_userDoc, {
-          'animeCoins': animeCoins,
-          'hintCount': FieldValue.delete(),
-        });
-      });
-    } catch (e) {
-      debugPrint('[FirestoreService] migration error (ignored): $e');
-    }
-  }
-
-  // ─── Anime Coins field patch (additive) ──────────────────────────────────
-
-  /// Adds [animeCoins: 0] to docs that predate the field.
-  /// No-ops on accounts that already have it.
-  Future<void> ensureAnimeCoinField() async {
+  /// One-shot startup patches, merged into a SINGLE user-doc read.
+  ///
+  /// Replaces four independent `get()` + conditional `update()` round trips
+  /// (migration transaction, anime-coins, daily-ad, challenges-created) that
+  /// used to fire on every sign-in. One read, at most one transaction and one
+  /// update — same end state, a quarter of the latency.
+  Future<void> runStartupPatches() async {
     if (_uid == null) return;
     try {
       final snap = await _userDoc.get();
       final data = snap.data();
       if (data == null) return;
-      if (!data.containsKey('animeCoins')) {
-        await _userDoc.update({'animeCoins': 0});
+
+      // Legacy hint-count migration: only pays for a transaction when an
+      // unmigrated doc is actually seen.
+      if (data.containsKey('hintCount')) {
+        await _db.runTransaction((tx) async {
+          final txSnap = await tx.get(_userDoc);
+          final txData = txSnap.data();
+          if (txData == null || !txData.containsKey('hintCount')) return;
+          final hintCount = (txData['hintCount'] as int?) ?? 0;
+          final animeCoins = txData.containsKey('animeCoins')
+              ? (txData['animeCoins'] as num?)?.toInt() ?? 0
+              : hintCount * 2;
+          tx.update(_userDoc, {
+            'animeCoins': animeCoins,
+            'hintCount': FieldValue.delete(),
+          });
+        });
       }
+
+      final updates = <String, dynamic>{};
+      if (!data.containsKey('animeCoins')) updates['animeCoins'] = 0;
+      if (!data.containsKey('dailyAdWatched')) updates['dailyAdWatched'] = 0;
+      if (!data.containsKey('lastAdWatchDate')) {
+        updates['lastAdWatchDate'] = null;
+      }
+      if (!data.containsKey('challengesCreatedToday')) {
+        updates['challengesCreatedToday'] = 0;
+      }
+      if (!data.containsKey('challengesCreatedDate')) {
+        updates['challengesCreatedDate'] = null;
+      }
+      if (updates.isNotEmpty) await _userDoc.update(updates);
     } catch (e) {
-      debugPrint('[FirestoreService] ensureAnimeCoinField error (ignored): $e');
+      debugPrint('[FirestoreService] startup patches error (ignored): $e');
     }
   }
+
+  // ─── Anime Coins field patch (additive) ──────────────────────────────────
 
   // ─── Daily Ad Watched stream (P-04) ──────────────────────────────────────
 
@@ -554,27 +563,6 @@ class FirestoreService {
       if (!sameDay) return 0;
       return (data['dailyAdWatched'] as int?) ?? 0;
     });
-  }
-
-  Future<void> ensureDailyAdWatchedFields() async {
-    if (_uid == null) return;
-    try {
-      final snap = await _userDoc.get();
-      final data = snap.data();
-      if (data == null) return;
-
-      final updates = <String, dynamic>{};
-      if (!data.containsKey('dailyAdWatched')) {
-        updates['dailyAdWatched'] = 0;
-      }
-      if (!data.containsKey('lastAdWatchDate')) {
-        updates['lastAdWatchDate'] = null;
-      }
-      if (updates.isNotEmpty) await _userDoc.update(updates);
-    } catch (e) {
-      debugPrint(
-          '[FirestoreService] ensureDailyAdWatchedFields error (ignored): $e');
-    }
   }
 
   // ─── Premium Active stream (P-05) ────────────────────────────────────────
@@ -630,28 +618,6 @@ class FirestoreService {
       if (dateStr == null || dateStr != _watDateString()) return 0;
       return (data['challengesCreatedToday'] as int?) ?? 0;
     });
-  }
-
-  Future<void> ensureChallengesCreatedTodayField() async {
-    if (_uid == null) return;
-    try {
-      final snap = await _userDoc.get();
-      final data = snap.data();
-      if (data == null) return;
-
-      final updates = <String, dynamic>{};
-      if (!data.containsKey('challengesCreatedToday')) {
-        updates['challengesCreatedToday'] = 0;
-      }
-      if (!data.containsKey('challengesCreatedDate')) {
-        updates['challengesCreatedDate'] = null;
-      }
-      if (updates.isNotEmpty) await _userDoc.update(updates);
-    } catch (e) {
-      debugPrint(
-        '[FirestoreService] ensureChallengesCreatedTodayField error (ignored): $e',
-      );
-    }
   }
 
   // ─── Challenges Joined Today stream ──────────────────────────────────────
@@ -1755,6 +1721,7 @@ class FirestoreService {
         weeklyPoints: (data['weeklyPoints'] as int?) ?? 0,
         isCurrentUser: entry.id == _uid,
         entryWeekId: data['leaderboardEntryWeekId'] as String?,
+        isPremium: data['premiumActive'] == true,
       ));
     }
     return out;
@@ -1988,7 +1955,21 @@ class FirestoreService {
 
   // ─── Last Week Winners ───────────────────────────────────────────────────────
 
+  /// In-memory winners cache: the Monday gate and My Prizes both read this,
+  /// and without it every visit pays a server round trip for a document that
+  /// changes once a week.
+  LastWeekResult? _lastWeekCache;
+  DateTime? _lastWeekCacheAt;
+  static const Duration _lastWeekTtl = Duration(minutes: 5);
+
   Future<LastWeekResult?> getLastWeekWinners() async {
+    final cachedAt = _lastWeekCacheAt;
+    final cached = _lastWeekCache;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _lastWeekTtl) {
+      return cached;
+    }
     try {
       final snap = await _db
           .collection('prize_pool')
@@ -2024,13 +2005,16 @@ class FirestoreService {
       final shareSum = winners.fold<double>(0.0, (a, w) => a + w.prizeAmount);
       final total = legacyTotal > 0 ? legacyTotal : shareSum;
 
-      return LastWeekResult(
+      final result = LastWeekResult(
         weekId: weekId,
         totalNaira: total,
         winners: winners,
       );
+      _lastWeekCache = result;
+      _lastWeekCacheAt = DateTime.now();
+      return result;
     } catch (_) {
-      return null;
+      return _lastWeekCache;
     }
   }
 
@@ -2058,7 +2042,7 @@ class FirestoreService {
   /// Changes the username through the `changeUsername` callable.
   ///
   /// The 7-day cooldown AND uniqueness are enforced server-side. The local
-  /// [canChangeUsername] check is UX only �?it is no longer the gate, and a
+  /// [canChangeUsername] check is UX only — it is no longer the gate, and a
   /// direct REST/client write to `username` is denied by the rules.
   /// Throws an [Exception] with the server message on rejection.
   Future<void> updateUsername(String newUsername) async {
@@ -2066,6 +2050,12 @@ class FirestoreService {
     final trimmed = newUsername.trim();
     if (trimmed.length < 3 || trimmed.length > 20) {
       throw Exception('Username must be 3-20 characters.');
+    }
+    final hasControl = trimmed.codeUnits.any(
+      (c) => (c >= 0x00 && c <= 0x1F) || c == 0x7F,
+    );
+    if (hasControl) {
+      throw Exception('Username contains invalid characters.');
     }
 
     final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
@@ -2939,6 +2929,9 @@ class FriendBoardEntry {
   /// True when this friend played a match today (WAT).
   final bool playedToday;
 
+  /// True when this friend holds an active premium subscription.
+  final bool isPremium;
+
   const FriendBoardEntry({
     required this.uid,
     required this.username,
@@ -2949,6 +2942,7 @@ class FriendBoardEntry {
     this.myTurn = false,
     this.nudgedToday = false,
     this.playedToday = false,
+    this.isPremium = false,
   });
 
   factory FriendBoardEntry.fromMap(Map<String, dynamic> map) =>
@@ -2962,6 +2956,7 @@ class FriendBoardEntry {
         myTurn: map['myTurn'] == true,
         nudgedToday: map['nudgedToday'] == true,
         playedToday: map['playedToday'] == true,
+        isPremium: map['premiumActive'] == true,
       );
 }
 

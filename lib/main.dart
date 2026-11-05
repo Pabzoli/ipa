@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,7 +14,9 @@ import 'core/services/app_check_service.dart';
 import 'core/services/app_update_service.dart';
 import 'core/services/firestore_service.dart';
 import 'core/services/notification_service.dart';
-import 'core/widgets/update_required_screen.dart';
+import 'core/services/web_update_service.dart';
+import 'feature/tutorial/presentation/tutorial_screen/ui/tutorial_screen.dart';
+import 'feature/tutorial/tutorial_service.dart';
 import 'features/auth/login_page.dart';
 import 'features/home/home_page.dart';
 import 'features/player/player_statistics_provider.dart';
@@ -25,56 +26,138 @@ import 'firebase_options.dart';
 /// SharedPreferences key tracking which weekId the user has already seen.
 const _kAnnouncementKey = 'lastSeenAnnouncementWeekId';
 
-/// Global navigator key for minimal FCM tap navigation (Phase 3).
-/// Used ONLY by NotificationService to push the claim/result screen on
-/// notification taps. All other navigation stays exactly as it was.
+/// Global navigator key. Retained as the seam for a future web push/
+/// notification implementation (see NotificationService). All ordinary
+/// navigation uses `Navigator.of(context)` directly.
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
-void main() async {
+/// Web startup is boot-first: the first frame paints immediately from the
+/// static HTML splash + [_BootApp], and Firebase/App Check/providers resolve
+/// in the background. Nothing awaits before the first `runApp`, so a slow
+/// network or Firebase outage can never leave the page blank.
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const _BootApp());
+  _initAndRun();
+}
 
+Future<void> _initAndRun() async {
   // Appearance preference is read FIRST, before any other service can write a
   // preference: ThemeProvider seeds an existing install to dark and a fresh one
-  // to system by checking whether the prefs store is empty. Reading here also
-  // lets the very first Flutter frame paint the right palette (and status-bar
-  // icons) instead of flashing dark and correcting itself.
+  // to system by checking whether the prefs store is empty.
   final themeProvider = await ThemeProvider.load();
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // Portrait lock (PWA manifest holds it for installed apps; this covers the
+  // engine level). Runs in the background init so it never delays first paint.
+  try {
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  } catch (_) {
+    // Non-fatal: browsers without orientation support just ignore it.
+  }
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+  } catch (e) {
+    // Firebase is required for auth/data, but failing here must still leave
+    // the boot splash replaced by the offline wall rather than a blank page.
+    debugPrint('[main] Firebase init failed (non-fatal): $e');
+  }
 
-  // App Check must be activated BEFORE any other Firebase service is touched,
-  // so its token can be attached to the first Firestore/Storage/Functions call.
-  // Server-side enforcement is opt-in (monitor mode by default), so a failure
-  // here is logged rather than fatal.
+  // App Check attaches its token to the first Firestore/Functions call.
+  // Server-side enforcement is monitor mode by default, so a failure here
+  // is logged rather than fatal.
   await AppCheckService.instance.activate();
 
-  // Resolve our own build number/platform BEFORE anything can transact, and
-  // register the foreground-resume re-check. Both are needed before runApp so
-  // the gate is live on the very first frame rather than a moment later.
   await AppUpdateService.instance.init();
   AppUpdateService.instance.attachLifecycleGate();
 
-  // AdMob must be initialised after Firebase.
-  await MobileAds.instance.initialize();
+  // Ads are web-only future work: AdService is a no-op seam (see
+  // lib/core/services/ad_service.dart). Nothing to preload.
   AdService.instance.preloadAll();
 
-  // Status bar and Android navigation bar are owned by
-  // `applySystemUiOverlay`, which ThemeProvider.load() already applied above
-  // for the resolved brightness.
+  runApp(_Root(themeProvider: themeProvider));
+}
 
-  runApp(
-    ScreenUtilInit(
-      designSize: const Size(390, 844),
+/// First-frame app: static dark splash only. No providers, no Firebase, no
+/// ScreenUtil — deliberately dependency-free so it paints in one frame.
+class _BootApp extends StatelessWidget {
+  const _BootApp();
+
+  @override
+  Widget build(BuildContext context) {
+    AppColors.use(Brightness.dark);
+    return MaterialApp(
+      title: 'AnimeQuiz',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.forBrightness(Brightness.dark),
+      themeAnimationDuration: Duration.zero,
+      home: const _SplashScreen(),
+    );
+  }
+}
+
+/// App root. Exists so the web design size can track the browser window:
+/// [ScreenUtilInit.designSize] is fixed at construction, but a desktop window
+/// can be resized after startup. Recomputing it here keeps `.w`/`.sp`
+/// phone-proportioned instead of drifting.
+class _Root extends StatefulWidget {
+  const _Root({required this.themeProvider});
+
+  final ThemeProvider themeProvider;
+
+  @override
+  State<_Root> createState() => _RootState();
+}
+
+class _RootState extends State<_Root> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() => setState(() {});
+
+  /// Phone canvas width everything is designed against.
+  static const double _kPhoneWidth = 480;
+
+  static Size _designSize() {
+    const fallback = Size(390, 844);
+    try {
+      final view = WidgetsBinding.instance.platformDispatcher.views.first;
+      final size = view.physicalSize / view.devicePixelRatio;
+      if (size.width <= 0) return fallback;
+      // At or below phone width the stock design size applies, so phones and
+      // narrow windows behave exactly as the mobile layout. Wider viewports
+      // grow the design width proportionally, which holds the effective scale
+      // at the 480-wide phone ratio instead of blowing every widget up.
+      if (size.width <= _kPhoneWidth) return fallback;
+      return Size(size.width * 390.0 / _kPhoneWidth, 844);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScreenUtilInit(
+      designSize: _designSize(),
       minTextAdapt: true,
       builder: (context, child) {
         return MultiProvider(
           providers: [
-            ChangeNotifierProvider(create: (_) => themeProvider),
+            ChangeNotifierProvider(create: (_) => widget.themeProvider),
             ChangeNotifierProvider(create: (_) => PlayerStatisticsProvider()),
             ChangeNotifierProvider(create: (_) => UserDataProvider()),
             ChangeNotifierProvider(
@@ -83,8 +166,8 @@ void main() async {
           child: const AnimeQuizApp(),
         );
       },
-    ),
-  );
+    );
+  }
 }
 
 // ─── Root App ─────────────────────────────────────────────────────────────────
@@ -96,22 +179,6 @@ class AnimeQuizApp extends StatefulWidget {
 }
 
 class _AnimeQuizAppState extends State<AnimeQuizApp> {
-  @override
-  void initState() {
-    super.initState();
-    // First gate read, forced past the resume throttle. Deferred to the first
-    // frame so the splash renders immediately and the Firestore round-trip
-    // never delays startup.
-    //
-    // Deliberately fires here rather than in _AppShell: this runs BEFORE
-    // authentication, so an outdated install is walled over the login screen
-    // instead of being allowed to sign in first. check() fails open, so a slow
-    // or failed read leaves the app fully usable.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      AppUpdateService.instance.check(force: true);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final brightness = context.watch<ThemeProvider>().resolvedBrightness;
@@ -141,28 +208,75 @@ class _AnimeQuizAppState extends State<AnimeQuizApp> {
         // freezes.
         home: AuthGate(home: const _AnnouncementGate()),
 
-        // ── Offline / update / loading overlay sits ABOVE the navigator ───────
+        // ── Offline / loading overlay sits ABOVE the navigator ────────────────
         // We never replace child — we either show it or cover it so gesture
         // recognisers on the existing stack are never destroyed.
         builder: (context, child) {
-          return ListenableBuilder(
-            listenable: AppUpdateService.instance,
-            builder: (context, _) {
-              return Consumer<UserDataProvider>(
-                builder: (context, userData, _) {
-                  if (!userData.connectivityChecked) {
-                    return const _SplashScreen();
-                  }
-                  if (!userData.isOnline) return const _OfflineWall();
-                  // Outdated Android build: hard wall, no dismiss affordance.
-                  // Ordered below the offline wall on purpose — the update check
-                  // needs the network, and offline is the more actionable
-                  // message, so it keeps priority.
-                  final update = AppUpdateService.instance.state;
-                  if (update.updateRequired) {
-                    return UpdateRequiredScreen(state: update);
-                  }
-                  return child!;
+          return Consumer<UserDataProvider>(
+            builder: (context, userData, _) {
+              final Widget content;
+              if (!userData.connectivityChecked) {
+                content = const _SplashScreen();
+              } else if (!userData.isOnline) {
+                content = const _OfflineWall();
+              } else {
+                content = child!;
+              }
+              // Web presents the app as a centred phone-width column so a
+              // desktop window looks like the mobile app instead of a
+              // stretched page. Phones (<=480 logical px) are unaffected.
+              // Height is taken from the incoming constraints (the true
+              // dynamic viewport, i.e. the 100dvh equivalent — never a
+              // stale mq.size.height snapshot), so a browser-chrome resize
+              // can never leave the column taller than the visible window
+              // — the failure that pushed the bottom nav below the fold
+              // and cut the anime grid.
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final mq = MediaQuery.of(context);
+                  final isWide = mq.size.width > _RootState._kPhoneWidth;
+                  final columnWidth =
+                      isWide ? _RootState._kPhoneWidth : mq.size.width;
+                  final height = constraints.maxHeight.isFinite
+                      ? constraints.maxHeight
+                      : mq.size.height;
+                  return Container(
+                    color: AppColors.surfaceDim,
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      // minHeight == maxHeight == viewport height pins the
+                      // phone column to exactly one dynamic viewport unit
+                      // (100dvh): it can neither collapse short (which
+                      // left a gap under short tabs) nor grow taller than
+                      // the window (which pushed the nav below the fold).
+                      constraints: BoxConstraints(
+                        minWidth: columnWidth,
+                        maxWidth: columnWidth,
+                        minHeight: height,
+                        maxHeight: height,
+                      ),
+                      child: Container(
+                        // On wide screens draw the phone frame edges so
+                        // the centred column reads as a mobile app. Phones
+                        // span the full width, so no border is drawn there.
+                        decoration: isWide
+                            ? BoxDecoration(
+                                border: Border.symmetric(
+                                  vertical: BorderSide(
+                                    color: AppColors.divider,
+                                  ),
+                                ),
+                              )
+                            : null,
+                        child: MediaQuery(
+                          data: mq.copyWith(
+                            size: Size(columnWidth, height),
+                          ),
+                          child: content,
+                        ),
+                      ),
+                    ),
+                  );
                 },
               );
             },
@@ -274,15 +388,23 @@ class _AppShellState extends State<_AppShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Cold-open: show an app open ad after the first frame so the shell has
-    // settled and the UserDataProvider has finished its initial fetch.
+    // Cold-open hook for a future web-ads provider: fires after the first
+    // frame so the shell has settled. Currently a no-op seam.
     WidgetsBinding.instance.addPostFrameCallback((_) => _tryShowAppOpenAd());
-    // Phase 3 minimal FCM: permission/token registration + tap navigation.
-    // _AppShell only exists post-authentication, so the token is saved for
-    // the signed-in user. Best-effort — failures never block the shell.
+    // Push-notification seam (currently a no-op on web). _AppShell only
+    // exists post-authentication, so a future implementation can register
+    // the token for the signed-in user here. Best-effort — failures never
+    // block the shell.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       NotificationService.instance.init(navigatorKey: appNavigatorKey);
     });
+    // Web update notice: baseline the running build shortly after launch,
+    // so a later deploy prompts a refresh instead of stranding the session
+    // on stale code.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) WebUpdateService.instance.checkAndNotify(context);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowTutorial());
   }
 
   @override
@@ -293,9 +415,12 @@ class _AppShellState extends State<_AppShell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Foreground resume — show an app open ad if one is ready.
+    // Foreground resume hook for a future web-ads provider (no-op today).
     if (state == AppLifecycleState.resumed) {
       _tryShowAppOpenAd();
+      // A resume is the most likely moment to discover a deploy that
+      // landed while the tab was backgrounded.
+      WebUpdateService.instance.checkAndNotify(context);
     }
   }
 
@@ -303,6 +428,15 @@ class _AppShellState extends State<_AppShell> with WidgetsBindingObserver {
     if (!mounted) return;
     final isPremium = context.read<UserDataProvider>().premiumActive;
     AdService.instance.showAppOpenAdIfReady(isPremium: isPremium);
+  }
+
+  Future<void> _maybeShowTutorial() async {
+    if (!mounted) return;
+    final shouldShow = await TutorialService.shouldShow();
+    if (!mounted || !shouldShow) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const TutorialScreen()),
+    );
   }
 
   @override

@@ -33,11 +33,13 @@ class _ReferralScreenState extends State<ReferralScreen> {
   }
 
   Future<void> _reload() async {
-    final future = _dataSource.getReferralEntries();
+    // Pull-to-refresh bypasses the session caches so a just-completed
+    // invite or claim shows up immediately.
+    final future = _dataSource.getReferralEntries(forceRefresh: true);
     // The code is refetched too: a mint that failed while offline would
     // otherwise leave the page codeless until the screen is reopened.
     final code = _dataSource.getReferralCode();
-    final cashout = _dataSource.getCashoutClaim();
+    final cashout = _dataSource.getCashoutClaim(forceRefresh: true);
     setState(() {
       _entriesFuture = future;
       _codeFuture = code;

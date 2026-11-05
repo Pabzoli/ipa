@@ -21,6 +21,7 @@ class FriendRankRow {
   final bool myTurn;
   final bool nudgedToday;
   final bool playedToday;
+  final bool isPremium;
 
   const FriendRankRow({
     required this.uid,
@@ -33,6 +34,7 @@ class FriendRankRow {
     this.myTurn = false,
     this.nudgedToday = false,
     this.playedToday = false,
+    this.isPremium = false,
   });
 }
 
@@ -66,6 +68,7 @@ List<FriendRankRow> rankFriendsBoard({
         myTurn: f.myTurn,
         nudgedToday: f.nudgedToday,
         playedToday: f.playedToday,
+        isPremium: f.isPremium,
       ),
   ]..sort((a, b) {
       final byPoints = (b.points ?? -1).compareTo(a.points ?? -1);
@@ -91,6 +94,7 @@ List<FriendRankRow> rankFriendsBoard({
       myTurn: row.myTurn,
       nudgedToday: row.nudgedToday,
       playedToday: row.playedToday,
+      isPremium: row.isPremium,
     ));
   }
 

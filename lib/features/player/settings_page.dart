@@ -15,6 +15,7 @@ import '../../core/widgets/app_back_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_page_route.dart';
 import '../../feature/support/presentation/support_screen/ui/support_screen.dart';
+import '../../feature/tutorial/presentation/tutorial_screen/ui/tutorial_screen.dart';
 import '../auth/auth_service.dart';
 import 'purchases_page.dart';
 
@@ -81,6 +82,18 @@ class SettingsPage extends StatelessWidget {
                           context,
                           AppPageRoute(
                             builder: (_) => const SupportScreen(),
+                          ),
+                        ),
+                      ),
+                      _SettingsTile(
+                        icon: Icons.school_rounded,
+                        accent: AppColors.secondary,
+                        title: 'App tutorial',
+                        subtitle: 'Learn the basics again',
+                        onTap: () => Navigator.push(
+                          context,
+                          AppPageRoute(
+                            builder: (_) => const TutorialScreen(),
                           ),
                         ),
                       ),

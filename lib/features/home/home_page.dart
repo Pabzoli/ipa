@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:math' show max;
 import 'dart:ui';
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -104,57 +105,81 @@ class _AppBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Width is inherited from the centred 480-wide phone column in main.dart
+    // (the max-width: 480px; margin: 0 auto equivalent), so the bar can never
+    // stretch full-window on desktop. The bottom lift is the
+    // env(safe-area-inset-bottom) equivalent: the OS inset (iPhone home
+    // indicator) when present, with a 24.h minimum on web where browsers
+    // report zero and the dynamic toolbar would otherwise sit over the bar.
+    final bottomInset = max(
+      MediaQuery.viewPaddingOf(context).bottom,
+      kIsWeb ? 24.h : 0.0,
+    );
+    // The bar is two stacked regions: the blurred interactive row, then an
+    // opaque grounding strip that runs under the gesture bar to the screen
+    // edge, so the nav visibly ends at the display edge on every device.
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          padding: EdgeInsets.only(
-            top: 10.h,
-            bottom: MediaQuery.of(context).padding.bottom + 8.h,
-          ),
           decoration: BoxDecoration(
             color: AppColors.surfaceDim.withValues(alpha: 0.92),
             border: Border(top: BorderSide(color: AppColors.divider)),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(_items.length, (i) {
-              final active = i == current;
-              final item = _items[i];
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => onSelect(i),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 14.w, vertical: 5.h),
-                      decoration: BoxDecoration(
-                        color: active
-                            ? AppColors.primary.withValues(alpha: 0.14)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(14.r),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: 10.h),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: List.generate(_items.length, (i) {
+                    final active = i == current;
+                    final item = _items[i];
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onSelect(i),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 14.w, vertical: 5.h),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? AppColors.primary.withValues(alpha: 0.14)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(14.r),
+                            ),
+                            child: Icon(item.icon,
+                                size: 22.r,
+                                color: active
+                                    ? AppColors.primary
+                                    : AppColors.textMuted),
+                          ),
+                          SizedBox(height: 3.h),
+                          Text(
+                            item.label,
+                            style: TextStyle(
+                              fontSize: 10.sp,
+                              fontWeight: FontWeight.w700,
+                              color: active
+                                  ? AppColors.primary
+                                  : AppColors.textMuted,
+                            ),
+                          ),
+                        ],
                       ),
-                      child: Icon(item.icon,
-                          size: 22.r,
-                          color:
-                              active ? AppColors.primary : AppColors.textMuted),
-                    ),
-                    SizedBox(height: 3.h),
-                    Text(
-                      item.label,
-                      style: TextStyle(
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.w700,
-                        color: active ? AppColors.primary : AppColors.textMuted,
-                      ),
-                    ),
-                  ],
+                    );
+                  }),
                 ),
-              );
-            }),
+              ),
+              Container(
+                height: bottomInset + 12.h,
+                color: AppColors.surfaceDim,
+              ),
+            ],
           ),
         ),
       ),
@@ -1269,14 +1294,28 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
       opacity: _entranceFade,
       child: Stack(
         children: [
+          // Full-bleed hero behind the notch/status zone. With
+          // black-translucent the page reaches the true top edge, so this
+          // paints designed gradient instead of a flat slab above the
+          // content. Content itself still clears the notch via the spacer
+          // below (SafeArea top is off to avoid double-insetting).
+          Positioned.fill(
+            child: DecoratedBox(decoration: AppDecorations.heroBg),
+          ),
           SafeArea(
+            top: false,
             bottom: false,
             child: CustomScrollView(
               slivers: [
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: MediaQuery.viewPaddingOf(context).top,
+                  ),
+                ),
                 // ── Header ─────────────────────────────────────────────
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(20.r, 18.r, 20.r, 6.r),
+                    padding: EdgeInsets.fromLTRB(20.r, 10.r, 20.r, 6.r),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1406,9 +1445,22 @@ class _HomeTabState extends State<_HomeTab> with TickerProviderStateMixin {
                 ),
 
                 // ── Anime grid (3-col poster cards) ──────────────────────
+                // Bottom clearance is at least the nav height (~96.h) plus
+                // the safe-area inset, so the last row fully clears the nav
+                // instead of sliding underneath it. The tray adds its own
+                // height when a lineup is selected. Web gets an extra lift:
+                // mobile browsers report a zero bottom inset and the dynamic
+                // toolbar can cover the lowest rows, which is what cut the
+                // grid off.
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(
-                      20.r, 12.r, 20.r, hasSelection ? 120.h : 32.h),
+                    20.r,
+                    12.r,
+                    20.r,
+                    MediaQuery.paddingOf(context).bottom +
+                        (hasSelection ? 148.h : 96.h) +
+                        (kIsWeb ? 28.h : 0.0),
+                  ),
                   sliver: SliverGrid(
                     delegate: SliverChildBuilderDelegate(
                       (ctx, i) {

@@ -1,18 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 
-/// Applies the status-bar and Android navigation-bar styling for [brightness].
+/// Applies the status-bar and navigation-bar styling for [brightness].
 ///
-/// Called from `main()` before `runApp` — so the splash frame is already
-/// correct even though no provider exists yet — and again on every appearance
-/// change (see `ThemeProvider`).
+/// Web builds return immediately: the browser owns its chrome (covered by
+/// the `theme-color` meta tag in `web/index.html`), and the MethodChannel
+/// call is a no-op there.
 ///
-/// On Android the icon colour is [SystemUiOverlayStyle.statusBarIconBrightness];
-/// on iOS it is the inverted [SystemUiOverlayStyle.statusBarBrightness], which
-/// describes the *background* the system is drawing against.
+/// Called from `ThemeProvider` on load and on every appearance change.
 void applySystemUiOverlay(Brightness brightness) {
+  if (kIsWeb) return;
   final isDark = brightness == Brightness.dark;
   final palette = isDark ? kDarkPalette : kLightPalette;
 

@@ -18,19 +18,87 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#16161F">
+  <meta name="description" content="AnimeQuiz — head-to-head anime quizzes for cash prizes. Play free on web.">
 
   <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="quiz">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AnimeQuiz">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>quiz</title>
+  <title>AnimeQuiz — Play on Web</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Fast-load hints: warm up the TLS/HTTP2 connections the Flutter engine
+       and Firebase will need, and preload the Dart entrypoint so it is
+       already in flight while flutter.js initializes. -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
+  <link rel="preload" href="main.dart.js" as="script" fetchpriority="high">
+
+  <style>
+    /* Lock the Flutter canvas to the dynamic viewport. Without this the
+       browser's default body margin (8px) and page scroll inset the canvas,
+       so the Scaffold is taller than the visible window: the bottom nav sits
+       below the fold and the grid looks cut off. */
+    html, body {
+      margin: 0; padding: 0; height: 100%; overflow: hidden;
+      overscroll-behavior: none; background: #16161F;
+    }
+    /* Track mobile browser toolbar show/hide (URL bar collapses). */
+    @supports (height: 100dvh) {
+      html, body { height: 100dvh; }
+    }
+    /* Boot splash: covers the slow engine/Firebase load so users never see
+       a blank white page. Removed on the engine's first frame. */
+    #app-boot {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; background: #16161F;
+      font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+      transition: opacity .35s ease;
+    }
+    #app-boot.done { opacity: 0; pointer-events: none; }
+    #app-boot img { width: 96px; height: 96px; border-radius: 22px; }
+    #app-boot .t { color: #F8F8FF; font-size: 28px; font-weight: 900; letter-spacing: -.5px; margin: 0; }
+    #app-boot .s { color: #6B6B8A; font-size: 14px; margin: 0; }
+    #app-boot .spin {
+      width: 26px; height: 26px; border-radius: 50%;
+      border: 3px solid #2E2E42; border-top-color: #E63946;
+      animation: appboot-spin 0.9s linear infinite;
+    }
+    @keyframes appboot-spin { to { transform: rotate(360deg); } }
+
+    /* PWA install pill (Android) + iOS hint. Hidden until their JS shows them. */
+    .pwa-pill {
+      position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom));
+      transform: translateX(-50%); z-index: 9998;
+      display: none; align-items: center; gap: 10px;
+      background: #1E1E2E; color: #F8F8FF; border: 1px solid #2E2E42;
+      border-radius: 999px; padding: 10px 12px 10px 16px;
+      font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+      font-size: 14px; font-weight: 800;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, .45);
+      max-width: calc(100vw - 32px);
+    }
+    .pwa-pill.show { display: flex; }
+    .pwa-pill button.go {
+      background: #E63946; color: #fff; border: 0; border-radius: 999px;
+      font: inherit; padding: 8px 16px; cursor: pointer;
+    }
+    .pwa-pill button.x {
+      background: transparent; color: #6B6B8A; border: 0;
+      font-size: 16px; line-height: 1; cursor: pointer; padding: 6px;
+    }
+  </style>
 
   <script>
     // The value below is injected by flutter build, do not touch.
@@ -40,6 +108,78 @@
   <script src="flutter.js" defer></script>
 </head>
 <body>
+  <div id="app-boot" aria-hidden="true">
+    <img src="icons/Icon-192.png" alt="">
+    <p class="t">AnimeQuiz</p>
+    <div class="spin"></div>
+    <p class="s">Loading…</p>
+  </div>
+
+  <div id="pwa-install" class="pwa-pill" role="dialog" aria-label="Install app">
+    <span>Install AnimeQuiz</span>
+    <button class="go" id="pwa-install-go" type="button">Install</button>
+    <button class="x" id="pwa-install-x" type="button" aria-label="Dismiss">✕</button>
+  </div>
+
+  <div id="ios-install" class="pwa-pill" role="dialog" aria-label="Add to home screen">
+    <span>Tap Share, then ‘Add to Home Screen’ to install</span>
+    <button class="x" id="ios-install-x" type="button" aria-label="Dismiss">✕</button>
+  </div>
+
+  <script>
+    // Remove the boot splash on the engine's first frame (fires for both
+    // CanvasKit and the fallback renderer). A 30s safety net covers a failed
+    // engine load so the spinner never spins forever.
+    (function () {
+      var el = document.getElementById('app-boot');
+      if (!el) return;
+      var done = function () { el.classList.add('done'); };
+      window.addEventListener('flutter-first-frame', done, { once: true });
+      setTimeout(done, 30000);
+    })();
+
+    // PWA install: Android/Chrome fires beforeinstallprompt; iOS Safari never
+    // does, so iPhones/iPads get the Share-menu hint instead. Both pills are
+    // dismissible and stay dismissed via localStorage.
+    (function () {
+      var androidPill = document.getElementById('pwa-install');
+      var iosPill = document.getElementById('ios-install');
+      var deferred = null;
+      try {
+        if (localStorage.getItem('aq-pwa-dismissed') === '1') return;
+      } catch (e) { /* storage unavailable: still allow the prompt */ }
+
+      var dismiss = function () {
+        if (androidPill) androidPill.classList.remove('show');
+        if (iosPill) iosPill.classList.remove('show');
+        try { localStorage.setItem('aq-pwa-dismissed', '1'); } catch (e) {}
+      };
+
+      var go = document.getElementById('pwa-install-go');
+      var x1 = document.getElementById('pwa-install-x');
+      var x2 = document.getElementById('ios-install-x');
+      if (x1) x1.addEventListener('click', dismiss);
+      if (x2) x2.addEventListener('click', dismiss);
+      if (go) go.addEventListener('click', function () {
+        if (!deferred) { dismiss(); return; }
+        deferred.prompt();
+        deferred.userChoice.then(function () { deferred = null; dismiss(); });
+      });
+
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        deferred = e;
+        if (androidPill) androidPill.classList.add('show');
+      });
+      window.addEventListener('appinstalled', dismiss);
+
+      var ua = navigator.userAgent || '';
+      var isIOS = /iphone|ipad|ipod/i.test(ua);
+      var isStandalone = window.navigator.standalone === true ||
+        window.matchMedia('(display-mode: standalone)').matches;
+      if (isIOS && !isStandalone && iosPill) iosPill.classList.add('show');
+    })();
+  </script>
   <script>
     window.addEventListener('load', function(ev) {
       // Download main.dart.js
